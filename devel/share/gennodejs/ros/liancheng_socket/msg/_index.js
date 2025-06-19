@@ -1,0 +1,1 @@
+/home/jfy/arm/catkin/devel/.private/liancheng_socket/share/gennodejs/ros/liancheng_socket/msg/_index.js

@@ -1,0 +1,1 @@
+/home/jfy/arm/catkin/devel/.private/stereo_vision/share/stereo_vision/cmake/stereo_vision-msg-paths.cmake

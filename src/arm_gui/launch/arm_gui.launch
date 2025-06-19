@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- 设置启动参数 -->
+  <arg name="use_stereo_camera" default="true" />
+  <arg name="with_stereo_vision" default="true" />
+  <arg name="with_trajectory_planner" default="false" />
+  <arg name="with_arm_controller" default="true" />
+  
+  <!-- 启动立体视觉节点 -->
+  <group if="$(arg with_stereo_vision)">
+    <include file="$(find stereo_vision)/launch/stereo_arm_control.launch">
+      <arg name="enable_visualization" value="false" />
+    </include>
+  </group>
+  
+  <!-- 启动轨迹规划节点（仅在未通过stereo_vision启动时使用） -->
+  <group if="$(arg with_trajectory_planner)">
+    <node pkg="arm_trajectory" type="trajectory_bridge_node.py" name="arm_trajectory_bridge_gui" output="screen">
+      <!-- 改名以避免冲突 -->
+    </node>
+  </group>
+  
+  <!-- 启动GUI界面 -->
+  <node pkg="arm_gui" type="arm_gui_node" name="arm_gui_node" output="screen">
+    <!-- GUI参数 -->
+    <param name="update_rate" value="20" />
+  </node>
+</launch> 

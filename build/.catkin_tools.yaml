@@ -1,0 +1,6 @@
+devel_space: /home/jfy/arm/catkin/devel
+install: false
+install_space: /home/jfy/arm/catkin/install
+profile: default
+source_space: /home/jfy/arm/catkin/src
+workspace: /home/jfy/arm/catkin

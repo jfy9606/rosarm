@@ -1,0 +1,12 @@
+string arm_id                         # ID of the robot arm
+geometry_msgs/Pose start_pose          # Start pose of end effector
+geometry_msgs/Pose target_pose         # Target pose of end effector
+float64[] joint_constraints_min        # Minimum joint limits
+float64[] joint_constraints_max        # Maximum joint limits
+float64 execution_time                 # Desired execution time in seconds
+bool avoid_obstacles                   # Whether to avoid obstacles in planning
+string[] obstacle_frame_ids            # IDs of obstacle frames to avoid
+---
+bool success                           # Whether the planning was successful
+string message                         # Status message
+TrajectoryPath trajectory              # The planned trajectory 

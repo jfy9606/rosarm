@@ -1,0 +1,1 @@
+/home/jfy/arm/catkin/devel/.private/stereo_vision/share/common-lisp/ros/stereo_vision/msg/stereo_vision-msg.asd

@@ -1,0 +1,1 @@
+/home/jfy/arm/catkin/devel/.private/stereo_vision/share/roseus/ros/stereo_vision/msg/ObjectDetection.l

@@ -1,0 +1,1 @@
+/home/jfy/arm/catkin/devel/.private/arm_trajectory/share/roseus/ros/arm_trajectory/msg/TrajectoryPath.l

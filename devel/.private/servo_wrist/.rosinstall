@@ -1,0 +1,2 @@
+- setup-file:
+    local-name: /home/jfy/arm/catkin/devel/.private/servo_wrist/setup.sh

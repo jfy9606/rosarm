@@ -1,0 +1,1 @@
+/home/jfy/arm/catkin/devel/.private/arm_trajectory/include/arm_trajectory/TrajectoryPath.h

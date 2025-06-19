@@ -1,0 +1,1 @@
+/home/jfy/arm/catkin/devel/.private/arm_trajectory/lib/python3/dist-packages/arm_trajectory/srv/__init__.py

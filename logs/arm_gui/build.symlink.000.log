@@ -1,0 +1,5 @@
+Symlinking /home/jfy/arm/catkin/devel/share/arm_gui/cmake/arm_guiConfig-version.cmake
+Symlinking /home/jfy/arm/catkin/devel/share/arm_gui/cmake/arm_guiConfig.cmake
+Symlinking /home/jfy/arm/catkin/devel/lib/libarm_gui.so
+Symlinking /home/jfy/arm/catkin/devel/lib/pkgconfig/arm_gui.pc
+Symlinking /home/jfy/arm/catkin/devel/lib/arm_gui/arm_gui_node

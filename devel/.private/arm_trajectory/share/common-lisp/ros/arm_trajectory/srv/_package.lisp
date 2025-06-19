@@ -1,0 +1,10 @@
+(cl:defpackage arm_trajectory-srv
+  (:use )
+  (:export
+   "PLANTRAJECTORY"
+   "<PLANTRAJECTORY-REQUEST>"
+   "PLANTRAJECTORY-REQUEST"
+   "<PLANTRAJECTORY-RESPONSE>"
+   "PLANTRAJECTORY-RESPONSE"
+  ))
+

@@ -1,0 +1,1 @@
+/home/jfy/arm/catkin/devel/.private/servo_wrist/share/gennodejs/ros/servo_wrist/_index.js
