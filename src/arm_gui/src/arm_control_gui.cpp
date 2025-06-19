@@ -5,6 +5,8 @@
 #include <QFileDialog>
 #include <QTableWidgetItem>
 #include <QPushButton>
+#include <QGroupBox>
+#include <QVBoxLayout>
 
 #include <sensor_msgs/JointState.h>
 #include <std_msgs/String.h>
@@ -80,6 +82,33 @@ void ArmControlGUI::initializeGUI()
     connect(ui->placeButton, &QPushButton::clicked, this, &ArmControlGUI::onPlaceButtonClicked);
     connect(ui->sequenceButton, &QPushButton::clicked, this, &ArmControlGUI::onSequenceButtonClicked);
     
+    // 创建并连接示例动作按钮
+    QGroupBox* demoGroup = new QGroupBox("示例动作", ui->controlTab);
+    QVBoxLayout* demoLayout = new QVBoxLayout(demoGroup);
+    
+    QPushButton* demoButton1 = new QPushButton("示例1：自由度展示");
+    QPushButton* demoButton2 = new QPushButton("示例2：正常姿态");
+    QPushButton* demoButton3 = new QPushButton("示例3：大角度姿态");
+    
+    demoLayout->addWidget(demoButton1);
+    demoLayout->addWidget(demoButton2);
+    demoLayout->addWidget(demoButton3);
+    
+    // 将示例动作组添加到控制标签页的布局中
+    QVBoxLayout* controlLayout = qobject_cast<QVBoxLayout*>(ui->controlTab->layout());
+    if (controlLayout) {
+        controlLayout->addWidget(demoGroup);
+    } else {
+        // 如果控制标签页没有布局，创建一个新的布局
+        controlLayout = new QVBoxLayout(ui->controlTab);
+        controlLayout->addWidget(demoGroup);
+    }
+    
+    // 连接示例动作按钮信号
+    connect(demoButton1, &QPushButton::clicked, this, &ArmControlGUI::onDemoAction1Clicked);
+    connect(demoButton2, &QPushButton::clicked, this, &ArmControlGUI::onDemoAction2Clicked);
+    connect(demoButton3, &QPushButton::clicked, this, &ArmControlGUI::onDemoAction3Clicked);
+    
     // 连接检测表格
     connect(ui->detectionsTable, &QTableWidget::cellClicked, this, &ArmControlGUI::onDetectionsTableCellClicked);
     
@@ -135,6 +164,12 @@ void ArmControlGUI::initializeROS()
     
     // 发布机械臂命令
     arm_command_pub_ = nh_.advertise<std_msgs::String>("/arm_command", 10);
+    
+    // 发布电机控制命令
+    motor_order_pub_ = nh_.advertise<liancheng_socket::MotorOrder>("Controller_motor_order", 5);
+    
+    // 发布继电器控制命令
+    relay_order_pub_ = nh_.advertise<std_msgs::String>("RelayOrder", 5);
 }
 
 void ArmControlGUI::initializeOpenGL()
@@ -687,4 +722,138 @@ void ArmControlGUI::renderRobotArm()
     // 这里应该实现OpenGL渲染机械臂的代码
     // 需要使用当前的关节值计算各个连杆的位置和姿态
     // ...
+}
+
+// 电机控制函数
+void ArmControlGUI::sendMotorOrder(uint8_t station_num, uint8_t form, int16_t vel, uint16_t vel_ac, uint16_t vel_de, bool pos_mode, int32_t pos, uint16_t pos_thr)
+{
+    liancheng_socket::MotorOrder msg;
+    msg.header.stamp = ros::Time::now();
+    msg.station_num.push_back(station_num);
+    msg.form.push_back(form);
+    msg.vel.push_back(vel);
+    msg.vel_ac.push_back(vel_ac);
+    msg.vel_de.push_back(vel_de);
+    msg.pos_mode.push_back(pos_mode);
+    msg.pos.push_back(pos);
+    msg.pos_thr.push_back(pos_thr);
+    
+    motor_order_pub_.publish(msg);
+    logMessage(QString("发送电机命令: 站点=%1, 位置=%2").arg(station_num).arg(pos));
+}
+
+void ArmControlGUI::sendRelayOrder(const std::string& command)
+{
+    std_msgs::String msg;
+    msg.data = command;
+    relay_order_pub_.publish(msg);
+    logMessage(QString("发送继电器命令: %1").arg(QString::fromStdString(command)));
+}
+
+// 示例动作函数
+void ArmControlGUI::onDemoAction1Clicked()
+{
+    logMessage("执行示例动作1: 自由度展示");
+    
+    // 夹持电机移动
+    sendMotorOrder(1, 11, 0, 0, 0, true, -25, 30);
+    QApplication::processEvents();
+    ros::Duration(5.0).sleep();
+    logMessage("夹持电机移动");
+    
+    // 夹持电机归零
+    sendMotorOrder(1, 11, 0, 0, 0, true, 0, 30);
+    QApplication::processEvents();
+    ros::Duration(5.0).sleep();
+    logMessage("夹持电机归零");
+    
+    // 进给电机移动
+    sendMotorOrder(2, 100, 200, 0, 0, false, -2000, 10);
+    QApplication::processEvents();
+    ros::Duration(0.5).sleep();
+    sendMotorOrder(2, 0, 200, 0, 0, false, -2000, 10);
+    QApplication::processEvents();
+    ros::Duration(0.5).sleep();
+    sendMotorOrder(2, 99, 200, 0, 0, false, -2000, 10);
+    QApplication::processEvents();
+    ros::Duration(3.0).sleep();
+    logMessage("进给电机移动");
+    
+    // 进给电机归零
+    sendMotorOrder(2, 100, 200, 0, 0, false, 1900, 10);
+    QApplication::processEvents();
+    ros::Duration(0.5).sleep();
+    sendMotorOrder(2, 0, 200, 0, 0, true, 300, 10);
+    QApplication::processEvents();
+    ros::Duration(0.5).sleep();
+    sendMotorOrder(2, 99, 200, 0, 0, false, 1900, 10);
+    QApplication::processEvents();
+    ros::Duration(3.0).sleep();
+    sendMotorOrder(2, 100, 100, 0, 0, false, 1900, 10);
+    QApplication::processEvents();
+    ros::Duration(0.5).sleep();
+    logMessage("进给电机归零");
+    
+    logMessage("示例动作1完成");
+}
+
+void ArmControlGUI::onDemoAction2Clicked()
+{
+    logMessage("执行示例动作2: 正常姿态展示");
+    
+    QApplication::processEvents();
+    ros::Duration(5.0).sleep();
+    
+    // 进给电机移动
+    sendMotorOrder(2, 100, 100, 0, 0, false, -2000, 10);
+    QApplication::processEvents();
+    ros::Duration(0.5).sleep();
+    sendMotorOrder(2, 0, 100, 0, 0, false, -2500, 10);
+    QApplication::processEvents();
+    ros::Duration(0.5).sleep();
+    sendMotorOrder(2, 99, 100, 0, 0, false, -2000, 10);
+    QApplication::processEvents();
+    ros::Duration(13.0).sleep();
+    logMessage("进给电机移动");
+    
+    // 吸附启动
+    sendRelayOrder("11");
+    QApplication::processEvents();
+    
+    // 进给电机归零
+    sendMotorOrder(2, 100, 200, 0, 0, false, 2000, 10);
+    QApplication::processEvents();
+    ros::Duration(0.5).sleep();
+    sendMotorOrder(2, 0, 200, 0, 0, true, 300, 10);
+    QApplication::processEvents();
+    ros::Duration(0.5).sleep();
+    sendMotorOrder(2, 99, 200, 0, 0, false, 2000, 10);
+    QApplication::processEvents();
+    ros::Duration(3.0).sleep();
+    sendMotorOrder(2, 100, 100, 0, 0, false, 2000, 10);
+    QApplication::processEvents();
+    ros::Duration(0.5).sleep();
+    logMessage("进给电机归零");
+    
+    QApplication::processEvents();
+    ros::Duration(5.0).sleep();
+    
+    // 吸附关闭
+    sendRelayOrder("00");
+    QApplication::processEvents();
+    
+    logMessage("示例动作2完成");
+}
+
+void ArmControlGUI::onDemoAction3Clicked()
+{
+    logMessage("执行示例动作3: 大角度姿态展示");
+    
+    // 夹持电机移动
+    sendMotorOrder(1, 11, 0, 0, 0, true, -25, 30);
+    QApplication::processEvents();
+    ros::Duration(5.0).sleep();
+    logMessage("夹持电机移动");
+    
+    logMessage("示例动作3完成");
 } 

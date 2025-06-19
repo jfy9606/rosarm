@@ -1,15 +1,14 @@
+<?xml version="1.0"?>
 <launch>
-
-<!--all motor node-->
-
-<node name = "talker" pkg = "liancheng_socket" type = "talk_test" output = "screen">
-</node>
-
-<node name = "serial" pkg = "liancheng_socket" type = "liancheng_serial" output = "screen">
-</node>
-
-<node name = "servo" pkg = "servo_wrist" type = "wrist_ctrl" args = "/dev/ttyUSB1" output = "screen">
-</node>
-
-
+  <!-- 核心功能节点 -->
+  
+  <!-- 串口通信节点 -->
+  <node name="serial" pkg="liancheng_socket" type="liancheng_serial" output="screen">
+    <!-- 如果需要，可以添加串口参数 -->
+  </node>
+  
+  <!-- 舵机控制节点 -->
+  <node name="servo" pkg="servo_wrist" type="wrist_ctrl" args="/dev/ttyUSB1" output="screen">
+    <!-- 舵机串口参数 -->
+  </node>
 </launch>

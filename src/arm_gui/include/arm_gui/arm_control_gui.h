@@ -26,6 +26,7 @@
 #include <cv_bridge/cv_bridge.h>
 #include <tf2_ros/transform_listener.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include "liancheng_socket/MotorOrder.h"
 
 namespace Ui {
 class ArmControlMainWindow;
@@ -79,6 +80,11 @@ private slots:
     
     // 定时器槽（用于GUI更新）
     void onUpdateGUI();
+    
+    // 示例动作槽
+    void onDemoAction1Clicked();
+    void onDemoAction2Clicked();
+    void onDemoAction3Clicked();
 
 private:
     // UI相关
@@ -96,6 +102,8 @@ private:
     ros::Publisher joint_command_pub_;
     ros::Publisher vacuum_command_pub_;
     ros::Publisher arm_command_pub_;
+    ros::Publisher motor_order_pub_;
+    ros::Publisher relay_order_pub_;
     
     tf2_ros::Buffer tf_buffer_;
     tf2_ros::TransformListener tf_listener_;
@@ -151,6 +159,10 @@ private:
     void sendPlaceCommand(double x, double y, double z);
     void sendHomeCommand();
     
+    // 电机控制函数
+    void sendMotorOrder(uint8_t station_num, uint8_t form, int16_t vel, uint16_t vel_ac, uint16_t vel_de, bool pos_mode, int32_t pos, uint16_t pos_thr);
+    void sendRelayOrder(const std::string& command);
+    
     // OpenGL渲染函数
     void renderRobotArm();
     
@@ -159,8 +171,8 @@ private:
     
     // 辅助函数
     QImage cvMatToQImage(const cv::Mat& mat);
-    std::vector<double> poseToJoints(const geometry_msgs::Pose& pose); // 逆运动学
-    geometry_msgs::Pose jointsToPos(const std::vector<double>& joint_values); // 正运动学
+    std::vector<double> poseToJoints(const geometry_msgs::Pose& pose);
+    geometry_msgs::Pose jointsToPos(const std::vector<double>& joint_values);
 };
 
 #endif // ARM_CONTROL_GUI_H 
