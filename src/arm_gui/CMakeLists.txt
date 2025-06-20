@@ -25,6 +25,7 @@ find_package(catkin REQUIRED COMPONENTS
   tf2_ros
   cv_bridge
   image_transport
+  liancheng_socket
 )
 
 # 查找Qt5
@@ -45,6 +46,7 @@ catkin_package(
     moveit_msgs
     tf2 
     tf2_ros
+    liancheng_socket
   DEPENDS Qt5Core Qt5Gui Qt5Widgets Qt5OpenGL
 )
 

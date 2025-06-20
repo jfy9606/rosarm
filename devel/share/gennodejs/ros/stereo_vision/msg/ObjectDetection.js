@@ -1,1 +1,0 @@
-/home/jfy/arm/catkin/devel/.private/stereo_vision/share/gennodejs/ros/stereo_vision/msg/ObjectDetection.js

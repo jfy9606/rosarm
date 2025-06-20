@@ -21,6 +21,7 @@
   <build_depend>image_transport</build_depend>
   <build_depend>qtbase5-dev</build_depend>
   <build_depend>libqt5-opengl-dev</build_depend>
+  <build_depend>liancheng_socket</build_depend>
   
   <exec_depend>roscpp</exec_depend>
   <exec_depend>rospy</exec_depend>
@@ -36,6 +37,7 @@
   <exec_depend>libqt5-gui</exec_depend>
   <exec_depend>libqt5-widgets</exec_depend>
   <exec_depend>libqt5-opengl</exec_depend>
+  <exec_depend>liancheng_socket</exec_depend>
 
   <export>
   </export>

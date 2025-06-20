@@ -1,1 +1,0 @@
-/home/jfy/arm/catkin/devel/.private/servo_wrist/share/common-lisp/ros/servo_wrist/msg/servo_wrist-msg.asd

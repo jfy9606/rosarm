@@ -1,1 +1,0 @@
-/home/jfy/arm/catkin/devel/.private/stereo_vision/lib/stereo_vision/stereo_detection_node.py

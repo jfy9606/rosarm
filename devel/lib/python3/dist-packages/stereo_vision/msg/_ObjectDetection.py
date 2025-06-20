@@ -1,1 +1,0 @@
-/home/jfy/arm/catkin/devel/.private/stereo_vision/lib/python3/dist-packages/stereo_vision/msg/_ObjectDetection.py

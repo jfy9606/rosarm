@@ -11,4 +11,9 @@
   <node name="servo" pkg="servo_wrist" type="wrist_ctrl" args="/dev/ttyUSB1" output="screen">
     <!-- 舵机串口参数 -->
   </node>
+  
+  <!-- GUI节点 -->
+  <node name="arm_gui" pkg="arm_gui" type="arm_gui_node" output="screen">
+    <!-- GUI参数 -->
+  </node>
 </launch>

@@ -1,1 +1,0 @@
-/home/jfy/arm/catkin/devel/.private/arm_trajectory/share/common-lisp/ros/arm_trajectory/srv/_package_PlanTrajectory.lisp

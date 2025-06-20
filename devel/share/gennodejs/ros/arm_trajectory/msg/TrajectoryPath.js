@@ -1,1 +1,0 @@
-/home/jfy/arm/catkin/devel/.private/arm_trajectory/share/gennodejs/ros/arm_trajectory/msg/TrajectoryPath.js

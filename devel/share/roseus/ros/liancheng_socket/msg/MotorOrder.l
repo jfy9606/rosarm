@@ -1,1 +1,0 @@
-/home/jfy/arm/catkin/devel/.private/liancheng_socket/share/roseus/ros/liancheng_socket/msg/MotorOrder.l

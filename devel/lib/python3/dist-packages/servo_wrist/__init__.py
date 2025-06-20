@@ -1,1 +1,0 @@
-/home/jfy/arm/catkin/devel/.private/servo_wrist/lib/python3/dist-packages/servo_wrist/__init__.py

@@ -83,7 +83,7 @@ void ArmControlGUI::initializeGUI()
     connect(ui->sequenceButton, &QPushButton::clicked, this, &ArmControlGUI::onSequenceButtonClicked);
     
     // 创建并连接示例动作按钮
-    QGroupBox* demoGroup = new QGroupBox("示例动作", ui->controlTab);
+    QGroupBox* demoGroup = new QGroupBox("示例动作");
     QVBoxLayout* demoLayout = new QVBoxLayout(demoGroup);
     
     QPushButton* demoButton1 = new QPushButton("示例1：自由度展示");
@@ -94,14 +94,13 @@ void ArmControlGUI::initializeGUI()
     demoLayout->addWidget(demoButton2);
     demoLayout->addWidget(demoButton3);
     
-    // 将示例动作组添加到控制标签页的布局中
-    QVBoxLayout* controlLayout = qobject_cast<QVBoxLayout*>(ui->controlTab->layout());
+    // 将示例动作组添加到controlWidget的布局中
+    QVBoxLayout* controlLayout = qobject_cast<QVBoxLayout*>(ui->controlWidget->layout());
     if (controlLayout) {
         controlLayout->addWidget(demoGroup);
     } else {
-        // 如果控制标签页没有布局，创建一个新的布局
-        controlLayout = new QVBoxLayout(ui->controlTab);
-        controlLayout->addWidget(demoGroup);
+        // 如果没有布局，打印错误信息
+        logMessage("错误: 无法获取控制部件布局");
     }
     
     // 连接示例动作按钮信号

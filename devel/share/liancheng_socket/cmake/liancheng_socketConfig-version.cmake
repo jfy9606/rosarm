@@ -1,1 +1,0 @@
-/home/jfy/arm/catkin/devel/.private/liancheng_socket/share/liancheng_socket/cmake/liancheng_socketConfig-version.cmake

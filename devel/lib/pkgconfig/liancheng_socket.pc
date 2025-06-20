@@ -1,1 +1,0 @@
-/home/jfy/arm/catkin/devel/.private/liancheng_socket/lib/pkgconfig/liancheng_socket.pc

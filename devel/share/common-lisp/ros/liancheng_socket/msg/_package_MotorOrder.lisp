@@ -1,1 +1,0 @@
-/home/jfy/arm/catkin/devel/.private/liancheng_socket/share/common-lisp/ros/liancheng_socket/msg/_package_MotorOrder.lisp

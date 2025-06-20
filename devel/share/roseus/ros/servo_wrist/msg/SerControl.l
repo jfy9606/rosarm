@@ -1,1 +1,0 @@
-/home/jfy/arm/catkin/devel/.private/servo_wrist/share/roseus/ros/servo_wrist/msg/SerControl.l

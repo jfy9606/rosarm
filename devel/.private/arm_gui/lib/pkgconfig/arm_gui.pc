@@ -1,8 +1,0 @@
-prefix=/home/jfy/arm/catkin/devel/.private/arm_gui
-
-Name: arm_gui
-Description: Description of arm_gui
-Version: 0.1.0
-Cflags: -I/home/jfy/arm/catkin/src/arm_gui/include -I/usr/include/x86_64-linux-gnu/qt5/ -I/usr/include/x86_64-linux-gnu/qt5/QtCore -I/usr/lib/x86_64-linux-gnu/qt5//mkspecs/linux-g++ -I/usr/include/x86_64-linux-gnu/qt5/QtGui -I/usr/include/x86_64-linux-gnu/qt5/QtWidgets -I/usr/include/x86_64-linux-gnu/qt5/QtOpenGL
-Libs: -L${prefix}/lib -larm_gui /usr/lib/x86_64-linux-gnu/libQt5Core.so.5.12.8 /usr/lib/x86_64-linux-gnu/libQt5Gui.so.5.12.8 /usr/lib/x86_64-linux-gnu/libQt5Widgets.so.5.12.8 /usr/lib/x86_64-linux-gnu/libQt5OpenGL.so.5.12.8
-Requires: roscpp std_msgs sensor_msgs geometry_msgs moveit_msgs tf2 tf2_ros

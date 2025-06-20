@@ -1,1 +1,0 @@
-/home/jfy/arm/catkin/devel/.private/arm_trajectory/lib/arm_trajectory/trajectory_bridge_node.py

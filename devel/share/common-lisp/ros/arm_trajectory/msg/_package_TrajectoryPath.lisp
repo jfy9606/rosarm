@@ -1,1 +1,0 @@
-/home/jfy/arm/catkin/devel/.private/arm_trajectory/share/common-lisp/ros/arm_trajectory/msg/_package_TrajectoryPath.lisp

@@ -1,1 +1,0 @@
-/home/jfy/arm/catkin/devel/.private/arm_trajectory/share/arm_trajectory/cmake/arm_trajectory-msg-paths.cmake

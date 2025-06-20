@@ -1,1 +1,0 @@
-/home/jfy/arm/catkin/devel/.private/arm_trajectory/lib/python3/dist-packages/arm_trajectory/msg/_TrajectoryPoint.py

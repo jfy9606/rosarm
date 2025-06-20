@@ -1,1 +1,0 @@
-/home/jfy/arm/catkin/devel/.private/servo_wrist/share/servo_wrist/cmake/servo_wrist-msg-paths.cmake
