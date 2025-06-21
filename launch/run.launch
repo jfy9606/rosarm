@@ -4,7 +4,8 @@
   
   <!-- 串口通信节点 -->
   <node name="serial" pkg="liancheng_socket" type="liancheng_serial" output="screen">
-    <!-- 如果需要，可以添加串口参数 -->
+    <!-- Ensure this node uses ttyUSB0 -->
+    <param name="port" value="/dev/ttyUSB0" />
   </node>
   
   <!-- 舵机控制节点 -->
@@ -16,4 +17,33 @@
   <node name="arm_gui" pkg="arm_gui" type="arm_gui_node" output="screen">
     <!-- GUI参数 -->
   </node>
+
+  <!-- 双目立体相机节点 -->
+  <node name="usb_cam" pkg="usb_cam" type="usb_cam_node" output="screen" respawn="true">
+    <param name="video_device" value="/dev/video0" />
+    <param name="image_width" value="1920" /> <!-- 双目总宽度，一般是单目宽度的2倍 -->
+    <param name="image_height" value="480" />
+    <param name="pixel_format" value="mjpeg" />
+    <param name="io_method" value="mmap" />
+    <param name="framerate" value="15" />
+    <param name="camera_name" value="stereo_camera" />
+    <param name="camera_frame_id" value="camera_link" />
+  </node>
+
+  <!-- 图像分割和处理节点 -->
+  <node name="stereo_proc" pkg="stereo_vision" type="stereo_detection_node.py" output="screen">
+    <param name="use_split_feed" value="false" /> <!-- 使用combined模式，由节点内部分割 -->
+    <param name="yolo_model_path" value="$(env HOME)/arm/best.pt" />
+    <remap from="stereo_camera/image_raw" to="/usb_cam/image_raw" /> <!-- 输入是来自USB摄像头的原始图像 -->
+  </node>
+
+  <!-- 添加TF坐标转换 -->
+  <node pkg="tf2_ros" type="static_transform_publisher" name="camera_link_broadcaster"
+        args="0 0 0.5 0 0 0 world camera_link" />
+
+  <!-- 左右眼坐标系 -->
+  <node pkg="tf2_ros" type="static_transform_publisher" name="left_camera_link_broadcaster"
+        args="-0.06 0 0 0 0 0 camera_link left_camera_link" />
+  <node pkg="tf2_ros" type="static_transform_publisher" name="right_camera_link_broadcaster"
+        args="0.06 0 0 0 0 0 camera_link right_camera_link" />
 </launch>

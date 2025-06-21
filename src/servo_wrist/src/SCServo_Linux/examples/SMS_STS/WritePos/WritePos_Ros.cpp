@@ -19,27 +19,33 @@ void msgCallback(const servo_wrist::SerControl::ConstPtr& msg) {
     sm_st.WritePosEx(servo_id, target_position, velocity, acceleration);
 
     // Optionally, print the received values
-    std::cout << "Received msg - Servo ID: " << servo_id
-              << ", Target Position: " << target_position
-              << ", Velocity: " << velocity
-              << ", Acceleration: " << acceleration << std::endl;
+    ROS_INFO("Received msg - Servo ID: %d, Target Position: %d, Velocity: %d, Acceleration: %d", 
+              servo_id, target_position, velocity, acceleration);
 }
 
 int main(int argc, char **argv) {
     if (argc < 2) {
-        std::cout << "argc error!" << std::endl;
-        return 0;
+        ROS_ERROR("Usage: %s <serial_port>", argv[0]);
+        return 1;
     }
-    std::cout << "serial:" << argv[1] << std::endl;
-
-    if (!sm_st.begin(baud_rate, argv[1])) {
-        std::cout << "Failed to init sms/sts motor!" << std::endl;
-        return 0;
-    }
-
+    
     // Initialize ROS
     ros::init(argc, argv, "servo_control_node");
     ros::NodeHandle nh;
+    ros::NodeHandle private_nh("~");
+    
+    // 获取串口设备路径，如果命令行参数提供，则使用命令行参数
+    std::string serial_port = argv[1];
+    ROS_INFO("Using serial port: %s", serial_port.c_str());
+    
+    // 尝试打开串口并初始化舵机
+    ROS_INFO("Serial speed %d", baud_rate);
+    if (!sm_st.begin(baud_rate, serial_port.c_str())) {
+        ROS_ERROR("Failed to init sms/sts motor on port %s!", serial_port.c_str());
+        return 1;
+    }
+    
+    ROS_INFO("SMS/STS motor initialized successfully on port %s", serial_port.c_str());
 
     // Subscribe to the topic that will receive the servo control message
     ros::Subscriber sub = nh.subscribe("servo_control_topic", 10, msgCallback);
@@ -49,5 +55,5 @@ int main(int argc, char **argv) {
 
     // Cleanup and end
     sm_st.end();
-    return 1;
+    return 0;
 }

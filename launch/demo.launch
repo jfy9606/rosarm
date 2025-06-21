@@ -7,7 +7,8 @@
   
   <!-- 串口通信节点 -->
   <node name="serial_comm" pkg="liancheng_socket" type="liancheng_serial" output="screen">
-    <!-- 如果需要，可以添加串口参数 -->
+    <!-- 确保该节点使用ttyUSB0 -->
+    <param name="port" value="/dev/ttyUSB0" />
   </node>
   
   <!-- 舵机控制节点 -->
