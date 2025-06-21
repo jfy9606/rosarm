@@ -10,24 +10,26 @@ find_package(catkin REQUIRED COMPONENTS
   image_transport
   message_generation
   geometry_msgs
-  tf
+  tf2_ros
 )
 
 find_package(OpenCV REQUIRED)
 
 add_message_files(
   FILES
-  ObjectDetection.msg
+  Detection.msg
+  DetectionArray.msg
 )
 
 generate_messages(
   DEPENDENCIES
   std_msgs
+  sensor_msgs
   geometry_msgs
 )
 
 catkin_package(
-  CATKIN_DEPENDS roscpp rospy std_msgs sensor_msgs cv_bridge image_transport message_runtime geometry_msgs tf
+  CATKIN_DEPENDS message_runtime roscpp rospy std_msgs sensor_msgs cv_bridge image_transport geometry_msgs tf2_ros
 )
 
 include_directories(
@@ -36,6 +38,9 @@ include_directories(
 )
 
 catkin_install_python(PROGRAMS
-  scripts/stereo_detection_node.py
+  scripts/stereo_splitter.py
+  scripts/camera_test.py
+  scripts/yolo_detector.py
+  scripts/depth_estimator.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 ) 

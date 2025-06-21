@@ -1,0 +1,80 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- 双目立体相机测试启动文件 -->
+  <!-- 这个文件专门针对1280x480分辨率的立体相机 -->
+
+  <!-- 主要参数 -->
+  <arg name="camera_device" default="/dev/video0" />
+  <arg name="image_width" default="1280" />
+  <arg name="image_height" default="480" />
+  <arg name="frame_rate" default="30" />
+  <arg name="camera_name" default="stereo_camera" />
+  <arg name="baseline" default="0.06" /> <!-- 60mm基线距离 -->
+  <arg name="show_rviz" default="true" /> <!-- 是否启动RViz -->
+
+  <!-- 启动USB摄像头 -->
+  <node name="usb_cam" pkg="usb_cam" type="usb_cam_node" output="screen" respawn="true">
+    <param name="video_device" value="$(arg camera_device)" />
+    <param name="image_width" value="$(arg image_width)" />
+    <param name="image_height" value="$(arg image_height)" />
+    <param name="pixel_format" value="mjpeg" />
+    <param name="io_method" value="mmap" />
+    <param name="framerate" value="$(arg frame_rate)" />
+    <param name="camera_name" value="$(arg camera_name)" />
+    <param name="camera_frame_id" value="camera_link" />
+    <param name="autoexposure" value="true" />
+    <param name="autofocus" value="false" />
+    <param name="brightness" value="128" />
+    <param name="contrast" value="128" />
+    <param name="saturation" value="128" />
+  </node>
+
+  <!-- 立体图像分割器 -->
+  <node name="stereo_splitter" pkg="stereo_vision" type="stereo_splitter.py" output="screen" respawn="true">
+    <param name="crop_vertical" value="0" />
+    <param name="log_level" value="1" />
+    <param name="save_test_image" value="true" />
+  </node>
+
+  <!-- 添加图像处理节点 - 处理左右图像 -->
+  <group ns="left_camera">
+    <node name="image_proc" pkg="image_proc" type="image_proc" />
+  </group>
+  
+  <group ns="right_camera">
+    <node name="image_proc" pkg="image_proc" type="image_proc" />
+  </group>
+
+  <!-- 显示处理后的图像 -->
+  <node name="left_view" pkg="image_view" type="image_view" respawn="false" output="screen">
+    <remap from="image" to="/left_camera/image_raw" />
+    <param name="autosize" value="true" />
+    <param name="window_name" value="Left Camera Image" />
+  </node>
+
+  <node name="right_view" pkg="image_view" type="image_view" respawn="false" output="screen">
+    <remap from="image" to="/right_camera/image_raw" />
+    <param name="autosize" value="true" />
+    <param name="window_name" value="Right Camera Image" />
+  </node>
+
+  <!-- 添加摄像头坐标系统 -->
+  <node pkg="tf2_ros" type="static_transform_publisher" name="camera_link_broadcaster"
+        args="0 0 0.5 0 0 0 world camera_link" />
+
+  <node pkg="tf2_ros" type="static_transform_publisher" name="left_camera_link_broadcaster" 
+        args="-$(arg baseline)/2 0 0 0 0 0 camera_link left_camera_link" />
+
+  <node pkg="tf2_ros" type="static_transform_publisher" name="right_camera_link_broadcaster" 
+        args="$(arg baseline)/2 0 0 0 0 0 camera_link right_camera_link" />
+
+  <!-- 可选启动RViz来可视化 -->
+  <node if="$(arg show_rviz)" name="rviz" pkg="rviz" type="rviz" 
+        args="-d $(find stereo_vision)/rviz/stereo_vision.rviz"
+        output="screen" />
+
+  <!-- 诊断信息 -->
+  <node name="camera_diagnostics" pkg="topic_tools" type="throttle" 
+        args="messages /usb_cam/image_raw 1.0"
+        output="screen" />
+</launch> 

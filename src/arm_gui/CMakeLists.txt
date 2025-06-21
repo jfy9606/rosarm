@@ -26,6 +26,7 @@ find_package(catkin REQUIRED COMPONENTS
   cv_bridge
   image_transport
   liancheng_socket
+  servo_wrist
 )
 
 # 查找Qt5
@@ -47,6 +48,7 @@ catkin_package(
     tf2 
     tf2_ros
     liancheng_socket
+    servo_wrist
   DEPENDS Qt5Core Qt5Gui Qt5Widgets Qt5OpenGL
 )
 

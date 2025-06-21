@@ -1,5 +1,10 @@
 <?xml version="1.0"?>
 <launch>
+  <!-- 参数设置 -->
+  <arg name="enable_yolo" default="false" doc="是否启用YOLO目标检测" />
+  <arg name="enable_depth" default="false" doc="是否启用深度估计" />
+  <arg name="camera_device" default="/dev/video0" doc="相机设备路径" />
+
   <!-- 核心功能节点 -->
   
   <!-- 串口通信节点 -->
@@ -13,37 +18,64 @@
     <!-- 舵机串口参数 -->
   </node>
   
-  <!-- GUI节点 -->
-  <node name="arm_gui" pkg="arm_gui" type="arm_gui_node" output="screen">
-    <!-- GUI参数 -->
-  </node>
-
-  <!-- 双目立体相机节点 -->
+  <!-- 摄像头节点 - 使用完整分辨率 -->
   <node name="usb_cam" pkg="usb_cam" type="usb_cam_node" output="screen" respawn="true">
-    <param name="video_device" value="/dev/video0" />
-    <param name="image_width" value="1920" /> <!-- 双目总宽度，一般是单目宽度的2倍 -->
+    <param name="video_device" value="$(arg camera_device)" />
+    <!-- 使用摄像头参数表中的标准分辨率 -->
+    <param name="image_width" value="1280" />
     <param name="image_height" value="480" />
     <param name="pixel_format" value="mjpeg" />
     <param name="io_method" value="mmap" />
-    <param name="framerate" value="15" />
+    <param name="framerate" value="30" />
     <param name="camera_name" value="stereo_camera" />
     <param name="camera_frame_id" value="camera_link" />
+    <param name="brightness" value="128" /> <!-- 尝试调整亮度 -->
+    <param name="contrast" value="128" /> <!-- 尝试调整对比度 -->
   </node>
 
-  <!-- 图像分割和处理节点 -->
-  <node name="stereo_proc" pkg="stereo_vision" type="stereo_detection_node.py" output="screen">
-    <param name="use_split_feed" value="false" /> <!-- 使用combined模式，由节点内部分割 -->
-    <param name="yolo_model_path" value="$(env HOME)/arm/best.pt" />
-    <remap from="stereo_camera/image_raw" to="/usb_cam/image_raw" /> <!-- 输入是来自USB摄像头的原始图像 -->
+  <!-- 图像处理节点 - 不再分割，直接处理原始图像 -->
+  <node name="stereo_processor" pkg="stereo_vision" type="stereo_splitter.py" output="screen" respawn="true">
+    <param name="log_level" value="1" />
+    <param name="save_test_image" value="false" /> <!-- 禁用保存测试图像 -->
+    <!-- 重新发布到GUI使用的话题 -->
+    <remap from="/stereo_camera/image_processed" to="/left_camera/image_raw" />
+  </node>
+
+  <!-- 添加图像处理节点 -->
+  <node name="image_proc" pkg="image_proc" type="image_proc" output="screen" ns="usb_cam">
+    <param name="approximate_sync" value="true" />
   </node>
 
   <!-- 添加TF坐标转换 -->
   <node pkg="tf2_ros" type="static_transform_publisher" name="camera_link_broadcaster"
         args="0 0 0.5 0 0 0 world camera_link" />
 
-  <!-- 左右眼坐标系 -->
-  <node pkg="tf2_ros" type="static_transform_publisher" name="left_camera_link_broadcaster"
-        args="-0.06 0 0 0 0 0 camera_link left_camera_link" />
-  <node pkg="tf2_ros" type="static_transform_publisher" name="right_camera_link_broadcaster"
-        args="0.06 0 0 0 0 0 camera_link right_camera_link" />
+  <!-- GUI节点 -->
+  <node name="arm_gui" pkg="arm_gui" type="arm_gui_node" output="screen">
+    <!-- GUI参数 -->
+  </node>
+
+  <!-- YOLO目标检测节点 - 可选 -->
+  <node if="$(arg enable_yolo)" name="yolo_detector" pkg="stereo_vision" type="yolo_detector.py" output="screen" respawn="true">
+    <param name="model_path" value="$(find stereo_vision)/models/yolov5s.pt" />
+    <param name="confidence" value="0.5" />
+    <param name="input_topic" value="/stereo_camera/image_processed" />
+    <param name="output_topic" value="/stereo_camera/detections" />
+    <param name="visualization_topic" value="/detection_image" />
+    <!-- 将检测结果也重映射到GUI使用的话题 -->
+    <remap from="/detection_image" to="/right_camera/image_raw" />
+  </node>
+
+  <!-- 路径规划节点 - 依赖于YOLO -->
+  <node if="$(arg enable_yolo)" name="path_planner" pkg="arm_trajectory" type="trajectory_bridge_node.py" output="screen">
+    <param name="use_3d" value="$(arg enable_depth)" />
+    <param name="detection_topic" value="/stereo_camera/detections" />
+  </node>
+
+  <!-- 3D点云生成 - 可选 -->
+  <node if="$(arg enable_depth)" name="depth_estimator" pkg="stereo_vision" type="depth_estimator.py" output="screen" respawn="true">
+    <param name="input_topic" value="/stereo_camera/image_processed" />
+    <param name="output_topic" value="/stereo_vision/depth_image" />
+    <param name="point_cloud_topic" value="/stereo_camera/points" />
+  </node>
 </launch>

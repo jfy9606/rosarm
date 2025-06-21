@@ -17,6 +17,13 @@
 #include <opencv2/opencv.hpp>
 #include <cmath>
 
+#include <ros/ros.h>
+#include <sensor_msgs/Image.h>
+#include <cv_bridge/cv_bridge.h>
+#include <QImage>
+#include <QPixmap>
+#include <QPainter>
+
 ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     : QMainWindow(parent)
     , ui(new Ui::ArmControlMainWindow)
@@ -24,6 +31,7 @@ ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     , tf_listener_(tf_buffer_)
     , vacuum_on_(false)
     , vacuum_power_(0)
+    , gripper_open_(false)
 {
     // 设置UI
     ui->setupUi(this);
@@ -45,6 +53,25 @@ ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     
     // 添加日志
     logMessage("控制界面初始化完成");
+    
+    // 设置相机图像显示区域
+    ui->cameraView->setScaledContents(false);
+    ui->cameraView->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+    
+    // 订阅相机话题
+    left_camera_sub_ = nh_.subscribe("/left_camera/image_raw", 1, &ArmControlGUI::leftCameraCallback, this);
+    right_camera_sub_ = nh_.subscribe("/right_camera/image_raw", 1, &ArmControlGUI::rightCameraCallback, this);
+    
+    // 如果启用了目标检测，订阅检测结果
+    detection_image_sub_ = nh_.subscribe("/stereo_camera/detection_image", 1, &ArmControlGUI::detectionImageCallback, this);
+    
+    // 如果启用了深度估计，订阅深度图像
+    depth_image_sub_ = nh_.subscribe("/stereo_camera/depth", 1, &ArmControlGUI::depthImageCallback, this);
+    
+    // 设置定时器用于更新ROS
+    QTimer *ros_timer = new QTimer(this);
+    connect(ros_timer, &QTimer::timeout, this, &ArmControlGUI::updateROS);
+    ros_timer->start(10); // 10ms
 }
 
 ArmControlGUI::~ArmControlGUI()
@@ -53,6 +80,12 @@ ArmControlGUI::~ArmControlGUI()
         updateTimer->stop();
         delete updateTimer;
     }
+    
+    // 关闭ROS订阅
+    left_camera_sub_.shutdown();
+    right_camera_sub_.shutdown();
+    depth_image_sub_.shutdown();
+    detection_image_sub_.shutdown();
     
     delete ui;
 }
@@ -146,15 +179,6 @@ void ArmControlGUI::initializeROS()
     // 订阅关节状态
     joint_state_sub_ = nh_.subscribe("/joint_states", 10, &ArmControlGUI::jointStateCallback, this);
     
-    // 订阅摄像头图像
-    left_camera_sub_ = nh_.subscribe("/left_camera/image_raw", 1, &ArmControlGUI::leftCameraCallback, this);
-    right_camera_sub_ = nh_.subscribe("/right_camera/image_raw", 1, &ArmControlGUI::rightCameraCallback, this);
-    depth_image_sub_ = nh_.subscribe("/stereo_vision/depth_image", 1, &ArmControlGUI::depthImageCallback, this);
-    detection_image_sub_ = nh_.subscribe("/stereo_vision/detection_image", 1, &ArmControlGUI::detectionImageCallback, this);
-    
-    // 订阅检测结果
-    detection_poses_sub_ = nh_.subscribe<geometry_msgs::PoseArray>("/stereo_vision/detected_poses", 10, &ArmControlGUI::detectionPosesCallback, this);
-    
     // 发布关节命令
     joint_command_pub_ = nh_.advertise<sensor_msgs::JointState>("/arm1/joint_command", 10);
     
@@ -169,6 +193,12 @@ void ArmControlGUI::initializeROS()
     
     // 发布继电器控制命令
     relay_order_pub_ = nh_.advertise<std_msgs::String>("RelayOrder", 5);
+    
+    // 发布夹持器命令
+    gripper_cmd_pub_ = nh_.advertise<std_msgs::Bool>("/arm1/gripper_command", 10);
+    
+    // 发布舵机控制命令
+    servo_control_pub_ = nh_.advertise<servo_wrist::SerControl>("/servo_control_topic", 10);
 }
 
 void ArmControlGUI::initializeOpenGL()
@@ -184,6 +214,10 @@ void ArmControlGUI::onJoint1SliderChanged(int value)
     ui->joint1_spin->setValue(value);
     current_joint_values_[0] = value * M_PI / 180.0; // 转换为弧度
     sendJointCommand(current_joint_values_);
+    
+    // 底座旋转对应舵机ID 1，位置范围映射到舵机范围
+    int servo_position = map(value, -180, 180, 500, 2500);
+    sendServoCommand(1, servo_position);
 }
 
 void ArmControlGUI::onJoint2SliderChanged(int value)
@@ -198,6 +232,10 @@ void ArmControlGUI::onJoint3SliderChanged(int value)
     ui->joint3_spin->setValue(value);
     current_joint_values_[2] = value * M_PI / 180.0; // 转换为弧度
     sendJointCommand(current_joint_values_);
+    
+    // 肩部关节对应舵机ID 2，位置范围映射到舵机范围
+    int servo_position = map(value, -90, 90, 500, 2500);
+    sendServoCommand(2, servo_position);
 }
 
 void ArmControlGUI::onJoint4SliderChanged(int value)
@@ -205,6 +243,10 @@ void ArmControlGUI::onJoint4SliderChanged(int value)
     ui->joint4_spin->setValue(value);
     current_joint_values_[3] = value * M_PI / 180.0; // 转换为弧度
     sendJointCommand(current_joint_values_);
+    
+    // 肘部关节对应舵机ID 3，位置范围映射到舵机范围
+    int servo_position = map(value, 0, 180, 500, 2500);
+    sendServoCommand(3, servo_position);
 }
 
 void ArmControlGUI::onJoint6SliderChanged(int value)
@@ -406,44 +448,96 @@ void ArmControlGUI::jointStateCallback(const sensor_msgs::JointState::ConstPtr& 
 void ArmControlGUI::leftCameraCallback(const sensor_msgs::Image::ConstPtr& msg)
 {
     try {
+        // 将ROS图像转换为OpenCV图像
         cv_bridge::CvImageConstPtr cv_ptr = cv_bridge::toCvShare(msg, "bgr8");
-        left_camera_image_ = cvMatToQImage(cv_ptr->image);
+        
+        // 转换为QImage
+        QImage image(cv_ptr->image.data, cv_ptr->image.cols, cv_ptr->image.rows, 
+                     cv_ptr->image.step, QImage::Format_RGB888);
+        image = image.rgbSwapped(); // BGR to RGB
+        
+        // 保存图像
+        left_camera_image_ = image;
+        
+        // 更新UI (在主线程中)
+        QMetaObject::invokeMethod(this, "updateCameraView", Qt::QueuedConnection);
     }
     catch (cv_bridge::Exception& e) {
-        ROS_ERROR("cv_bridge exception in leftCameraCallback: %s", e.what());
+        ROS_ERROR("cv_bridge exception: %s", e.what());
     }
 }
 
 void ArmControlGUI::rightCameraCallback(const sensor_msgs::Image::ConstPtr& msg)
 {
     try {
+        // 将ROS图像转换为OpenCV图像
         cv_bridge::CvImageConstPtr cv_ptr = cv_bridge::toCvShare(msg, "bgr8");
-        right_camera_image_ = cvMatToQImage(cv_ptr->image);
+        
+        // 转换为QImage
+        QImage image(cv_ptr->image.data, cv_ptr->image.cols, cv_ptr->image.rows, 
+                     cv_ptr->image.step, QImage::Format_RGB888);
+        image = image.rgbSwapped(); // BGR to RGB
+        
+        // 保存图像
+        right_camera_image_ = image;
+        
+        // 更新UI (在主线程中)
+        QMetaObject::invokeMethod(this, "updateCameraView", Qt::QueuedConnection);
     }
     catch (cv_bridge::Exception& e) {
-        ROS_ERROR("cv_bridge exception in rightCameraCallback: %s", e.what());
-    }
-}
-
-void ArmControlGUI::depthImageCallback(const sensor_msgs::Image::ConstPtr& msg)
-{
-    try {
-        cv_bridge::CvImageConstPtr cv_ptr = cv_bridge::toCvShare(msg);
-        depth_image_ = cvMatToQImage(cv_ptr->image);
-    }
-    catch (cv_bridge::Exception& e) {
-        ROS_ERROR("cv_bridge exception in depthImageCallback: %s", e.what());
+        ROS_ERROR("cv_bridge exception: %s", e.what());
     }
 }
 
 void ArmControlGUI::detectionImageCallback(const sensor_msgs::Image::ConstPtr& msg)
 {
     try {
+        // 将ROS图像转换为OpenCV图像
         cv_bridge::CvImageConstPtr cv_ptr = cv_bridge::toCvShare(msg, "bgr8");
-        detection_image_ = cvMatToQImage(cv_ptr->image);
+        
+        // 转换为QImage
+        QImage image(cv_ptr->image.data, cv_ptr->image.cols, cv_ptr->image.rows, 
+                     cv_ptr->image.step, QImage::Format_RGB888);
+        image = image.rgbSwapped(); // BGR to RGB
+        
+        // 保存图像
+        detection_image_ = image;
+        
+        // 更新UI (在主线程中)
+        QMetaObject::invokeMethod(this, "updateCameraView", Qt::QueuedConnection);
     }
     catch (cv_bridge::Exception& e) {
-        ROS_ERROR("cv_bridge exception in detectionImageCallback: %s", e.what());
+        ROS_ERROR("cv_bridge exception: %s", e.what());
+    }
+}
+
+void ArmControlGUI::depthImageCallback(const sensor_msgs::Image::ConstPtr& msg)
+{
+    try {
+        // 将ROS图像转换为OpenCV图像
+        cv_bridge::CvImageConstPtr cv_ptr = cv_bridge::toCvShare(msg, "mono16");
+        
+        // 转换为QImage (归一化深度值)
+        cv::Mat normalized;
+        cv::normalize(cv_ptr->image, normalized, 0, 255, cv::NORM_MINMAX, CV_8UC1);
+        
+        // 创建彩色深度图
+        cv::Mat colorized;
+        cv::applyColorMap(normalized, colorized, cv::COLORMAP_JET);
+        
+        // 转换为QImage
+        QImage image(colorized.data, colorized.cols, colorized.rows, 
+                     colorized.step, QImage::Format_RGB888);
+        image = image.rgbSwapped(); // BGR to RGB
+        
+        // 保存图像
+        depth_image_ = image;
+        
+        // 更新UI (在主线程中)
+        QMetaObject::invokeMethod(this, "updateCameraView", Qt::QueuedConnection);
+    }
+    catch (cv_bridge::Exception& e) {
+        ROS_ERROR("cv_bridge exception: %s", e.what());
     }
 }
 
@@ -534,32 +628,42 @@ void ArmControlGUI::updateVacuumStatus()
 
 void ArmControlGUI::updateCameraViews()
 {
-    // 更新左摄像头视图
-    if (!left_camera_image_.isNull()) {
-        ui->cameraViewLeft->setPixmap(QPixmap::fromImage(left_camera_image_.scaled(
-            ui->cameraViewLeft->width(), ui->cameraViewLeft->height(), 
-            Qt::KeepAspectRatio, Qt::SmoothTransformation)));
-    }
-    
-    // 更新右摄像头视图
-    if (!right_camera_image_.isNull()) {
-        ui->cameraViewRight->setPixmap(QPixmap::fromImage(right_camera_image_.scaled(
-            ui->cameraViewRight->width(), ui->cameraViewRight->height(), 
-            Qt::KeepAspectRatio, Qt::SmoothTransformation)));
-    }
-    
-    // 更新深度图
-    if (!depth_image_.isNull()) {
-        ui->depthView->setPixmap(QPixmap::fromImage(depth_image_.scaled(
-            ui->depthView->width(), ui->depthView->height(), 
-            Qt::KeepAspectRatio, Qt::SmoothTransformation)));
-    }
-    
-    // 更新物体检测视图
-    if (!detection_image_.isNull()) {
-        ui->detectionView->setPixmap(QPixmap::fromImage(detection_image_.scaled(
-            ui->detectionView->width(), ui->detectionView->height(), 
-            Qt::KeepAspectRatio, Qt::SmoothTransformation)));
+    try {
+        // 更新左相机视图
+        if (!left_camera_image_.isNull()) {
+            // 获取标签的大小
+            QSize labelSize = ui->cameraView->size();
+            
+            // 按比例缩放图像，保持原始宽高比
+            QPixmap left_pixmap = QPixmap::fromImage(left_camera_image_);
+            QPixmap scaled_pixmap = left_pixmap.scaled(labelSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            
+            // 创建一个背景图像，用于居中显示
+            QPixmap background(labelSize);
+            background.fill(Qt::black);
+            
+            // 计算居中位置
+            int x = (labelSize.width() - scaled_pixmap.width()) / 2;
+            int y = (labelSize.height() - scaled_pixmap.height()) / 2;
+            
+            // 在背景上绘制缩放后的图像
+            QPainter painter(&background);
+            painter.drawPixmap(x, y, scaled_pixmap);
+            painter.end();
+            
+            // 设置到标签
+            ui->cameraView->setPixmap(background);
+        } else {
+            // 摄像头图像为空，显示提示信息
+            if (ui->cameraView->pixmap() == nullptr || ui->cameraView->pixmap()->isNull()) {
+                QPixmap emptyPix(ui->cameraView->width(), ui->cameraView->height());
+                emptyPix.fill(Qt::black);
+                ui->cameraView->setPixmap(emptyPix);
+                ROS_INFO("等待摄像头数据...");
+            }
+        }
+    } catch (std::exception &e) {
+        ROS_ERROR("Error in updateCameraViews: %s", e.what());
     }
 }
 
@@ -855,4 +959,112 @@ void ArmControlGUI::onDemoAction3Clicked()
     logMessage("夹持电机移动");
     
     logMessage("示例动作3完成");
+}
+
+void ArmControlGUI::updateROS()
+{
+    if (ros::ok()) {
+        ros::spinOnce();
+    }
+}
+
+void ArmControlGUI::updateCameraView()
+{
+    updateCameraViews();
+}
+
+// 添加缺失的按钮点击处理函数
+void ArmControlGUI::on_homeButton_clicked()
+{
+    onHomeButtonClicked();
+}
+
+void ArmControlGUI::on_stopButton_clicked()
+{
+    // 停止所有运动
+    std_msgs::String cmd_msg;
+    cmd_msg.data = "stop arm1";
+    arm_command_pub_.publish(cmd_msg);
+    logMessage("停止所有运动");
+}
+
+void ArmControlGUI::on_moveButton_clicked()
+{
+    onMoveToPositionClicked();
+}
+
+void ArmControlGUI::on_gripperOpenButton_clicked()
+{
+    sendGripperCommand(true);
+    logMessage("打开夹持器");
+}
+
+void ArmControlGUI::on_gripperCloseButton_clicked()
+{
+    sendGripperCommand(false);
+    logMessage("关闭夹持器");
+}
+
+void ArmControlGUI::on_vacuumOnButton_clicked()
+{
+    onVacuumOnButtonClicked();
+}
+
+void ArmControlGUI::on_vacuumOffButton_clicked()
+{
+    onVacuumOffButtonClicked();
+}
+
+void ArmControlGUI::on_example1Button_clicked()
+{
+    onDemoAction1Clicked();
+}
+
+void ArmControlGUI::on_example2Button_clicked()
+{
+    onDemoAction2Clicked();
+}
+
+void ArmControlGUI::on_example3Button_clicked()
+{
+    onDemoAction3Clicked();
+}
+
+void ArmControlGUI::updateUI()
+{
+    onUpdateGUI();
+}
+
+void ArmControlGUI::sendGripperCommand(bool open)
+{
+    // 创建夹持器命令消息
+    std_msgs::Bool gripper_cmd;
+    gripper_cmd.data = open;
+    
+    // 发布夹持器命令
+    gripper_cmd_pub_.publish(gripper_cmd);
+    
+    // 更新状态
+    gripper_open_ = open;
+}
+
+// 添加舵机控制函数实现
+void ArmControlGUI::sendServoCommand(int servo_id, int position, int velocity, int acceleration)
+{
+    servo_wrist::SerControl msg;
+    msg.servo_id = servo_id;
+    msg.target_position = position;
+    msg.velocity = velocity;
+    msg.acceleration = acceleration;
+    
+    // 发布舵机控制消息
+    servo_control_pub_.publish(msg);
+    
+    logMessage(QString("发送舵机命令: ID=%1, 位置=%2, 速度=%3").arg(servo_id).arg(position).arg(velocity));
+}
+
+// 添加辅助函数用于映射范围
+int ArmControlGUI::map(int value, int fromLow, int fromHigh, int toLow, int toHigh)
+{
+    return (value - fromLow) * (toHigh - toLow) / (fromHigh - fromLow) + toLow;
 } 
