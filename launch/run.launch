@@ -21,16 +21,18 @@
   <!-- 摄像头节点 - 使用完整分辨率 -->
   <node name="usb_cam" pkg="usb_cam" type="usb_cam_node" output="screen" respawn="true">
     <param name="video_device" value="$(arg camera_device)" />
-    <!-- 使用摄像头参数表中的标准分辨率 -->
-    <param name="image_width" value="1280" />
+    <!-- 修改相机参数以解决MJPEG解码问题 -->
+    <param name="image_width" value="640" />
     <param name="image_height" value="480" />
-    <param name="pixel_format" value="mjpeg" />
+    <param name="pixel_format" value="yuyv" />
     <param name="io_method" value="mmap" />
-    <param name="framerate" value="30" />
+    <param name="framerate" value="15" />
     <param name="camera_name" value="stereo_camera" />
     <param name="camera_frame_id" value="camera_link" />
-    <param name="brightness" value="128" /> <!-- 尝试调整亮度 -->
-    <param name="contrast" value="128" /> <!-- 尝试调整对比度 -->
+    <param name="brightness" value="128" />
+    <param name="contrast" value="128" />
+    <param name="autofocus" value="false" />
+    <param name="focus" value="0" />
   </node>
 
   <!-- 图像处理节点 - 不再分割，直接处理原始图像 -->
