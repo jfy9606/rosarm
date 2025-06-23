@@ -16,13 +16,14 @@ class DepthEstimator:
         self.bridge = CvBridge()
         
         # 获取参数
-        self.input_topic = rospy.get_param('~input_topic', '/stereo_camera/image_processed')
+        self.input_topic = rospy.get_param('~input_topic', '/stereo_camera/image_merged')
         self.output_topic = rospy.get_param('~output_topic', '/stereo_camera/depth')
         self.point_cloud_topic = rospy.get_param('~point_cloud_topic', '/stereo_camera/points')
+        self.use_midas = rospy.get_param('~use_midas', False)  # 默认使用OpenCV立体匹配
         
         # 相机内参
         self.camera_info = None
-        self.camera_info_sub = rospy.Subscriber('/usb_cam/camera_info', CameraInfo, self.camera_info_callback)
+        self.camera_info_sub = rospy.Subscriber('/stereo_camera/camera_info', CameraInfo, self.camera_info_callback)
         
         # 发布器
         self.depth_pub = rospy.Publisher(self.output_topic, Image, queue_size=1)
@@ -33,7 +34,48 @@ class DepthEstimator:
         self.midas = None
         self.transform = None
         
-        # 尝试加载MiDaS深度估计模型
+        # 初始化OpenCV立体匹配器
+        self.init_stereo_matcher()
+        
+        # 如果需要，尝试加载MiDaS深度估计模型
+        if self.use_midas:
+            self.load_midas_model()
+        
+        # 订阅图像
+        self.image_sub = rospy.Subscriber(self.input_topic, Image, self.image_callback)
+        
+        rospy.loginfo("深度估计器已初始化")
+    
+    def init_stereo_matcher(self):
+        """初始化OpenCV立体匹配算法"""
+        try:
+            # 创建StereoBM对象
+            # numDisparities必须是16的倍数，表示最大视差值
+            # blockSize是匹配块大小，必须是奇数
+            self.stereo = cv2.StereoSGBM_create(
+                minDisparity=0,
+                numDisparities=128,  # 增大视差范围
+                blockSize=5,
+                P1=8 * 3 * 5**2,
+                P2=32 * 3 * 5**2,
+                disp12MaxDiff=1,
+                uniquenessRatio=15,
+                speckleWindowSize=100,
+                speckleRange=32,
+                mode=cv2.STEREO_SGBM_MODE_SGBM_3WAY
+            )
+            rospy.loginfo("已初始化OpenCV立体匹配算法(SGBM)")
+        except Exception as e:
+            rospy.logerr(f"无法初始化OpenCV立体匹配: {e}")
+            # 尝试使用更简单的StereoBM
+            try:
+                self.stereo = cv2.StereoBM_create(numDisparities=64, blockSize=15)
+                rospy.loginfo("已初始化OpenCV立体匹配算法(BM)")
+            except Exception as e2:
+                rospy.logerr(f"无法初始化任何立体匹配算法: {e2}")
+    
+    def load_midas_model(self):
+        """加载MiDaS深度估计模型"""
         try:
             # 使用MiDaS小型模型进行深度估计
             self.midas = torch.hub.load("intel-isl/MiDaS", "MiDaS_small")
@@ -52,20 +94,6 @@ class DepthEstimator:
         except Exception as e:
             rospy.logerr(f"加载深度估计模型失败: {e}")
             self.model_loaded = False
-            
-            # 尝试使用备用方法
-            rospy.loginfo("尝试使用OpenCV进行深度估计...")
-            try:
-                # 使用OpenCV的立体匹配算法作为备用
-                self.stereo = cv2.StereoBM_create(numDisparities=16, blockSize=15)
-                rospy.loginfo("已初始化OpenCV立体匹配算法")
-            except Exception as e2:
-                rospy.logerr(f"无法初始化OpenCV立体匹配: {e2}")
-        
-        # 订阅图像
-        self.image_sub = rospy.Subscriber(self.input_topic, Image, self.image_callback)
-        
-        rospy.loginfo("深度估计器已初始化")
     
     def camera_info_callback(self, data):
         """接收相机内参"""
@@ -73,40 +101,59 @@ class DepthEstimator:
         rospy.loginfo("接收到相机内参")
     
     def image_callback(self, data):
-        if not self.model_loaded and not hasattr(self, 'stereo'):
-            rospy.logerr_once("深度估计模型未加载，无法生成深度图")
-            return
-            
-        if self.camera_info is None:
-            rospy.logwarn_once("未接收到相机内参，使用默认值")
-            
         try:
             # 将ROS图像消息转换为OpenCV图像
             cv_image = self.bridge.imgmsg_to_cv2(data, "bgr8")
             
-            # 深度图生成
-            if self.model_loaded:
-                # 使用MiDaS进行深度估计
-                depth = self.estimate_depth_with_midas(cv_image)
-            elif hasattr(self, 'stereo'):
-                # 使用OpenCV进行深度估计
-                depth = self.estimate_depth_with_opencv(cv_image)
+            # 分割左右图像
+            height, width = cv_image.shape[:2]
+            if width > height * 1.5:  # 判断是否为合并的双目图像
+                mid = width // 2
+                left_img = cv_image[:, :mid]
+                right_img = cv_image[:, mid:]
+                
+                # 转换为灰度图像用于立体匹配
+                left_gray = cv2.cvtColor(left_img, cv2.COLOR_BGR2GRAY)
+                right_gray = cv2.cvtColor(right_img, cv2.COLOR_BGR2GRAY)
+                
+                # 使用立体匹配算法计算视差
+                disparity = self.stereo.compute(left_gray, right_gray)
+                
+                # 归一化视差图到0-255
+                disparity_normalized = cv2.normalize(disparity, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+                
+                # 创建伪彩色深度图
+                depth_colormap = cv2.applyColorMap(disparity_normalized, cv2.COLORMAP_JET)
+                
+                # 发布深度图
+                depth_msg = self.bridge.cv2_to_imgmsg(depth_colormap, "bgr8")
+                depth_msg.header = data.header
+                self.depth_pub.publish(depth_msg)
+                
+                # 生成点云
+                if self.camera_info is not None:
+                    point_cloud = self.generate_point_cloud(disparity_normalized, left_img, self.camera_info)
+                    self.point_cloud_pub.publish(point_cloud)
+                
             else:
-                rospy.logerr_once("没有可用的深度估计方法")
-                return
-            
-            # 创建伪彩色深度图
-            depth_colormap = cv2.applyColorMap(depth, cv2.COLORMAP_JET)
-            
-            # 发布深度图
-            depth_msg = self.bridge.cv2_to_imgmsg(depth_colormap, "bgr8")
-            depth_msg.header = data.header
-            self.depth_pub.publish(depth_msg)
-            
-            # 生成点云
-            if self.camera_info is not None:
-                point_cloud = self.generate_point_cloud(depth, cv_image, self.camera_info)
-                self.point_cloud_pub.publish(point_cloud)
+                # 如果不是双目图像，使用MiDaS单目深度估计（如果可用）
+                if self.use_midas and self.model_loaded:
+                    depth = self.estimate_depth_with_midas(cv_image)
+                    
+                    # 创建伪彩色深度图
+                    depth_colormap = cv2.applyColorMap(depth, cv2.COLORMAP_JET)
+                    
+                    # 发布深度图
+                    depth_msg = self.bridge.cv2_to_imgmsg(depth_colormap, "bgr8")
+                    depth_msg.header = data.header
+                    self.depth_pub.publish(depth_msg)
+                    
+                    # 生成点云
+                    if self.camera_info is not None:
+                        point_cloud = self.generate_point_cloud(depth, cv_image, self.camera_info)
+                        self.point_cloud_pub.publish(point_cloud)
+                else:
+                    rospy.logwarn_once("非双目图像且MiDaS不可用，无法估计深度")
             
         except CvBridgeError as e:
             rospy.logerr(f"CvBridge错误: {e}")
@@ -144,35 +191,6 @@ class DepthEstimator:
             return depth
         except Exception as e:
             rospy.logerr(f"MiDaS深度估计失败: {e}")
-            return np.zeros(image.shape[:2], dtype=np.uint8)
-    
-    def estimate_depth_with_opencv(self, image):
-        """使用OpenCV立体匹配算法估计深度"""
-        try:
-            # 将图像转换为灰度
-            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            
-            # 如果是立体图像，尝试分割
-            height, width = gray.shape
-            if width > 2 * height:
-                # 可能是并排的立体图像
-                mid = width // 2
-                left = gray[:, :mid]
-                right = gray[:, mid:]
-                
-                # 计算视差图
-                disparity = self.stereo.compute(left, right)
-                
-                # 归一化到0-255
-                disparity_normalized = cv2.normalize(disparity, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-                return disparity_normalized
-            else:
-                # 单目图像，无法进行立体匹配
-                rospy.logwarn_once("单目图像无法使用立体匹配算法")
-                # 返回灰度图作为伪深度图
-                return gray
-        except Exception as e:
-            rospy.logerr(f"OpenCV深度估计失败: {e}")
             return np.zeros(image.shape[:2], dtype=np.uint8)
     
     def generate_point_cloud(self, depth_image, color_image, camera_info):

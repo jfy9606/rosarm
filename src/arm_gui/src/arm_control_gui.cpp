@@ -58,9 +58,12 @@ ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     ui->cameraView->setScaledContents(false);
     ui->cameraView->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
     
-    // 订阅相机话题
+    // 订阅相机话题 - 更新为使用合并的立体图像
     left_camera_sub_ = nh_.subscribe("/left_camera/image_raw", 1, &ArmControlGUI::leftCameraCallback, this);
     right_camera_sub_ = nh_.subscribe("/right_camera/image_raw", 1, &ArmControlGUI::rightCameraCallback, this);
+    
+    // 订阅合并的立体图像
+    stereo_merged_sub_ = nh_.subscribe("/stereo_camera/image_merged", 1, &ArmControlGUI::stereoMergedCallback, this);
     
     // 如果启用了目标检测，订阅检测结果
     detection_image_sub_ = nh_.subscribe("/stereo_camera/detection_image", 1, &ArmControlGUI::detectionImageCallback, this);
@@ -84,6 +87,7 @@ ArmControlGUI::~ArmControlGUI()
     // 关闭ROS订阅
     left_camera_sub_.shutdown();
     right_camera_sub_.shutdown();
+    stereo_merged_sub_.shutdown();
     depth_image_sub_.shutdown();
     detection_image_sub_.shutdown();
     
@@ -1067,4 +1071,27 @@ void ArmControlGUI::sendServoCommand(int servo_id, int position, int velocity, i
 int ArmControlGUI::map(int value, int fromLow, int fromHigh, int toLow, int toHigh)
 {
     return (value - fromLow) * (toHigh - toLow) / (fromHigh - fromLow) + toLow;
+}
+
+// 添加新的回调函数用于处理合并的立体图像
+void ArmControlGUI::stereoMergedCallback(const sensor_msgs::Image::ConstPtr& msg)
+{
+    try {
+        // 将ROS图像转换为OpenCV图像
+        cv_bridge::CvImageConstPtr cv_ptr = cv_bridge::toCvShare(msg, "bgr8");
+        
+        // 转换为QImage
+        QImage image(cv_ptr->image.data, cv_ptr->image.cols, cv_ptr->image.rows, 
+                     cv_ptr->image.step, QImage::Format_RGB888);
+        image = image.rgbSwapped(); // BGR to RGB
+        
+        // 保存图像
+        left_camera_image_ = image; // 使用合并图像作为主图像
+        
+        // 更新UI (在主线程中)
+        QMetaObject::invokeMethod(this, "updateCameraView", Qt::QueuedConnection);
+    }
+    catch (cv_bridge::Exception& e) {
+        ROS_ERROR("cv_bridge exception in stereo merged callback: %s", e.what());
+    }
 } 

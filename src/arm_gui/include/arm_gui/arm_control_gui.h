@@ -121,6 +121,7 @@ private:
     ros::Subscriber joint_state_sub_;
     ros::Subscriber left_camera_sub_;
     ros::Subscriber right_camera_sub_;
+    ros::Subscriber stereo_merged_sub_;
     ros::Subscriber depth_image_sub_;
     ros::Subscriber detection_image_sub_;
     ros::Subscriber detection_poses_sub_;
@@ -172,6 +173,7 @@ private:
     void cameraCallback(const sensor_msgs::Image::ConstPtr& msg);
     void detectionCallback(const sensor_msgs::Image::ConstPtr& msg);
     void depthCallback(const sensor_msgs::Image::ConstPtr& msg);
+    void stereoMergedCallback(const sensor_msgs::Image::ConstPtr& msg);
     
     // 辅助函数
     void sendJointCommand(const std::vector<double>& positions);

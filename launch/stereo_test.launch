@@ -1,0 +1,46 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- 参数设置 -->
+  <arg name="left_camera_device" default="/dev/video0" doc="左相机设备路径" />
+  <arg name="right_camera_device" default="/dev/video1" doc="右相机设备路径" />
+  <arg name="width" default="1280" doc="图像宽度" />
+  <arg name="height" default="480" doc="图像高度" />
+  <arg name="fps" default="30" doc="帧率" />
+
+  <!-- 双目摄像头合并节点 -->
+  <node name="stereo_merger" pkg="stereo_vision" type="stereo_merger.py" output="screen" respawn="true">
+    <param name="left_device" value="$(arg left_camera_device)" />
+    <param name="right_device" value="$(arg right_camera_device)" />
+    <param name="resolution_width" value="$(arg width)" />
+    <param name="resolution_height" value="$(arg height)" />
+    <param name="fps" value="$(arg fps)" />
+    <param name="log_level" value="0" /> <!-- 详细日志模式 -->
+  </node>
+
+  <!-- 添加TF坐标转换 -->
+  <node pkg="tf2_ros" type="static_transform_publisher" name="camera_link_broadcaster"
+        args="0 0 0.5 0 0 0 world stereo_camera_link" />
+  <node pkg="tf2_ros" type="static_transform_publisher" name="left_camera_link_broadcaster"
+        args="0 0 0.5 0 0 0 world left_camera_link" />
+  <node pkg="tf2_ros" type="static_transform_publisher" name="right_camera_link_broadcaster"
+        args="0 0 0.5 0 0 0 world right_camera_link" />
+
+  <!-- 图像查看器 -->
+  <node name="merged_image_view" pkg="image_view" type="image_view" output="screen">
+    <remap from="image" to="/stereo_camera/image_merged" />
+    <param name="autosize" value="true" />
+    <param name="window_name" value="双目合并图像" />
+  </node>
+
+  <node name="left_image_view" pkg="image_view" type="image_view" output="screen">
+    <remap from="image" to="/left_camera/image_raw" />
+    <param name="autosize" value="true" />
+    <param name="window_name" value="左摄像头" />
+  </node>
+
+  <node name="right_image_view" pkg="image_view" type="image_view" output="screen">
+    <remap from="image" to="/right_camera/image_raw" />
+    <param name="autosize" value="true" />
+    <param name="window_name" value="右摄像头" />
+  </node>
+</launch> 
