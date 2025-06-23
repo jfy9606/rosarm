@@ -24,6 +24,7 @@ stereo_vision
 /home/jfy/arm/catkin/devel/.private/stereo_vision/lib/stereo_vision/depth_estimator.py /home/jfy/arm/catkin/devel/lib/stereo_vision/depth_estimator.py
 /home/jfy/arm/catkin/devel/.private/stereo_vision/lib/stereo_vision/stereo_splitter.py /home/jfy/arm/catkin/devel/lib/stereo_vision/stereo_splitter.py
 /home/jfy/arm/catkin/devel/.private/stereo_vision/lib/stereo_vision/stereo_detection_node.py /home/jfy/arm/catkin/devel/lib/stereo_vision/stereo_detection_node.py
+/home/jfy/arm/catkin/devel/.private/stereo_vision/lib/stereo_vision/stereo_merger.py /home/jfy/arm/catkin/devel/lib/stereo_vision/stereo_merger.py
 /home/jfy/arm/catkin/devel/.private/stereo_vision/lib/stereo_vision/yolo_detector.py /home/jfy/arm/catkin/devel/lib/stereo_vision/yolo_detector.py
 /home/jfy/arm/catkin/devel/.private/stereo_vision/lib/stereo_vision/camera_test.py /home/jfy/arm/catkin/devel/lib/stereo_vision/camera_test.py
 /home/jfy/arm/catkin/devel/.private/stereo_vision/lib/python3/dist-packages/stereo_vision/__init__.py /home/jfy/arm/catkin/devel/lib/python3/dist-packages/stereo_vision/__init__.py

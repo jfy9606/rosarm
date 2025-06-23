@@ -38,7 +38,7 @@ include_directories(
 )
 
 catkin_install_python(PROGRAMS
-  scripts/stereo_splitter.py
+  scripts/stereo_merger.py
   scripts/camera_test.py
   scripts/yolo_detector.py
   scripts/depth_estimator.py
