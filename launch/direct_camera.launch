@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- 直接启动Python脚本，无需ROS消息传递，便于测试 -->
+  <node name="camera_direct" pkg="stereo_vision" type="camera_direct.py" output="screen">
+    <param name="device" value="0" />
+    <param name="width" value="1280" />
+    <param name="height" value="480" />
+    <param name="fps" value="30" />
+    <param name="save_path" value="$(find stereo_vision)/images" />
+  </node>
+</launch> 

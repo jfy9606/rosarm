@@ -1,140 +1,151 @@
-# 机械臂控制系统
+# 机械臂视觉控制系统
 
-这是一个用于控制机械臂的ROS系统，集成了双目视觉感知与轨迹规划功能。
+这是一个基于ROS的机械臂控制系统，使用摄像头进行视觉感知、目标检测和路径规划。
 
-## 系统结构
+## 系统组件
 
-系统包含以下主要部分：
+系统由以下主要组件组成：
 
-1. **核心功能**：基本的机械臂控制功能，包括串口通信和舵机控制
-2. **GUI界面**：用于人机交互的图形界面
-3. **示例动作**：预设的示例动作，用于展示机械臂功能
-4. **双目摄像头视觉模块** (`stereo_vision`): 
-   - 利用YOLOv8进行物体检测
-   - 使用立体匹配算法计算深度信息
-   - 将2D检测结果转换为3D位置坐标
-5. **轨迹规划模块** (`arm_trajectory`): 
-   - 使用鲸鱼优化算法(WOA)进行逆运动学求解
-   - 基于立体视觉提供的目标点生成平滑轨迹
-   - 处理机械臂的协同规划
+1. **摄像头** - 支持高分辨率USB摄像头，包括宽幅摄像头
+2. **图像处理** - 使用OpenCV和YOLO进行图像处理和目标检测
+3. **机械臂控制** - 基于ROS的机械臂控制界面和轨迹规划
 
-## 运行方式
+## 安装指南
 
-### 1. 运行完整系统（推荐）
+### 前提条件
 
-```bash
-# 加载ROS环境
-cd ~/arm/catkin && source devel/setup.bash
+- Ubuntu 20.04
+- ROS Noetic
+- Python 3.8+
+- OpenCV 4.2+
 
-# 启动核心功能
-roslaunch ~/arm/catkin/launch/run.launch
-
-# 在新终端中启动GUI
-cd ~/arm/catkin && source devel/setup.bash
-roslaunch arm_gui arm_gui.launch
-```
-
-### 2. 仅运行示例动作
+### 安装依赖
 
 ```bash
-# 加载ROS环境
-cd ~/arm/catkin && source devel/setup.bash
-
-# 启动示例动作节点
-roslaunch ~/arm/catkin/launch/demo.launch
-```
-
-### 3. 仅使用图形界面控制
-
-```bash
-# 加载ROS环境
-cd ~/arm/catkin && source devel/setup.bash
-
-# 启动核心功能
-roslaunch ~/arm/catkin/launch/run.launch
-
-# 在新终端中启动GUI
-cd ~/arm/catkin && source devel/setup.bash
-roslaunch arm_gui arm_gui.launch
-```
-
-## 硬件要求
-
-- 舵机控制器应连接到 `/dev/ttyUSB1`（可在launch文件中修改）
-- 如果使用立体摄像头，默认使用 `/dev/video0`
-
-## 安装依赖
-
-```bash
-# 安装必要的ROS包
-sudo apt-get install ros-noetic-cv-bridge ros-noetic-image-transport ros-noetic-tf ros-noetic-tf2-ros ros-noetic-moveit-msgs ros-noetic-moveit-core ros-noetic-moveit-ros-planning-interface ros-noetic-serial
+# 安装基本依赖
+sudo apt-get update
+sudo apt-get install ros-noetic-image-view ros-noetic-tf2-ros
 
 # 安装Python依赖
-pip install ultralytics numpy opencv-python
+pip3 install numpy opencv-python torch ultralytics
 ```
 
-## 系统功能
-
-### 机械臂控制命令
-
-系统支持通过`/arm_command`话题发送文本命令控制机械臂：
-
-1. 抓取命令: `pick [机械臂ID] [物体ID]`
-   - 例如: `pick arm1 object_0`
-
-2. 放置命令: `place [机械臂ID] [x坐标] [y坐标] [z坐标]`
-   - 例如: `place arm1 0.2 0.3 0.1`
-
-3. 回到初始位置: `home [机械臂ID]`
-   - 例如: `home arm1`
-
-### 发送命令示例
+### 编译工作空间
 
 ```bash
-# 发送抓取命令
-rostopic pub /arm_command std_msgs/String "data: 'pick arm1 object_0'"
+# 克隆仓库
+git clone https://github.com/your-username/arm-vision-system.git
+cd arm-vision-system
 
-# 发送放置命令
-rostopic pub /arm_command std_msgs/String "data: 'place arm1 0.2 0.3 0.1'"
+# 编译ROS工作空间
+catkin_make
+# 或使用catkin工具
+catkin build
 
-# 发送回到初始位置命令
-rostopic pub /arm_command std_msgs/String "data: 'home arm1'"
+# 设置环境
+source devel/setup.bash
 ```
 
-### 系统参数配置
+## 使用指南
 
-可通过launch文件参数调整系统配置：
+### 启动方式
 
-- `use_stereo_cam`: 是否使用实际摄像头(默认: true)
-- `stereo_cam_device`: 摄像头设备路径(默认: /dev/video0)
-- `yolo_model_path`: YOLOv8模型路径
-- `enable_visualization`: 是否启用可视化(默认: true)
-
-### 自定义配置示例
+系统提供了几种不同的启动方式：
 
 ```bash
-roslaunch stereo_vision stereo_arm_control.launch use_stereo_cam:=false yolo_model_path:="/path/to/your/model.pt"
+# 启动完整系统
+./start.sh
+
+# 启动系统并启用YOLO目标检测
+./start.sh --yolo
+
+# 仅测试摄像头
+./start.sh --test
+
+# 直接模式（不使用ROS）
+./start.sh --direct
+
+# 指定摄像头和分辨率
+./start.sh --camera /dev/video0 --resolution 1280x480
 ```
 
-## 主要ROS话题
+### 摄像头支持
 
-- `/stereo_camera/image_raw`: 双目相机原始图像
-- `/stereo_vision/detection_image`: 检测结果可视化图像
-- `/stereo_vision/depth_image`: 深度图像
-- `/stereo_vision/detected_poses`: 检测到物体的三维位置
-- `/arm_command`: 机械臂控制命令
-- `/arm1/joint_command`: 机械臂1的关节控制命令
-- `/arm1/vacuum_command`: 机械臂1的吸附控制命令
-- `/Controller_motor_order`: 电机控制命令
-- `/RelayOrder`: 继电器控制命令
+系统自动支持宽幅摄像头，会自动检测图像宽高比，并处理左半部分图像。这对于宽幅图像尤其有用。
 
-### 服务
+### 运行完整系统
 
-- `/plan_trajectory`: 轨迹规划服务
+使用以下命令启动完整系统，包括GUI界面和目标检测：
 
-## 注意事项
+```bash
+roslaunch run.launch enable_yolo:=true
+```
 
-- 请确保硬件连接正确
-- 如需调整参数，可修改相应launch文件中的参数值
-- 使用GUI界面时，可以通过"示例动作"区域中的按钮执行预设动作
-- 双目摄像头视觉功能需要正确连接和配置摄像头
+可选参数：
+- `enable_yolo` - 启用/禁用YOLO目标检测 (默认: false)
+- `camera_device` - 摄像头设备路径 (默认: /dev/video0)
+- `resolution_width` - 摄像头宽度 (默认: 1280)
+- `resolution_height` - 摄像头高度 (默认: 480)
+- `fps` - 帧率 (默认: 30)
+
+### 系统配置
+
+如需修改系统配置，可以编辑以下文件：
+
+- `launch/run.launch` - 主启动文件
+- `launch/camera_test.launch` - 摄像头测试启动文件
+- `launch/direct_camera.launch` - 直接访问摄像头启动文件
+
+## 故障排除
+
+### 常见问题
+
+1. **摄像头不工作**
+   - 检查摄像头设备是否存在: `ls -la /dev/video*`
+   - 确保摄像头权限正确: `sudo chmod a+rw /dev/video*`
+   - 尝试直接测试模式: `./start.sh --test`
+
+2. **图像显示问题**
+   - 检查分辨率设置是否与摄像头匹配
+   - 如果图像为黑屏，可能是摄像头曝光问题
+   - 尝试不同的像素格式 (YUYV, MJPEG)
+
+3. **目标检测不工作**
+   - 确保已安装所需的Python库
+   - 检查YOLO模型路径是否正确
+
+4. **轨迹规划错误**
+   - 检查机械臂配置参数
+   - 确保已安装所有ROS依赖包
+
+## 系统架构
+
+系统采用模块化设计，主要包括以下ROS节点：
+
+1. `camera_node` - 读取摄像头图像并发布到ROS话题
+2. `yolo_detector` - 基于YOLO的目标检测
+3. `trajectory_bridge` - 轨迹规划和执行
+4. `arm_gui` - 用户界面
+
+各节点之间通过ROS话题进行通信，主要话题包括：
+
+- `/camera/image_raw` - 摄像头图像
+- `/camera/detections` - 目标检测结果
+- `/detection_image` - 包含检测结果的可视化图像
+
+## 工具说明
+
+系统提供了几个有用的工具脚本：
+
+1. `camera_test.py` - 测试摄像头并显示参数信息
+2. `camera_direct.py` - 不使用ROS直接访问摄像头
+3. `camera_node.py` - ROS摄像头节点
+
+## 许可证
+
+本项目基于MIT许可证发布 - 详见 [LICENSE](LICENSE) 文件。
+
+## 致谢
+
+- 感谢所有贡献者和使用者
+- 特别感谢ROS和OpenCV社区

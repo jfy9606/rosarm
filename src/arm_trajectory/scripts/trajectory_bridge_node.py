@@ -8,7 +8,7 @@ from moveit_msgs.msg import RobotTrajectory
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from arm_trajectory.msg import TrajectoryPath, TrajectoryPoint
 from arm_trajectory.srv import PlanTrajectory, PlanTrajectoryRequest, PlanTrajectoryResponse
-from whales_optimizer import WhaleOptimizer, forward_kinematics_dh
+from .whales_optimizer import WhaleOptimizer, forward_kinematics_dh
 from math import pi
 import tf.transformations
 

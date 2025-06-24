@@ -2,6 +2,6 @@
 
 # 标准消息头
 Header header
-
+ 
 # 检测结果数组
 Detection[] detections 

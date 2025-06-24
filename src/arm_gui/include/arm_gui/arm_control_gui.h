@@ -14,6 +14,7 @@
 #include <QDateTime>
 #include <QScrollBar>
 #include <QTextCursor>
+#include <QCheckBox>
 
 #include <ros/ros.h>
 #include <std_msgs/String.h>
@@ -29,6 +30,7 @@
 #include "liancheng_socket/MotorOrder.h"
 #include <tf2_ros/buffer.h>
 #include <servo_wrist/SerControl.h>
+#include <std_srvs/SetBool.h>
 
 namespace Ui {
 class ArmControlMainWindow;
@@ -108,10 +110,14 @@ private slots:
     // ROS更新
     void updateROS();
 
+    // YOLO控制
+    void onYoloDetectionToggled(bool checked);
+
 private:
     // UI相关
     Ui::ArmControlMainWindow* ui;
     QTimer* updateTimer;
+    QCheckBox* yolo_checkbox_;
     
     // ROS相关
     ros::NodeHandle& nh_;
@@ -125,6 +131,8 @@ private:
     ros::Subscriber depth_image_sub_;
     ros::Subscriber detection_image_sub_;
     ros::Subscriber detection_poses_sub_;
+    ros::Subscriber yolo_status_sub_;
+    ros::ServiceClient yolo_control_client_;
     
     // 额外ROS相关
     ros::Publisher joint_command_pub_;
@@ -151,6 +159,7 @@ private:
     bool gripper_open_;
     bool vacuum_on_;
     int vacuum_power_;
+    bool yolo_detection_enabled_;
     
     // 检测对象结构
     struct DetectedObject {
@@ -174,6 +183,7 @@ private:
     void detectionCallback(const sensor_msgs::Image::ConstPtr& msg);
     void depthCallback(const sensor_msgs::Image::ConstPtr& msg);
     void stereoMergedCallback(const sensor_msgs::Image::ConstPtr& msg);
+    void yoloStatusCallback(const std_msgs::Bool::ConstPtr& msg);
     
     // 辅助函数
     void sendJointCommand(const std::vector<double>& positions);
@@ -207,11 +217,11 @@ private:
     // 渲染函数
     void renderRobotArm();
     
-    // 电机控制函数
+    // 电机命令
     void sendMotorOrder(uint8_t station_num, uint8_t form, int16_t vel, uint16_t vel_ac, uint16_t vel_de, bool pos_mode, int32_t pos, uint16_t pos_thr);
     void sendRelayOrder(const std::string& command);
     
-    // 舵机控制函数
+    // 舵机命令
     void sendServoCommand(int servo_id, int position, int velocity = 1000, int acceleration = 100);
     
     // 辅助函数

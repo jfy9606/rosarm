@@ -1,43 +1,31 @@
 <?xml version="1.0"?>
 <launch>
-  <!-- 参数设置 -->
-  <arg name="left_device" default="/dev/video0" doc="左相机设备" />
-  <arg name="right_device" default="/dev/video1" doc="右相机设备" />
-  <arg name="width" default="640" doc="图像宽度" />
-  <arg name="height" default="480" doc="图像高度" />
-  <arg name="fps" default="30" doc="帧率" />
+  <!-- 摄像头参数设置 -->
+  <arg name="camera_device" default="/dev/video0" doc="摄像头设备路径" />
+  <arg name="resolution_width" default="1280" doc="摄像头分辨率宽度" />
+  <arg name="resolution_height" default="480" doc="摄像头分辨率高度" />
+  <arg name="fps" default="30" doc="摄像头帧率" />
+  <arg name="show_debug" default="true" doc="是否显示调试窗口" />
 
-  <!-- 相机测试节点 -->
-  <node name="left_cam" pkg="usb_cam" type="usb_cam_node" output="screen">
-    <param name="video_device" value="$(arg left_device)" />
-    <param name="image_width" value="$(arg width)" />
-    <param name="image_height" value="$(arg height)" />
-    <param name="pixel_format" value="yuyv" />
-    <param name="framerate" value="$(arg fps)" />
-    <param name="camera_frame_id" value="left_camera" />
-    <remap from="/usb_cam/image_raw" to="/left_cam/image_raw" />
+  <!-- 摄像头节点 -->
+  <node name="camera" pkg="stereo_vision" type="camera_node.py" output="screen" respawn="true">
+    <param name="camera_device" value="$(arg camera_device)" />
+    <param name="resolution_width" value="$(arg resolution_width)" />
+    <param name="resolution_height" value="$(arg resolution_height)" />
+    <param name="fps" value="$(arg fps)" />
+    <param name="log_level" value="0" /> <!-- 详细日志模式 -->
   </node>
 
-  <node name="right_cam" pkg="usb_cam" type="usb_cam_node" output="screen">
-    <param name="video_device" value="$(arg right_device)" />
-    <param name="image_width" value="$(arg width)" />
-    <param name="image_height" value="$(arg height)" />
-    <param name="pixel_format" value="yuyv" />
-    <param name="framerate" value="$(arg fps)" />
-    <param name="camera_frame_id" value="right_camera" />
-    <remap from="/usb_cam/image_raw" to="/right_cam/image_raw" />
-  </node>
+  <!-- 图像查看器 - 如果启用debug则显示 -->
+  <group if="$(arg show_debug)">
+    <node name="camera_view" pkg="image_view" type="image_view" output="screen">
+      <remap from="image" to="/camera/image_raw" />
+      <param name="autosize" value="true" />
+      <param name="window_name" value="摄像头图像" />
+    </node>
+  </group>
 
-  <!-- 图像查看器 -->
-  <node name="left_view" pkg="image_view" type="image_view" output="screen">
-    <remap from="image" to="/left_cam/image_raw" />
-    <param name="autosize" value="true" />
-    <param name="window_name" value="左摄像头" />
-  </node>
-
-  <node name="right_view" pkg="image_view" type="image_view" output="screen">
-    <remap from="image" to="/right_cam/image_raw" />
-    <param name="autosize" value="true" />
-    <param name="window_name" value="右摄像头" />
-  </node>
+  <!-- TF坐标转换 -->
+  <node pkg="tf2_ros" type="static_transform_publisher" name="camera_link_broadcaster"
+        args="0 0 0.5 0 0 0 world camera_link" />
 </launch> 

@@ -2,9 +2,10 @@
 <launch>
   <!-- 参数设置 -->
   <arg name="enable_yolo" default="false" doc="是否启用YOLO目标检测" />
-  <arg name="enable_depth" default="false" doc="是否启用深度估计" />
-  <arg name="left_camera_device" default="/dev/video0" doc="左相机设备路径" />
-  <arg name="right_camera_device" default="/dev/video1" doc="右相机设备路径" />
+  <arg name="camera_device" default="/dev/video0" doc="摄像头设备路径" />
+  <arg name="resolution_width" default="1280" doc="摄像头分辨率宽度" />
+  <arg name="resolution_height" default="480" doc="摄像头分辨率高度" />
+  <arg name="fps" default="30" doc="摄像头帧率" />
 
   <!-- 核心功能节点 -->
   
@@ -19,57 +20,36 @@
     <!-- 舵机串口参数 -->
   </node>
   
-  <!-- 双目摄像头合并节点 - 同时读取两个摄像头并合并显示 -->
-  <node name="stereo_merger" pkg="stereo_vision" type="stereo_merger.py" output="screen" respawn="true">
-    <param name="left_device" value="$(arg left_camera_device)" />
-    <param name="right_device" value="$(arg right_camera_device)" />
-    <param name="resolution_width" value="1280" />
-    <param name="resolution_height" value="480" />
-    <param name="fps" value="30" />
+  <!-- 摄像头节点 -->
+  <node name="camera" pkg="stereo_vision" type="camera_node.py" output="screen" respawn="true">
+    <param name="camera_device" value="$(arg camera_device)" />
+    <param name="resolution_width" value="$(arg resolution_width)" />
+    <param name="resolution_height" value="$(arg resolution_height)" />
+    <param name="fps" value="$(arg fps)" />
     <param name="log_level" value="1" />
-    <!-- 将合并图像重映射到GUI使用的话题 -->
-    <remap from="/stereo_camera/image_merged" to="/left_camera/image_raw" />
-  </node>
-
-  <!-- 添加图像处理节点 -->
-  <node name="image_proc" pkg="image_proc" type="image_proc" output="screen" ns="stereo_camera">
-    <param name="approximate_sync" value="true" />
   </node>
 
   <!-- 添加TF坐标转换 -->
   <node pkg="tf2_ros" type="static_transform_publisher" name="camera_link_broadcaster"
         args="0 0 0.5 0 0 0 world camera_link" />
-  <node pkg="tf2_ros" type="static_transform_publisher" name="left_camera_link_broadcaster"
-        args="0 0 0.5 0 0 0 world left_camera_link" />
-  <node pkg="tf2_ros" type="static_transform_publisher" name="right_camera_link_broadcaster"
-        args="0 0 0.5 0 0 0 world right_camera_link" />
-
+  
   <!-- GUI节点 -->
   <node name="arm_gui" pkg="arm_gui" type="arm_gui_node" output="screen">
     <!-- GUI参数 -->
   </node>
 
-  <!-- YOLO目标检测节点 - 可选，使用合并的立体图像 -->
+  <!-- YOLO目标检测节点 -->
   <node if="$(arg enable_yolo)" name="yolo_detector" pkg="stereo_vision" type="yolo_detector.py" output="screen" respawn="true">
     <param name="model_path" value="$(find stereo_vision)/models/yolov5s.pt" />
     <param name="confidence" value="0.5" />
-    <param name="input_topic" value="/stereo_camera/image_merged" />
-    <param name="output_topic" value="/stereo_camera/detections" />
+    <param name="input_topic" value="/camera/image_raw" />
+    <param name="output_topic" value="/camera/detections" />
     <param name="visualization_topic" value="/detection_image" />
-    <!-- 将检测结果也重映射到GUI使用的话题 -->
-    <remap from="/detection_image" to="/right_camera/image_raw" />
   </node>
 
   <!-- 路径规划节点 - 依赖于YOLO -->
   <node if="$(arg enable_yolo)" name="path_planner" pkg="arm_trajectory" type="trajectory_bridge_node.py" output="screen">
-    <param name="use_3d" value="$(arg enable_depth)" />
-    <param name="detection_topic" value="/stereo_camera/detections" />
-  </node>
-
-  <!-- 3D点云生成 - 可选，使用立体图像进行深度估计 -->
-  <node if="$(arg enable_depth)" name="depth_estimator" pkg="stereo_vision" type="depth_estimator.py" output="screen" respawn="true">
-    <param name="input_topic" value="/stereo_camera/image_merged" />
-    <param name="output_topic" value="/stereo_vision/depth_image" />
-    <param name="point_cloud_topic" value="/stereo_camera/points" />
+    <param name="use_3d" value="false" />
+    <param name="detection_topic" value="/camera/detections" />
   </node>
 </launch>

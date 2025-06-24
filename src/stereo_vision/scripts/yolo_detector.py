@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 import os
 from sensor_msgs.msg import Image
+from std_msgs.msg import Bool
 from cv_bridge import CvBridge, CvBridgeError
 from stereo_vision.msg import Detection, DetectionArray
 
@@ -17,9 +18,12 @@ class YoloDetector:
         # 获取参数
         self.model_path = rospy.get_param('~model_path', '')
         self.confidence = rospy.get_param('~confidence', 0.5)
-        self.input_topic = rospy.get_param('~input_topic', '/stereo_camera/image_processed')
-        self.output_topic = rospy.get_param('~output_topic', '/stereo_camera/detections')
-        self.visualization_topic = rospy.get_param('~visualization_topic', '/stereo_camera/detection_image')
+        self.input_topic = rospy.get_param('~input_topic', '/camera/image_raw')
+        self.output_topic = rospy.get_param('~output_topic', '/camera/detections')
+        self.visualization_topic = rospy.get_param('~visualization_topic', '/detection_image')
+        
+        # 检测开关状态
+        self.detection_enabled = rospy.get_param('~enabled', True)
         
         # 初始化模型状态
         self.model = None
@@ -35,7 +39,18 @@ class YoloDetector:
         # 订阅图像
         self.image_sub = rospy.Subscriber(self.input_topic, Image, self.image_callback)
         
-        rospy.loginfo("YOLO目标检测器已初始化")
+        # 订阅检测开关控制
+        self.control_sub = rospy.Subscriber('/yolo_detection/status', Bool, self.control_callback)
+        
+        rospy.loginfo("YOLO目标检测器已初始化，检测状态: %s", "启用" if self.detection_enabled else "禁用")
+    
+    def control_callback(self, msg):
+        """接收YOLO检测开关控制信号"""
+        old_state = self.detection_enabled
+        self.detection_enabled = msg.data
+        
+        if old_state != self.detection_enabled:
+            rospy.loginfo("YOLO检测状态已更改为: %s", "启用" if self.detection_enabled else "禁用")
     
     def load_yolo_model(self):
         """尝试加载YOLO模型"""
@@ -113,26 +128,38 @@ class YoloDetector:
             # 在图像上绘制检测结果
             visualization_image = cv_image.copy()
             
-            # 根据加载的模型类型执行检测
-            if hasattr(self, 'model_type'):
-                if self.model_type == "opencv_dnn":
-                    self.detect_with_opencv_dnn(cv_image, detection_array, visualization_image)
-                elif self.model_type == "opencv_cascade":
-                    self.detect_with_opencv_cascade(cv_image, detection_array, visualization_image)
+            # 检查是否启用了检测
+            if self.detection_enabled:
+                # 根据加载的模型类型执行检测
+                if hasattr(self, 'model_type'):
+                    if self.model_type == "opencv_dnn":
+                        self.detect_with_opencv_dnn(cv_image, detection_array, visualization_image)
+                    elif self.model_type == "opencv_cascade":
+                        self.detect_with_opencv_cascade(cv_image, detection_array, visualization_image)
+                else:
+                    # 默认使用PyTorch模型
+                    self.detect_with_pytorch(cv_image, detection_array, visualization_image)
+                
+                # 发布检测结果
+                self.detection_pub.publish(detection_array)
+                
+                if len(detection_array.detections) > 0:
+                    rospy.loginfo(f"检测到 {len(detection_array.detections)} 个目标")
+                
+                # 在图像上添加状态信息
+                status_text = f"YOLO检测: 启用 | 检测到: {len(detection_array.detections)}"
+                cv2.putText(visualization_image, status_text, (10, 30), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
             else:
-                # 默认使用PyTorch模型
-                self.detect_with_pytorch(cv_image, detection_array, visualization_image)
-            
-            # 发布检测结果
-            self.detection_pub.publish(detection_array)
+                # 检测已禁用，添加状态信息
+                status_text = "YOLO检测: 禁用"
+                cv2.putText(visualization_image, status_text, (10, 30), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
             
             # 发布可视化图像
             visualization_msg = self.bridge.cv2_to_imgmsg(visualization_image, "bgr8")
             visualization_msg.header = data.header
             self.visualization_pub.publish(visualization_msg)
-            
-            if len(detection_array.detections) > 0:
-                rospy.loginfo(f"检测到 {len(detection_array.detections)} 个目标")
             
         except CvBridgeError as e:
             rospy.logerr(f"CvBridge错误: {e}")

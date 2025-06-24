@@ -7,12 +7,14 @@
 #include <QPushButton>
 #include <QGroupBox>
 #include <QVBoxLayout>
+#include <QCheckBox>
 
 #include <sensor_msgs/JointState.h>
 #include <std_msgs/String.h>
 #include <std_msgs/Float64.h>
 #include <std_msgs/Bool.h>
 #include <geometry_msgs/PoseArray.h>
+#include <std_srvs/SetBool.h>
 
 #include <opencv2/opencv.hpp>
 #include <cmath>
@@ -32,6 +34,7 @@ ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     , vacuum_on_(false)
     , vacuum_power_(0)
     , gripper_open_(false)
+    , yolo_detection_enabled_(false)
 {
     // 设置UI
     ui->setupUi(this);
@@ -71,6 +74,12 @@ ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     // 如果启用了深度估计，订阅深度图像
     depth_image_sub_ = nh_.subscribe("/stereo_camera/depth", 1, &ArmControlGUI::depthImageCallback, this);
     
+    // 订阅YOLO状态
+    yolo_status_sub_ = nh_.subscribe("/yolo_detection/status", 1, &ArmControlGUI::yoloStatusCallback, this);
+    
+    // 创建YOLO控制服务客户端
+    yolo_control_client_ = nh_.serviceClient<std_srvs::SetBool>("/yolo_detection/set_enabled");
+    
     // 设置定时器用于更新ROS
     QTimer *ros_timer = new QTimer(this);
     connect(ros_timer, &QTimer::timeout, this, &ArmControlGUI::updateROS);
@@ -90,6 +99,7 @@ ArmControlGUI::~ArmControlGUI()
     stereo_merged_sub_.shutdown();
     depth_image_sub_.shutdown();
     detection_image_sub_.shutdown();
+    yolo_status_sub_.shutdown();
     
     delete ui;
 }
@@ -131,10 +141,19 @@ void ArmControlGUI::initializeGUI()
     demoLayout->addWidget(demoButton2);
     demoLayout->addWidget(demoButton3);
     
+    // 创建YOLO检测控制
+    QGroupBox* visionGroup = new QGroupBox("视觉检测");
+    QVBoxLayout* visionLayout = new QVBoxLayout(visionGroup);
+    
+    yolo_checkbox_ = new QCheckBox("启用YOLO目标检测");
+    connect(yolo_checkbox_, &QCheckBox::toggled, this, &ArmControlGUI::onYoloDetectionToggled);
+    visionLayout->addWidget(yolo_checkbox_);
+    
     // 将示例动作组添加到controlWidget的布局中
     QVBoxLayout* controlLayout = qobject_cast<QVBoxLayout*>(ui->controlWidget->layout());
     if (controlLayout) {
         controlLayout->addWidget(demoGroup);
+        controlLayout->addWidget(visionGroup);  // 添加视觉控制组
     } else {
         // 如果没有布局，打印错误信息
         logMessage("错误: 无法获取控制部件布局");
@@ -634,7 +653,7 @@ void ArmControlGUI::updateCameraViews()
 {
     try {
         // 更新左相机视图
-        if (!left_camera_image_.isNull()) {
+    if (!left_camera_image_.isNull()) {
             // 获取标签的大小
             QSize labelSize = ui->cameraView->size();
             
@@ -1093,5 +1112,53 @@ void ArmControlGUI::stereoMergedCallback(const sensor_msgs::Image::ConstPtr& msg
     }
     catch (cv_bridge::Exception& e) {
         ROS_ERROR("cv_bridge exception in stereo merged callback: %s", e.what());
+    }
+}
+
+// 新增YOLO状态回调
+void ArmControlGUI::yoloStatusCallback(const std_msgs::Bool::ConstPtr& msg)
+{
+    yolo_detection_enabled_ = msg->data;
+    
+    // 更新复选框状态，但不触发信号
+    if (yolo_checkbox_) {
+        yolo_checkbox_->blockSignals(true);
+        yolo_checkbox_->setChecked(yolo_detection_enabled_);
+        yolo_checkbox_->blockSignals(false);
+    }
+    
+    logMessage(QString("YOLO检测状态: %1").arg(yolo_detection_enabled_ ? "启用" : "禁用"));
+}
+
+// 新增YOLO切换处理
+void ArmControlGUI::onYoloDetectionToggled(bool checked)
+{
+    if (!yolo_control_client_.exists()) {
+        logMessage("错误: YOLO控制服务不可用");
+        
+        // 恢复复选框状态
+        if (yolo_checkbox_) {
+            yolo_checkbox_->blockSignals(true);
+            yolo_checkbox_->setChecked(yolo_detection_enabled_);
+            yolo_checkbox_->blockSignals(false);
+        }
+        return;
+    }
+    
+    std_srvs::SetBool srv;
+    srv.request.data = checked;
+    
+    if (yolo_control_client_.call(srv)) {
+        logMessage(QString("YOLO检测已%1").arg(checked ? "启用" : "禁用"));
+        yolo_detection_enabled_ = checked;
+    } else {
+        logMessage("错误: 无法设置YOLO检测状态");
+        
+        // 恢复复选框状态
+        if (yolo_checkbox_) {
+            yolo_checkbox_->blockSignals(true);
+            yolo_checkbox_->setChecked(yolo_detection_enabled_);
+            yolo_checkbox_->blockSignals(false);
+        }
     }
 } 

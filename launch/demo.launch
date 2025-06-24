@@ -15,4 +15,38 @@
   <node name="servo_control" pkg="servo_wrist" type="wrist_ctrl" args="/dev/ttyUSB1" output="screen">
     <!-- 舵机串口参数 -->
   </node>
+
+  <!-- 基础参数设置 -->
+  <arg name="camera_device" default="/dev/video0" />
+  <arg name="yolo_enabled" default="false" />
+  <arg name="yolo_model_path" default="$(find stereo_vision)/models/best.pt" />
+  
+  <!-- 相机节点 -->
+  <node name="camera_node" pkg="stereo_vision" type="camera_node.py" output="screen">
+    <param name="camera_device" value="$(arg camera_device)" />
+    <param name="width" value="1280" />
+    <param name="height" value="720" />
+    <param name="fps" value="30" />
+  </node>
+  
+  <!-- YOLO控制器 -->
+  <node name="yolo_controller" pkg="stereo_vision" type="yolo_controller.py" output="screen">
+    <param name="enabled" value="$(arg yolo_enabled)" />
+  </node>
+  
+  <!-- YOLO检测节点 -->
+  <node name="yolo_detector" pkg="stereo_vision" type="yolo_detector.py" output="screen">
+    <param name="model_path" value="$(arg yolo_model_path)" />
+    <param name="confidence" value="0.5" />
+    <param name="input_topic" value="/camera/image_raw" />
+    <param name="output_topic" value="/camera/detections" />
+    <param name="visualization_topic" value="/detection_image" />
+    <param name="enabled" value="$(arg yolo_enabled)" />
+  </node>
+  
+  <!-- 轨迹规划桥接节点 -->
+  <node name="trajectory_bridge" pkg="arm_trajectory" type="trajectory_bridge_node.py" output="screen" />
+  
+  <!-- 机械臂图形界面 -->
+  <node name="arm_gui" pkg="arm_gui" type="arm_gui_node" output="screen" />
 </launch> 

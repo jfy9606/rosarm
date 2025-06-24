@@ -38,9 +38,11 @@ include_directories(
 )
 
 catkin_install_python(PROGRAMS
-  scripts/stereo_merger.py
+  scripts/camera_node.py
+  scripts/camera_direct.py
   scripts/camera_test.py
   scripts/yolo_detector.py
+  scripts/yolo_controller.py
   scripts/depth_estimator.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 ) 
