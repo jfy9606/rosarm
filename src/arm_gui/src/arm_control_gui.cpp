@@ -64,15 +64,22 @@ ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     ui->cameraView->setScaledContents(false);
     ui->cameraView->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
     
-    // 订阅相机话题 - 更新为使用合并的立体图像
+    // 订阅摄像头话题，调整话题名称以匹配实际发布的话题
+    // 尝试多种可能的话题名称，增加接收成功的可能性
     left_camera_sub_ = nh_.subscribe("/left_camera/image_raw", 1, &ArmControlGUI::leftCameraCallback, this);
     right_camera_sub_ = nh_.subscribe("/right_camera/image_raw", 1, &ArmControlGUI::rightCameraCallback, this);
     
     // 订阅合并的立体图像
     stereo_merged_sub_ = nh_.subscribe("/stereo_camera/image_merged", 1, &ArmControlGUI::stereoMergedCallback, this);
     
+    // 新增直接订阅原始摄像头话题，不依赖于重映射
+    ros::Subscriber raw_camera_sub = nh_.subscribe("/camera/image_raw", 1, &ArmControlGUI::leftCameraCallback, this);
+    
     // 如果启用了目标检测，订阅检测结果
     detection_image_sub_ = nh_.subscribe("/stereo_camera/detection_image", 1, &ArmControlGUI::detectionImageCallback, this);
+    
+    // 额外订阅YOLO检测结果话题
+    ros::Subscriber yolo_detection_sub = nh_.subscribe("/yolo_detection/image", 1, &ArmControlGUI::detectionImageCallback, this);
     
     // 如果启用了深度估计，订阅深度图像
     depth_image_sub_ = nh_.subscribe("/stereo_camera/depth", 1, &ArmControlGUI::depthImageCallback, this);
@@ -87,6 +94,19 @@ ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     QTimer *ros_timer = new QTimer(this);
     connect(ros_timer, &QTimer::timeout, this, &ArmControlGUI::updateROS);
     ros_timer->start(10); // 10ms
+    
+    // 打印订阅的话题信息
+    ROS_INFO("GUI已订阅摄像头话题:");
+    ROS_INFO(" - /left_camera/image_raw");
+    ROS_INFO(" - /right_camera/image_raw");
+    ROS_INFO(" - /stereo_camera/image_merged");
+    ROS_INFO(" - /camera/image_raw");
+    ROS_INFO(" - /stereo_camera/detection_image");
+    ROS_INFO(" - /yolo_detection/image");
+    ROS_INFO(" - /stereo_camera/depth");
+    
+    // 输出调试信息到GUI日志
+    logMessage("已订阅多个图像话题，等待数据...");
 }
 
 ArmControlGUI::~ArmControlGUI()
@@ -531,11 +551,22 @@ void ArmControlGUI::leftCameraCallback(const sensor_msgs::Image::ConstPtr& msg)
         // 保存图像
         left_camera_image_ = image;
         
+        // 将图像同时设置为当前显示的图像
+        current_camera_image_ = image;
+        
+        // 记录成功接收的图像帧
+        static int frame_count = 0;
+        frame_count++;
+        if (frame_count % 30 == 0) {  // 每30帧记录一次
+            ROS_INFO("成功接收到摄像头图像帧：%d (尺寸: %dx%d)", 
+                    frame_count, image.width(), image.height());
+        }
+        
         // 更新UI (在主线程中)
         QMetaObject::invokeMethod(this, "updateCameraView", Qt::QueuedConnection);
     }
     catch (cv_bridge::Exception& e) {
-        ROS_ERROR("cv_bridge exception: %s", e.what());
+        ROS_ERROR("cv_bridge exception in left camera callback: %s", e.what());
     }
 }
 
@@ -575,11 +606,19 @@ void ArmControlGUI::detectionImageCallback(const sensor_msgs::Image::ConstPtr& m
         // 保存图像
         detection_image_ = image;
         
+        // 记录成功接收的检测图像帧
+        static int frame_count = 0;
+        frame_count++;
+        if (frame_count % 30 == 0) {  // 每30帧记录一次
+            ROS_INFO("成功接收到检测图像帧：%d (尺寸: %dx%d)", 
+                   frame_count, image.width(), image.height());
+        }
+        
         // 更新UI (在主线程中)
         QMetaObject::invokeMethod(this, "updateCameraView", Qt::QueuedConnection);
     }
     catch (cv_bridge::Exception& e) {
-        ROS_ERROR("cv_bridge exception: %s", e.what());
+        ROS_ERROR("cv_bridge exception in detection image callback: %s", e.what());
     }
 }
 
@@ -702,13 +741,31 @@ void ArmControlGUI::updateCameraViews()
 {
     try {
         // 更新左相机视图
-    if (!left_camera_image_.isNull()) {
+        QImage display_image;
+        
+        // 优先使用检测图像(如果有)
+        if (!detection_image_.isNull() && yolo_detection_enabled_) {
+            display_image = detection_image_;
+            ROS_DEBUG("显示检测图像");
+        }
+        // 其次使用立体合并图像
+        else if (!left_camera_image_.isNull()) {
+            display_image = left_camera_image_;
+            ROS_DEBUG("显示左摄像头图像");
+        }
+        // 再次使用当前图像
+        else if (!current_camera_image_.isNull()) {
+            display_image = current_camera_image_;
+            ROS_DEBUG("显示当前图像");
+        }
+        
+        if (!display_image.isNull()) {
             // 获取标签的大小
             QSize labelSize = ui->cameraView->size();
             
             // 按比例缩放图像，保持原始宽高比
-            QPixmap left_pixmap = QPixmap::fromImage(left_camera_image_);
-            QPixmap scaled_pixmap = left_pixmap.scaled(labelSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            QPixmap scaled_pixmap = QPixmap::fromImage(display_image).scaled(
+                labelSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
             
             // 创建一个背景图像，用于居中显示
             QPixmap background(labelSize);
@@ -721,17 +778,32 @@ void ArmControlGUI::updateCameraViews()
             // 在背景上绘制缩放后的图像
             QPainter painter(&background);
             painter.drawPixmap(x, y, scaled_pixmap);
+            
+            // 添加调试信息
+            painter.setPen(Qt::white);
+            painter.setFont(QFont("Arial", 10));
+            painter.drawText(10, 20, QString("图像尺寸: %1x%2").arg(display_image.width()).arg(display_image.height()));
+            painter.drawText(10, 40, QString("YOLO: %1").arg(yolo_detection_enabled_ ? "启用" : "禁用"));
             painter.end();
             
             // 设置到标签
             ui->cameraView->setPixmap(background);
+            camera_pixmap_ = background;  // 保存当前显示的图像
         } else {
             // 摄像头图像为空，显示提示信息
             if (ui->cameraView->pixmap() == nullptr || ui->cameraView->pixmap()->isNull()) {
                 QPixmap emptyPix(ui->cameraView->width(), ui->cameraView->height());
                 emptyPix.fill(Qt::black);
+                
+                // 添加提示文字
+                QPainter painter(&emptyPix);
+                painter.setPen(Qt::white);
+                painter.setFont(QFont("Arial", 14, QFont::Bold));
+                painter.drawText(emptyPix.rect(), Qt::AlignCenter, "等待摄像头数据...\n\n请确认:\n1.摄像头已连接\n2.话题已正确发布");
+                painter.end();
+                
                 ui->cameraView->setPixmap(emptyPix);
-                ROS_INFO("等待摄像头数据...");
+                ROS_WARN_THROTTLE(5, "等待摄像头数据...");
             }
         }
     } catch (std::exception &e) {
@@ -1155,6 +1227,15 @@ void ArmControlGUI::stereoMergedCallback(const sensor_msgs::Image::ConstPtr& msg
         
         // 保存图像
         left_camera_image_ = image; // 使用合并图像作为主图像
+        current_camera_image_ = image; // 同时设置为当前图像
+        
+        // 记录成功接收的图像帧
+        static int frame_count = 0;
+        frame_count++;
+        if (frame_count % 30 == 0) {  // 每30帧记录一次
+            ROS_INFO("成功接收到立体合并图像帧：%d (尺寸: %dx%d)", 
+                   frame_count, image.width(), image.height());
+        }
         
         // 更新UI (在主线程中)
         QMetaObject::invokeMethod(this, "updateCameraView", Qt::QueuedConnection);
@@ -1164,10 +1245,17 @@ void ArmControlGUI::stereoMergedCallback(const sensor_msgs::Image::ConstPtr& msg
     }
 }
 
-// 新增YOLO状态回调
+// 修改YOLO状态回调函数
 void ArmControlGUI::yoloStatusCallback(const std_msgs::Bool::ConstPtr& msg)
 {
+    bool previous_state = yolo_detection_enabled_;
     yolo_detection_enabled_ = msg->data;
+    
+    // 当状态变化时记录
+    if (previous_state != yolo_detection_enabled_) {
+        ROS_INFO("YOLO检测状态改变: %s", yolo_detection_enabled_ ? "启用" : "禁用");
+        logMessage(QString("YOLO检测状态已改变: %1").arg(yolo_detection_enabled_ ? "启用" : "禁用"));
+    }
     
     // 更新复选框状态，但不触发信号
     if (yolo_checkbox_) {
@@ -1176,40 +1264,50 @@ void ArmControlGUI::yoloStatusCallback(const std_msgs::Bool::ConstPtr& msg)
         yolo_checkbox_->blockSignals(false);
     }
     
-    logMessage(QString("YOLO检测状态: %1").arg(yolo_detection_enabled_ ? "启用" : "禁用"));
+    // 立即更新视图，以便正确显示检测结果或普通图像
+    updateCameraViews();
 }
 
-// 新增YOLO切换处理
+// 修改YOLO切换处理函数
 void ArmControlGUI::onYoloDetectionToggled(bool checked)
 {
+    // 记录操作到日志
+    logMessage(QString("尝试%1 YOLO检测...").arg(checked ? "启用" : "禁用"));
+    
+    // 无论服务是否可用，先将状态保存起来
+    yolo_detection_enabled_ = checked;
+    
+    // 检查服务是否可用
     if (!yolo_control_client_.exists()) {
-        logMessage("错误: YOLO控制服务不可用");
-        
-        // 恢复复选框状态
-        if (yolo_checkbox_) {
-            yolo_checkbox_->blockSignals(true);
-            yolo_checkbox_->setChecked(yolo_detection_enabled_);
-            yolo_checkbox_->blockSignals(false);
-        }
+        logMessage("警告: YOLO控制服务不可用，但已记录您的选择");
         return;
     }
     
+    // 创建服务请求
     std_srvs::SetBool srv;
     srv.request.data = checked;
     
+    // 调用服务
     if (yolo_control_client_.call(srv)) {
-        logMessage(QString("YOLO检测已%1").arg(checked ? "启用" : "禁用"));
-        yolo_detection_enabled_ = checked;
-    } else {
-        logMessage("错误: 无法设置YOLO检测状态");
-        
-        // 恢复复选框状态
-        if (yolo_checkbox_) {
-            yolo_checkbox_->blockSignals(true);
-            yolo_checkbox_->setChecked(yolo_detection_enabled_);
-            yolo_checkbox_->blockSignals(false);
+        if (srv.response.success) {
+            logMessage(QString("YOLO检测已%1").arg(checked ? "启用" : "禁用"));
+        } else {
+            logMessage(QString("无法%1 YOLO检测: %2").arg(
+                checked ? "启用" : "禁用").arg(QString::fromStdString(srv.response.message)));
+            
+            // 恢复复选框状态
+            if (yolo_checkbox_) {
+                yolo_checkbox_->blockSignals(true);
+                yolo_checkbox_->setChecked(!checked); // 恢复之前的状态
+                yolo_checkbox_->blockSignals(false);
+            }
         }
+    } else {
+        logMessage("YOLO控制服务调用失败，但已记录您的选择");
     }
+    
+    // 即使服务调用失败，也立即更新视图，以便在本地显示检测结果
+    updateCameraViews();
 }
 
 // 添加路径规划相关的槽函数
