@@ -46,11 +46,16 @@ ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
         // 设置窗口标题和大小
         setWindowTitle("机械臂控制面板");
         resize(1200, 800);
+        setMinimumSize(800, 600);  // 设置最小尺寸，防止窗口被缩小到看不见
         
         // 确保窗口可见
         show();
         raise();
         activateWindow();
+        
+        // 防止窗口自动关闭
+        setAttribute(Qt::WA_QuitOnClose, false);
+        setAttribute(Qt::WA_DeleteOnClose, false);
         
         // 初始化界面
         initializeGUI();
@@ -85,6 +90,14 @@ ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
         
         ui->cameraView->setPixmap(emptyPix);
         ui->depthView->setPixmap(emptyPix);
+        
+        // 修复布局问题
+        QList<int> sizes;
+        sizes << 350 << 850;  // 控制面板宽度350，视图区域宽度850
+        QSplitter* splitter = findChild<QSplitter*>();
+        if (splitter) {
+            splitter->setSizes(sizes);
+        }
         
         // 订阅各种摄像头话题
         left_camera_sub_ = nh_.subscribe("/left_camera/image_raw", 1, &ArmControlGUI::leftCameraCallback, this);
@@ -126,6 +139,13 @@ ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
         
         // 输出调试信息到GUI日志
         logMessage("已订阅图像和检测结果话题，等待数据...");
+        
+        // 防止窗口闪退
+        QTimer::singleShot(100, this, [this]() {
+            this->show();
+            this->raise();
+            this->activateWindow();
+        });
     }
     catch (std::exception &e) {
         ROS_ERROR("GUI初始化异常: %s", e.what());
@@ -808,9 +828,26 @@ void ArmControlGUI::updateCameraViews()
             base_image = current_camera_image_;
         }
         
+        // 确保UI组件存在
+        if (!ui || !ui->cameraView) {
+            ROS_ERROR("UI组件不存在，无法更新摄像头视图");
+            return;
+        }
+        
+        // 检查窗口是否可见
+        if (!isVisible()) {
+            show();
+            raise();
+            activateWindow();
+            ROS_WARN("窗口不可见，已尝试重新显示");
+        }
+        
         if (!base_image.isNull()) {
             // 获取标签的大小
             QSize labelSize = ui->cameraView->size();
+            if (labelSize.width() <= 0 || labelSize.height() <= 0) {
+                labelSize = QSize(640, 480);  // 使用默认尺寸
+            }
             
             // 创建一个绘制工作的副本
             QImage display_image = base_image.copy();
@@ -825,87 +862,100 @@ void ArmControlGUI::updateCameraViews()
                 
                 // 遍历检测到的物体
                 for (const DetectedObject& obj : detected_objects_) {
-                    // 计算图像坐标 (假设物体位置是在3D世界坐标系中)
-                    int box_x = obj.x; // 需要调整适合显示范围
-                    int box_y = obj.y; // 需要调整适合显示范围
-                    
-                    // 防止坐标超出图像范围
-                    if (box_x < 0) box_x = 0;
-                    if (box_y < 0) box_y = 0;
-                    if (box_x >= display_image.width()) box_x = display_image.width() - 100;
-                    if (box_y >= display_image.height()) box_y = display_image.height() - 100;
-                    
-                    // 绘制矩形框
-                    int box_width = 100; // 示例宽度，根据实际调整
-                    int box_height = 100; // 示例高度，根据实际调整
-                    painter.drawRect(box_x, box_y, box_width, box_height);
-                    
-                    // 绘制标签背景
-                    QString label = QString::fromStdString(obj.type) + " #" + QString::fromStdString(obj.id);
-                    QFont font("Arial", 12, QFont::Bold);
-                    painter.setFont(font);
-                    QFontMetrics fm(font);
-                    int text_width = fm.horizontalAdvance(label) + 10;
-                    int text_height = fm.height() + 5;
-                    
-                    // 绘制标签背景
-                    painter.fillRect(QRect(box_x, box_y - text_height, text_width, text_height), QColor(0, 150, 0, 180));
-                    
-                    // 绘制标签文字
-                    painter.setPen(Qt::white);
-                    painter.drawText(box_x + 5, box_y - 5, label);
-                    
-                    // 重置笔刷用于下一次绘制
-                    painter.setPen(QPen(Qt::green, 3));
+                    try {
+                        // 计算图像坐标 (假设物体位置是在3D世界坐标系中)
+                        int box_x = obj.x; // 需要调整适合显示范围
+                        int box_y = obj.y; // 需要调整适合显示范围
+                        
+                        // 防止坐标超出图像范围
+                        if (box_x < 0) box_x = 0;
+                        if (box_y < 0) box_y = 0;
+                        if (box_x >= display_image.width()) box_x = display_image.width() - 100;
+                        if (box_y >= display_image.height()) box_y = display_image.height() - 100;
+                        
+                        // 绘制矩形框
+                        int box_width = 100; // 示例宽度，根据实际调整
+                        int box_height = 100; // 示例高度，根据实际调整
+                        painter.drawRect(box_x, box_y, box_width, box_height);
+                        
+                        // 绘制标签背景
+                        QString label = QString::fromStdString(obj.type) + " #" + QString::fromStdString(obj.id);
+                        QFont font("Arial", 12, QFont::Bold);
+                        painter.setFont(font);
+                        QFontMetrics fm(font);
+                        int text_width = fm.horizontalAdvance(label) + 10;
+                        int text_height = fm.height() + 5;
+                        
+                        // 绘制标签背景
+                        painter.fillRect(QRect(box_x, box_y - text_height, text_width, text_height), QColor(0, 150, 0, 180));
+                        
+                        // 绘制标签文字
+                        painter.setPen(Qt::white);
+                        painter.drawText(box_x + 5, box_y - 5, label);
+                        
+                        // 重置笔刷用于下一次绘制
+                        painter.setPen(QPen(Qt::green, 3));
+                    } catch (std::exception &e) {
+                        ROS_ERROR("绘制检测框异常: %s", e.what());
+                    }
                 }
                 painter.end();
             }
             
-            // 按比例缩放图像，保持原始宽高比
-            QPixmap scaled_pixmap = QPixmap::fromImage(display_image).scaled(
-                labelSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-            
-            // 创建一个背景图像，用于居中显示
-            QPixmap background(labelSize);
-            background.fill(Qt::black);
-            
-            // 计算居中位置
-            int x = (labelSize.width() - scaled_pixmap.width()) / 2;
-            int y = (labelSize.height() - scaled_pixmap.height()) / 2;
-            
-            // 在背景上绘制缩放后的图像
-            QPainter painter(&background);
-            painter.drawPixmap(x, y, scaled_pixmap);
-            
-            // 添加状态信息
-            painter.setPen(Qt::white);
-            painter.setFont(QFont("Arial", 10));
-            painter.drawText(10, 20, QString("图像尺寸: %1x%2").arg(base_image.width()).arg(base_image.height()));
-            painter.drawText(10, 40, QString("YOLO: %1").arg(yolo_detection_enabled_ ? "启用" : "禁用"));
-            painter.drawText(10, 60, QString("检测到物体: %1 个").arg(detected_objects_.size()));
-            painter.end();
-            
-            // 设置到标签
-            ui->cameraView->setPixmap(background);
-            camera_pixmap_ = background;  // 保存当前显示的图像
-            
-            // 打印调试信息
-            ROS_DEBUG("已更新摄像头视图，尺寸: %dx%d", background.width(), background.height());
+            try {
+                // 按比例缩放图像，保持原始宽高比
+                QPixmap scaled_pixmap = QPixmap::fromImage(display_image).scaled(
+                    labelSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                
+                // 创建一个背景图像，用于居中显示
+                QPixmap background(labelSize);
+                background.fill(Qt::black);
+                
+                // 计算居中位置
+                int x = (labelSize.width() - scaled_pixmap.width()) / 2;
+                int y = (labelSize.height() - scaled_pixmap.height()) / 2;
+                
+                // 在背景上绘制缩放后的图像
+                QPainter painter(&background);
+                painter.drawPixmap(x, y, scaled_pixmap);
+                
+                // 添加状态信息
+                painter.setPen(Qt::white);
+                painter.setFont(QFont("Arial", 10));
+                painter.drawText(10, 20, QString("图像尺寸: %1x%2").arg(base_image.width()).arg(base_image.height()));
+                painter.drawText(10, 40, QString("YOLO: %1").arg(yolo_detection_enabled_ ? "启用" : "禁用"));
+                painter.drawText(10, 60, QString("检测到物体: %1 个").arg(detected_objects_.size()));
+                painter.end();
+                
+                // 设置到标签
+                ui->cameraView->setPixmap(background);
+                camera_pixmap_ = background;  // 保存当前显示的图像
+                
+                // 打印调试信息
+                ROS_DEBUG("已更新摄像头视图，尺寸: %dx%d", background.width(), background.height());
+            } catch (std::exception &e) {
+                ROS_ERROR("更新摄像头视图异常: %s", e.what());
+            }
         } else {
             // 摄像头图像为空，显示提示信息
             if (ui->cameraView->pixmap() == nullptr || ui->cameraView->pixmap()->isNull()) {
-                QPixmap emptyPix(ui->cameraView->width(), ui->cameraView->height());
-                emptyPix.fill(Qt::black);
-                
-                // 添加提示文字
-                QPainter painter(&emptyPix);
-                painter.setPen(Qt::white);
-                painter.setFont(QFont("Arial", 14, QFont::Bold));
-                painter.drawText(emptyPix.rect(), Qt::AlignCenter, "等待摄像头数据...\n\n请确认:\n1.摄像头已连接\n2.话题已正确发布");
-                painter.end();
-                
-                ui->cameraView->setPixmap(emptyPix);
-                ROS_WARN_THROTTLE(5, "等待摄像头数据...");
+                try {
+                    QPixmap emptyPix(ui->cameraView->width() > 0 ? ui->cameraView->width() : 640, 
+                                     ui->cameraView->height() > 0 ? ui->cameraView->height() : 480);
+                    emptyPix.fill(Qt::black);
+                    
+                    // 添加提示文字
+                    QPainter painter(&emptyPix);
+                    painter.setPen(Qt::white);
+                    painter.setFont(QFont("Arial", 14, QFont::Bold));
+                    painter.drawText(emptyPix.rect(), Qt::AlignCenter, "等待摄像头数据...\n\n请确认:\n1.摄像头已连接\n2.话题已正确发布");
+                    painter.end();
+                    
+                    ui->cameraView->setPixmap(emptyPix);
+                    ROS_WARN_THROTTLE(5, "等待摄像头数据...");
+                } catch (std::exception &e) {
+                    ROS_ERROR("创建空图像异常: %s", e.what());
+                }
             }
         }
         
@@ -920,52 +970,70 @@ void ArmControlGUI::updateCameraViews()
 void ArmControlGUI::updateDepthView()
 {
     try {
+        // 确保UI组件存在
+        if (!ui || !ui->depthView) {
+            ROS_ERROR("UI组件不存在，无法更新深度视图");
+            return;
+        }
+        
         // 如果有深度图像，显示它
         if (!depth_image_.isNull()) {
             // 获取标签的大小
             QSize labelSize = ui->depthView->size();
+            if (labelSize.width() <= 0 || labelSize.height() <= 0) {
+                labelSize = QSize(640, 480);  // 使用默认尺寸
+            }
             
-            // 按比例缩放图像，保持原始宽高比
-            QPixmap scaled_pixmap = QPixmap::fromImage(depth_image_).scaled(
-                labelSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-            
-            // 创建一个背景图像，用于居中显示
-            QPixmap background(labelSize);
-            background.fill(Qt::black);
-            
-            // 计算居中位置
-            int x = (labelSize.width() - scaled_pixmap.width()) / 2;
-            int y = (labelSize.height() - scaled_pixmap.height()) / 2;
-            
-            // 在背景上绘制缩放后的图像
-            QPainter painter(&background);
-            painter.drawPixmap(x, y, scaled_pixmap);
-            
-            // 添加状态信息
-            painter.setPen(Qt::white);
-            painter.setFont(QFont("Arial", 10));
-            painter.drawText(10, 20, QString("深度图尺寸: %1x%2").arg(depth_image_.width()).arg(depth_image_.height()));
-            painter.end();
-            
-            // 设置到标签
-            ui->depthView->setPixmap(background);
-            
-            // 打印调试信息
-            ROS_DEBUG("已更新深度视图，尺寸: %dx%d", background.width(), background.height());
+            try {
+                // 按比例缩放图像，保持原始宽高比
+                QPixmap scaled_pixmap = QPixmap::fromImage(depth_image_).scaled(
+                    labelSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                
+                // 创建一个背景图像，用于居中显示
+                QPixmap background(labelSize);
+                background.fill(Qt::black);
+                
+                // 计算居中位置
+                int x = (labelSize.width() - scaled_pixmap.width()) / 2;
+                int y = (labelSize.height() - scaled_pixmap.height()) / 2;
+                
+                // 在背景上绘制缩放后的图像
+                QPainter painter(&background);
+                painter.drawPixmap(x, y, scaled_pixmap);
+                
+                // 添加状态信息
+                painter.setPen(Qt::white);
+                painter.setFont(QFont("Arial", 10));
+                painter.drawText(10, 20, QString("深度图尺寸: %1x%2").arg(depth_image_.width()).arg(depth_image_.height()));
+                painter.end();
+                
+                // 设置到标签
+                ui->depthView->setPixmap(background);
+                
+                // 打印调试信息
+                ROS_DEBUG("已更新深度视图，尺寸: %dx%d", background.width(), background.height());
+            } catch (std::exception &e) {
+                ROS_ERROR("更新深度视图异常: %s", e.what());
+            }
         } else {
             // 深度图像为空，显示提示信息
             if (ui->depthView->pixmap() == nullptr || ui->depthView->pixmap()->isNull()) {
-                QPixmap emptyPix(ui->depthView->width(), ui->depthView->height());
-                emptyPix.fill(Qt::black);
-                
-                // 添加提示文字
-                QPainter painter(&emptyPix);
-                painter.setPen(Qt::white);
-                painter.setFont(QFont("Arial", 14, QFont::Bold));
-                painter.drawText(emptyPix.rect(), Qt::AlignCenter, "等待深度图数据...\n\n请确认:\n1.立体相机已连接\n2.深度话题已正确发布");
-                painter.end();
-                
-                ui->depthView->setPixmap(emptyPix);
+                try {
+                    QPixmap emptyPix(ui->depthView->width() > 0 ? ui->depthView->width() : 640, 
+                                     ui->depthView->height() > 0 ? ui->depthView->height() : 480);
+                    emptyPix.fill(Qt::black);
+                    
+                    // 添加提示文字
+                    QPainter painter(&emptyPix);
+                    painter.setPen(Qt::white);
+                    painter.setFont(QFont("Arial", 14, QFont::Bold));
+                    painter.drawText(emptyPix.rect(), Qt::AlignCenter, "等待深度图数据...\n\n请确认:\n1.立体相机已连接\n2.深度话题已正确发布");
+                    painter.end();
+                    
+                    ui->depthView->setPixmap(emptyPix);
+                } catch (std::exception &e) {
+                    ROS_ERROR("创建空深度图像异常: %s", e.what());
+                }
             }
         }
     } catch (std::exception &e) {
