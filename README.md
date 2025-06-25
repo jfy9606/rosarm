@@ -27,7 +27,7 @@ sudo apt-get update
 sudo apt-get install ros-noetic-image-view ros-noetic-tf2-ros ros-noetic-cv-bridge ros-noetic-serial
 
 # 安装Qt5依赖
-sudo apt-get install qtbase5-dev libqt5-opengl-dev libqt5core5a libqt5gui5 libqt5widgets5 libqt5opengl5
+sudo apt-get install qtbase5-dev qt5-default qtchooser qttools5-dev-tools qttools5-dev libqt5core5a libqt5gui5 libqt5widgets5 libqt5opengl5 ros-noetic-rqt* ros-noetic-qt-gui* -y
 
 # 安装其他系统依赖
 sudo apt-get install libopengl0 libglx0 libgl1-mesa-dev
@@ -126,23 +126,82 @@ roslaunch run.launch enable_yolo:=true
    - 检查工作空间中的包名是否与CMakeLists.txt中的包名一致
    - 如果出现liancheng_socket相关错误，确保SimpleNetwork目录已被重命名为liancheng_socket
 
-2. **摄像头不工作**
+2. **Qt库问题**
+   - 如果出现 `libQt5Core.so.5: cannot open shared object file` 错误，需要执行以下修复：
+   ```bash
+   # 创建Qt库链接
+   sudo strip --remove-section=.note.ABI-tag /usr/lib/x86_64-linux-gnu/libQt5Core.so.5
+   
+   # 如果上面的命令不解决问题，尝试下面的方法
+   sudo apt-get install --reinstall libqt5core5a
+   
+   # 设置Qt库路径
+   export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
+   
+   # 为了永久生效，可以将上面的命令添加到 ~/.bashrc 文件中
+   echo 'export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH' >> ~/.bashrc
+   source ~/.bashrc
+   ```
+
+3. **摄像头不工作**
    - 检查摄像头设备是否存在: `ls -la /dev/video*`
    - 确保摄像头权限正确: `sudo chmod a+rw /dev/video*`
    - 尝试直接测试模式: `./start.sh --test`
 
-3. **图像显示问题**
+4. **图像显示问题**
    - 检查分辨率设置是否与摄像头匹配
    - 如果图像为黑屏，可能是摄像头曝光问题
    - 尝试不同的像素格式 (YUYV, MJPEG)
 
-4. **目标检测不工作**
+5. **目标检测不工作**
    - 确保已安装所需的Python库
    - 检查YOLO模型路径是否正确
 
-5. **轨迹规划错误**
+6. **轨迹规划错误**
    - 检查机械臂配置参数
    - 确保已安装所有ROS依赖包
+
+7. **Python导入错误**
+   - 如果出现 `cannot import name 'WhaleOptimizer' from 'whales_optimizer'` 错误，需要检查：
+   ```bash
+   # 检查文件是否存在
+   ls -la ~/catkin_ws/src/arm_trajectory/scripts/whales_optimizer.py
+   
+   # 确保Python版本兼容
+   python3 --version
+   
+   # 确保没有语法错误，可以尝试手动导入
+   cd ~/catkin_ws/src/arm_trajectory/scripts/
+   python3 -c "from whales_optimizer import WhaleOptimizer, forward_kinematics_dh"
+   
+   # 检查文件权限
+   chmod +x ~/catkin_ws/src/arm_trajectory/scripts/*.py
+   ```
+
+8. **Qt信号槽警告**
+   - 如果出现 `QMetaObject::connectSlotsByName: No matching signal for on_XXXButton_clicked()` 警告，这通常是UI文件中定义的按钮没有对应的槽函数。您可以：
+     - 在相应的类中添加缺失的槽函数
+     - 或修改UI文件，移除未使用的按钮连接
+
+9. **摄像头超时问题**
+   - 如果出现 `VIDEOIO(V4L2:/dev/video0): select() timeout` 或 `摄像头读取失败` 警告：
+   ```bash
+   # 检查摄像头设备
+   ls -la /dev/video*
+   
+   # 重置摄像头
+   sudo modprobe -r uvcvideo
+   sudo modprobe uvcvideo
+   
+   # 检查摄像头是否被其他进程占用
+   sudo fuser -v /dev/video*
+   
+   # 如果摄像头被占用，终止相关进程
+   sudo fuser -k /dev/video0
+   
+   # 尝试使用其他摄像头设备
+   # 修改launch文件中的camera_device参数为其他可用设备
+   ```
 
 ## 系统架构
 
