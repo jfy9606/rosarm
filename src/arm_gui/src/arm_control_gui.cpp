@@ -60,6 +60,9 @@ ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     // 添加日志
     logMessage("控制界面初始化完成");
     
+    // 生成测试图像
+    generateTestImages();
+    
     // 设置相机图像显示区域
     ui->cameraView->setScaledContents(false);
     ui->cameraView->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
@@ -510,6 +513,11 @@ void ArmControlGUI::leftCameraCallback(const sensor_msgs::Image::ConstPtr& msg)
         // 将ROS图像转换为OpenCV图像
         cv_bridge::CvImageConstPtr cv_ptr = cv_bridge::toCvShare(msg, "bgr8");
         
+        // 记录图像信息
+        ROS_INFO("接收到左相机图像: 尺寸=%dx%d, 编码=%s", 
+                cv_ptr->image.cols, cv_ptr->image.rows, msg->encoding.c_str());
+        logMessage(QString("接收到左相机图像: %1x%2").arg(cv_ptr->image.cols).arg(cv_ptr->image.rows));
+        
         // 转换为QImage
         QImage image(cv_ptr->image.data, cv_ptr->image.cols, cv_ptr->image.rows, 
                      cv_ptr->image.step, QImage::Format_RGB888);
@@ -534,6 +542,7 @@ void ArmControlGUI::leftCameraCallback(const sensor_msgs::Image::ConstPtr& msg)
     }
     catch (cv_bridge::Exception& e) {
         ROS_ERROR("cv_bridge exception in left camera callback: %s", e.what());
+        logMessage(QString("图像转换错误: %1").arg(e.what()));
     }
 }
 
@@ -1161,6 +1170,15 @@ void ArmControlGUI::updateROS()
 
 void ArmControlGUI::updateCameraView()
 {
+    // 这个函数被leftCameraCallback等回调函数调用，用于更新相机视图
+    // 记录日志
+    QString status = "更新相机视图 - 图像状态: ";
+    status += (left_camera_image_.isNull() ? QString("左相机为空") : QString("左相机有数据"));
+    status += ", ";
+    status += (current_camera_image_.isNull() ? QString("当前图像为空") : QString("当前图像有数据"));
+    logMessage(status);
+    
+    // 调用updateCameraViews更新所有视图
     updateCameraViews();
 }
 
@@ -1531,4 +1549,46 @@ void ArmControlGUI::updateConnectionStatus()
     
     // 设置状态栏文本
     statusBar()->showMessage(status);
+}
+
+// 添加测试图像生成函数
+void ArmControlGUI::generateTestImages()
+{
+    // 创建测试相机图像
+    QImage testCamera(640, 480, QImage::Format_RGB888);
+    testCamera.fill(Qt::blue);  // 蓝色背景
+    
+    // 在图像上绘制一些测试图形
+    QPainter painter(&testCamera);
+    painter.setPen(QPen(Qt::white, 3));
+    painter.drawText(50, 50, "测试相机图像 - 无需ROS连接");
+    painter.drawRect(100, 100, 200, 150);
+    painter.drawEllipse(400, 300, 100, 100);
+    painter.end();
+    
+    // 创建测试深度图像
+    QImage testDepth(640, 480, QImage::Format_RGB888);
+    testDepth.fill(Qt::black);  // 黑色背景
+    
+    // 在深度图上绘制渐变色
+    QPainter depthPainter(&testDepth);
+    QLinearGradient gradient(0, 0, testDepth.width(), testDepth.height());
+    gradient.setColorAt(0, Qt::blue);
+    gradient.setColorAt(0.5, Qt::green);
+    gradient.setColorAt(1, Qt::red);
+    depthPainter.fillRect(0, 0, testDepth.width(), testDepth.height(), gradient);
+    depthPainter.setPen(Qt::white);
+    depthPainter.drawText(50, 50, "测试深度图像 - 无需ROS连接");
+    depthPainter.end();
+    
+    // 保存测试图像
+    left_camera_image_ = testCamera;
+    current_camera_image_ = testCamera;
+    depth_image_ = testDepth;
+    
+    // 记录日志
+    logMessage("已生成测试图像，无需ROS连接即可显示");
+    
+    // 立即更新视图
+    updateCameraViews();
 } 

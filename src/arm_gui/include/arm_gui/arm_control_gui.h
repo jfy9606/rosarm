@@ -210,6 +210,7 @@ private:
     void sendVacuumCommand(bool on, int power = 100);
     void logMessage(const QString& message);
     QImage cvMatToQImage(const cv::Mat& mat);
+    void generateTestImages();
     
     // 初始化函数
     void initializeGUI();
