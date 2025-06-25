@@ -39,70 +39,97 @@ ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     , gripper_open_(false)
     , yolo_detection_enabled_(false)
 {
-    // 设置UI
-    ui->setupUi(this);
-    initializeGUI();
-    initializeJointControlConnections();
-    initializeROS();
-    
-    // 设置定时器用于GUI更新
-    updateTimer = new QTimer(this);
-    connect(updateTimer, SIGNAL(timeout()), this, SLOT(onUpdateGUI()));
-    updateTimer->start(100); // 10Hz更新
-    
-    // 默认关节值初始化
-    current_joint_values_ = std::vector<double>{0, 0, 0, 0, M_PI/2, 10};
-    
-    // 设置窗口标题
-    setWindowTitle("机械臂控制面板");
-    
-    // 添加日志
-    logMessage("控制界面初始化完成");
-    
-    // 设置相机图像显示区域
-    ui->cameraView->setScaledContents(false);
-    ui->cameraView->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
-    
-    // 订阅各种摄像头话题
-    left_camera_sub_ = nh_.subscribe("/left_camera/image_raw", 1, &ArmControlGUI::leftCameraCallback, this);
-    right_camera_sub_ = nh_.subscribe("/right_camera/image_raw", 1, &ArmControlGUI::rightCameraCallback, this);
-    stereo_merged_sub_ = nh_.subscribe("/stereo_camera/image_merged", 1, &ArmControlGUI::stereoMergedCallback, this);
-    
-    // 新增直接订阅原始摄像头话题
-    ros::Subscriber raw_camera_sub = nh_.subscribe("/camera/image_raw", 1, &ArmControlGUI::leftCameraCallback, this);
-    
-    // 物体检测相关订阅
-    detection_image_sub_ = nh_.subscribe("/stereo_camera/detection_image", 1, &ArmControlGUI::detectionImageCallback, this);
-    ros::Subscriber yolo_detection_sub = nh_.subscribe("/yolo_detection/image", 1, &ArmControlGUI::detectionImageCallback, this);
-    detection_poses_sub_ = nh_.subscribe("/yolo_detection/poses", 1, &ArmControlGUI::detectionPosesCallback, this);
-    
-    // 深度图像订阅
-    depth_image_sub_ = nh_.subscribe("/stereo_camera/depth", 1, &ArmControlGUI::depthImageCallback, this);
-    
-    // YOLO状态订阅
-    yolo_status_sub_ = nh_.subscribe("/yolo_detection/status", 1, &ArmControlGUI::yoloStatusCallback, this);
-    
-    // YOLO控制服务客户端
-    yolo_control_client_ = nh_.serviceClient<std_srvs::SetBool>("/yolo_detection/set_enabled");
-    
-    // 设置定时器用于更新ROS
-    QTimer *ros_timer = new QTimer(this);
-    connect(ros_timer, &QTimer::timeout, this, &ArmControlGUI::updateROS);
-    ros_timer->start(10); // 10ms
-    
-    // 打印订阅的话题信息
-    ROS_INFO("GUI已订阅摄像头话题:");
-    ROS_INFO(" - /left_camera/image_raw");
-    ROS_INFO(" - /right_camera/image_raw");
-    ROS_INFO(" - /stereo_camera/image_merged");
-    ROS_INFO(" - /camera/image_raw");
-    ROS_INFO(" - /stereo_camera/detection_image");
-    ROS_INFO(" - /yolo_detection/image");
-    ROS_INFO(" - /stereo_camera/depth");
-    ROS_INFO(" - /yolo_detection/poses");
-    
-    // 输出调试信息到GUI日志
-    logMessage("已订阅图像和检测结果话题，等待数据...");
+    try {
+        // 设置UI
+        ui->setupUi(this);
+        
+        // 设置窗口标题和大小
+        setWindowTitle("机械臂控制面板");
+        resize(1200, 800);
+        
+        // 确保窗口可见
+        show();
+        raise();
+        activateWindow();
+        
+        // 初始化界面
+        initializeGUI();
+        initializeJointControlConnections();
+        initializeROS();
+        
+        // 设置定时器用于GUI更新
+        updateTimer = new QTimer(this);
+        connect(updateTimer, SIGNAL(timeout()), this, SLOT(onUpdateGUI()));
+        updateTimer->start(100); // 10Hz更新
+        
+        // 默认关节值初始化
+        current_joint_values_ = std::vector<double>{0, 0, 0, 0, M_PI/2, 10};
+        
+        // 添加日志
+        logMessage("控制界面初始化完成");
+        
+        // 设置相机图像显示区域
+        ui->cameraView->setScaledContents(false);
+        ui->cameraView->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+        
+        // 确保视图可见
+        QPixmap emptyPix(640, 480);
+        emptyPix.fill(Qt::black);
+        
+        // 添加提示文字
+        QPainter painter(&emptyPix);
+        painter.setPen(Qt::white);
+        painter.setFont(QFont("Arial", 14, QFont::Bold));
+        painter.drawText(emptyPix.rect(), Qt::AlignCenter, "等待摄像头数据...\n\n请确认:\n1.摄像头已连接\n2.话题已正确发布");
+        painter.end();
+        
+        ui->cameraView->setPixmap(emptyPix);
+        ui->depthView->setPixmap(emptyPix);
+        
+        // 订阅各种摄像头话题
+        left_camera_sub_ = nh_.subscribe("/left_camera/image_raw", 1, &ArmControlGUI::leftCameraCallback, this);
+        right_camera_sub_ = nh_.subscribe("/right_camera/image_raw", 1, &ArmControlGUI::rightCameraCallback, this);
+        stereo_merged_sub_ = nh_.subscribe("/stereo_camera/image_merged", 1, &ArmControlGUI::stereoMergedCallback, this);
+        
+        // 新增直接订阅原始摄像头话题
+        ros::Subscriber raw_camera_sub = nh_.subscribe("/camera/image_raw", 1, &ArmControlGUI::leftCameraCallback, this);
+        
+        // 物体检测相关订阅
+        detection_image_sub_ = nh_.subscribe("/stereo_camera/detection_image", 1, &ArmControlGUI::detectionImageCallback, this);
+        ros::Subscriber yolo_detection_sub = nh_.subscribe("/yolo_detection/image", 1, &ArmControlGUI::detectionImageCallback, this);
+        detection_poses_sub_ = nh_.subscribe("/yolo_detection/poses", 1, &ArmControlGUI::detectionPosesCallback, this);
+        
+        // 深度图像订阅
+        depth_image_sub_ = nh_.subscribe("/stereo_camera/depth", 1, &ArmControlGUI::depthImageCallback, this);
+        
+        // YOLO状态订阅
+        yolo_status_sub_ = nh_.subscribe("/yolo_detection/status", 1, &ArmControlGUI::yoloStatusCallback, this);
+        
+        // YOLO控制服务客户端
+        yolo_control_client_ = nh_.serviceClient<std_srvs::SetBool>("/yolo_detection/set_enabled");
+        
+        // 设置定时器用于更新ROS
+        QTimer *ros_timer = new QTimer(this);
+        connect(ros_timer, &QTimer::timeout, this, &ArmControlGUI::updateROS);
+        ros_timer->start(10); // 10ms
+        
+        // 打印订阅的话题信息
+        ROS_INFO("GUI已订阅摄像头话题:");
+        ROS_INFO(" - /left_camera/image_raw");
+        ROS_INFO(" - /right_camera/image_raw");
+        ROS_INFO(" - /stereo_camera/image_merged");
+        ROS_INFO(" - /camera/image_raw");
+        ROS_INFO(" - /stereo_camera/detection_image");
+        ROS_INFO(" - /yolo_detection/image");
+        ROS_INFO(" - /stereo_camera/depth");
+        ROS_INFO(" - /yolo_detection/poses");
+        
+        // 输出调试信息到GUI日志
+        logMessage("已订阅图像和检测结果话题，等待数据...");
+    }
+    catch (std::exception &e) {
+        ROS_ERROR("GUI初始化异常: %s", e.what());
+    }
 }
 
 ArmControlGUI::~ArmControlGUI()
