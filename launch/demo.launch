@@ -14,39 +14,65 @@
   <!-- 舵机控制节点 -->
   <node name="servo_control" pkg="servo_wrist" type="wrist_ctrl" args="/dev/ttyUSB1" output="screen">
     <!-- 舵机串口参数 -->
+    <param name="baudrate" value="1000000" />
   </node>
 
-  <!-- 基础参数设置 -->
-  <arg name="camera_device" default="/dev/video0" />
-  <arg name="yolo_enabled" default="false" />
-  <arg name="yolo_model_path" default="$(find stereo_vision)/models/best.pt" />
-  
-  <!-- 相机节点 -->
+  <!-- 启动参数 -->
+  <arg name="test_mode" default="false" doc="只启动摄像头用于测试"/>
+  <arg name="yolo_enabled" default="true" doc="YOLO检测的初始状态"/>
+  <arg name="yolo_model" default="yolov8n.pt" doc="要使用的YOLO模型名称"/>
+  <arg name="yolo_conf" default="0.25" doc="YOLO检测置信度阈值"/>
+  <arg name="path_planning" default="true" doc="是否启用路径规划"/>
+  <arg name="camera_device" default="/dev/video0" doc="摄像头设备"/>
+  <arg name="simulation_mode" default="false" doc="是否使用模拟模式进行YOLO检测"/>
+
+  <!-- 加载机械臂描述参数 -->
+  <rosparam command="load" file="$(find arm_trajectory)/config/arm_params.yaml" />
+
+  <!-- 启动摄像头节点 -->
   <node name="camera_node" pkg="stereo_vision" type="camera_node.py" output="screen">
-    <param name="camera_device" value="$(arg camera_device)" />
-    <param name="width" value="1280" />
-    <param name="height" value="720" />
+    <param name="device" value="$(arg camera_device)" />
+    <param name="width" value="640" />
+    <param name="height" value="480" />
     <param name="fps" value="30" />
   </node>
-  
-  <!-- YOLO控制器 -->
-  <node name="yolo_controller" pkg="stereo_vision" type="yolo_controller.py" output="screen">
-    <param name="enabled" value="$(arg yolo_enabled)" />
+
+  <!-- 启动YOLO控制节点 -->
+  <node pkg="stereo_vision" type="yolo_controller.py" name="yolo_controller" output="screen">
+    <param name="initial_state" value="$(arg yolo_enabled)"/>
   </node>
-  
-  <!-- YOLO检测节点 -->
-  <node name="yolo_detector" pkg="stereo_vision" type="yolo_detector.py" output="screen">
-    <param name="model_path" value="$(arg yolo_model_path)" />
-    <param name="confidence" value="0.5" />
-    <param name="input_topic" value="/camera/image_raw" />
-    <param name="output_topic" value="/camera/detections" />
-    <param name="visualization_topic" value="/detection_image" />
-    <param name="enabled" value="$(arg yolo_enabled)" />
+
+  <!-- 启动YOLO检测器 -->
+  <node pkg="stereo_vision" type="yolo_detector.py" name="yolo_detector" output="screen">
+    <param name="enabled" value="$(arg yolo_enabled)"/>
+    <param name="model" value="$(arg yolo_model)"/>
+    <param name="conf" value="$(arg yolo_conf)"/>
+    <param name="simulation_mode" value="$(arg simulation_mode)"/>
   </node>
-  
-  <!-- 轨迹规划桥接节点 -->
-  <node name="trajectory_bridge" pkg="arm_trajectory" type="trajectory_bridge_node.py" output="screen" />
-  
-  <!-- 机械臂图形界面 -->
-  <node name="arm_gui" pkg="arm_gui" type="arm_gui_node" output="screen" />
+
+  <!-- 条件启动：如果不在测试模式，则启动GUI和其他节点 -->
+  <group unless="$(arg test_mode)">
+    <!-- 启动GUI节点 -->
+    <node pkg="arm_gui" type="arm_gui_node" name="arm_gui" output="screen"/>
+
+    <!-- 启动其他节点... -->
+    <node pkg="servo_wrist" type="wrist_ctrl" name="wrist_controller" output="screen">
+      <!-- 为第二个舵机控制节点添加波特率参数 -->
+      <param name="baudrate" value="115200" />
+    </node>
+    
+    <!-- 启动路径规划相关节点 -->
+    <group if="$(arg path_planning)">
+      <!-- 轨迹桥接节点 -->
+      <node name="trajectory_bridge" pkg="arm_trajectory" type="trajectory_bridge_node.py" output="screen" />
+      
+      <!-- 路径规划器节点 -->
+      <node name="arm_path_planner" pkg="arm_trajectory" type="path_planner.py" output="screen">
+        <!-- 可以在这里添加参数覆盖默认值 -->
+      </node>
+      
+      <!-- 视觉-机械臂桥接节点 -->
+      <node name="vision_arm_bridge" pkg="arm_trajectory" type="vision_arm_bridge.py" output="screen" />
+    </group>
+  </group>
 </launch> 

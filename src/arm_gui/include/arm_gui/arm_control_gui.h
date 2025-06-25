@@ -15,6 +15,7 @@
 #include <QScrollBar>
 #include <QTextCursor>
 #include <QCheckBox>
+#include <QComboBox>
 
 #include <ros/ros.h>
 #include <std_msgs/String.h>
@@ -113,11 +114,18 @@ private slots:
     // YOLO控制
     void onYoloDetectionToggled(bool checked);
 
+    // 路径规划相关槽
+    void onScanObjectsClicked();
+    void onPlanPathClicked();
+    void onExecutePathClicked();
+    void onVisualizeWorkspaceClicked();
+
 private:
     // UI相关
     Ui::ArmControlMainWindow* ui;
     QTimer* updateTimer;
     QCheckBox* yolo_checkbox_;
+    QComboBox* placement_area_combo_;
     
     // ROS相关
     ros::NodeHandle& nh_;

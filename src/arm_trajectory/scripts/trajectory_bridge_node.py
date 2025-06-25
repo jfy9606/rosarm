@@ -8,7 +8,27 @@ from moveit_msgs.msg import RobotTrajectory
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from arm_trajectory.msg import TrajectoryPath, TrajectoryPoint
 from arm_trajectory.srv import PlanTrajectory, PlanTrajectoryRequest, PlanTrajectoryResponse
-from .whales_optimizer import WhaleOptimizer, forward_kinematics_dh
+import sys
+import os
+# 获取脚本的目录
+script_dir = os.path.dirname(os.path.abspath(__file__))
+if script_dir not in sys.path:
+    sys.path.append(script_dir)
+# 导入鲸鱼优化器
+try:
+    # 直接导入本地文件
+    import sys
+    import os
+    # 获取当前脚本路径
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    # 将当前目录添加到sys.path
+    if current_dir not in sys.path:
+        sys.path.append(current_dir)
+    # 直接导入本地文件
+    from whales_optimizer import WhaleOptimizer, forward_kinematics_dh
+except ImportError as e:
+    rospy.logerr(f"导入WhaleOptimizer失败: {e}")
+    sys.exit(1)
 from math import pi
 import tf.transformations
 

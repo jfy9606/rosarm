@@ -1,0 +1,68 @@
+# 机械臂配置参数
+
+# 机械臂ID
+arm_id: "arm1"
+
+# 坐标系
+coordinate_system:
+  # 工作空间范围（单位：厘米）
+  workspace:
+    x_min: -50.0
+    x_max: 50.0
+    y_min: -50.0
+    y_max: 50.0
+    z_min: 0.0
+    z_max: 50.0
+  
+  # 放置区域
+  placement_areas:
+    area_1:
+      center: [30, 30, 5]
+      size: [15, 15, 0.1]
+    area_2:
+      center: [-30, 30, 5]
+      size: [15, 15, 0.1]
+    area_3:
+      center: [0, -30, 5]
+      size: [15, 15, 0.1]
+
+# 机械臂DH参数
+# 格式: [类型, d, θ, a, α]
+# 类型: revolute（旋转关节）或prismatic（移动关节）
+dh_params:
+  joint1: ['revolute', 0, 0, 13, 1.5708]      # 底座旋转关节
+  joint2: ['prismatic', 0, 0.7854, 0, 0]      # 伸缩关节
+  joint3: ['revolute', 13, 0, 0, 1.5708]      # 肩部关节
+  joint4: ['revolute', 0, 0, 25, 1.5708]      # 肘部关节
+  joint5: ['revolute', 0, 1.5708, 0, 1.5708]  # 固定关节
+  joint6: ['prismatic', 0, 1.5708, 0, 0]      # 末端伸缩
+
+# 关节限制（最小值和最大值）
+joint_limits:
+  joint1: [-3.14159, 3.14159]   # theta1 (rad): ±180°
+  joint2: [0, 43]               # d2 (cm): 0-43cm
+  joint3: [-1.5708, 1.5708]     # theta3 (rad): ±90°
+  joint4: [0, 3.14159]          # theta4 (rad): 0-180°
+  joint5: [1.5708, 1.5708]      # theta5 (rad): 固定在90°
+  joint6: [5, 15]               # d6 (cm): 5-15cm
+
+# 默认关节角度
+default_pose: [0, 0, 0, 0, 1.5708, 10]
+
+# 路径规划参数
+path_planning:
+  # 路径规划步数
+  steps: 10
+  # 接近距离（厘米）
+  approach_distance: 10.0
+  # 是否默认避障
+  avoid_obstacles: true
+  # 鲸鱼优化算法参数
+  whale_optimizer:
+    num_whales: 30
+    max_iter: 100
+    
+# 吸盘参数
+gripper:
+  type: "vacuum"
+  length: 5.0 

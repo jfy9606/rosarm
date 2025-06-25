@@ -14,7 +14,8 @@ class WhaleOptimizer:
                  max_iter=100, 
                  forward_kinematics_func=None,
                  dh_params=None,
-                 joint_limits=None):
+                 joint_limits=None,
+                 b=1.0):
         """
         Initialize the WOA optimizer
         
@@ -24,11 +25,13 @@ class WhaleOptimizer:
             forward_kinematics_func: Function to compute forward kinematics (T matrix)
             dh_params: DH parameters of the robot arm
             joint_limits: List of [min, max] for each joint
+            b: Spiral constant (default: 1.0)
         """
         self.num_whales = num_whales
         self.max_iter = max_iter
         self.forward_kinematics = forward_kinematics_func
         self.dh_params = dh_params
+        self.b = b
         
         # Default joint limits if not provided
         if joint_limits is None:
@@ -47,7 +50,7 @@ class WhaleOptimizer:
         self.dim = len(self.joint_limits)  # Number of joints
         
         # Initialize logging
-        rospy.loginfo(f"Initialized WhaleOptimizer with {self.num_whales} whales, {self.max_iter} iterations")
+        rospy.loginfo(f"Initialized WhaleOptimizer with {self.num_whales} whales, {self.max_iter} iterations, b={self.b}")
     
     def random_joint_config(self):
         """Generate a random joint configuration within limits"""
@@ -240,4 +243,4 @@ def forward_kinematics_dh(joint_values, dh_params):
         # Update the total transformation
         T = T @ T_i
         
-    return T 
+    return T

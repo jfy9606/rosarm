@@ -1,0 +1,31 @@
+<launch>
+    <!-- 启动参数 -->
+    <arg name="rviz" default="true"/>
+    <arg name="use_camera" default="false"/>
+    
+    <!-- 加载机械臂描述参数 -->
+    <rosparam command="load" file="$(find arm_trajectory)/config/arm_params.yaml" />
+    
+    <!-- 如果需要，启动摄像头 -->
+    <group if="$(arg use_camera)">
+        <node name="camera_node" pkg="stereo_vision" type="camera_node.py" output="screen">
+            <param name="device" value="/dev/video0" />
+            <param name="width" value="640" />
+            <param name="height" value="480" />
+            <param name="fps" value="30" />
+        </node>
+    </group>
+    
+    <!-- 运行路径规划器节点 -->
+    <node name="arm_path_planner" pkg="arm_trajectory" type="path_planner.py" output="screen">
+        <!-- 可以在这里添加参数覆盖默认值 -->
+    </node>
+    
+    <!-- 运行轨迹桥接节点 -->
+    <node name="trajectory_bridge" pkg="arm_trajectory" type="trajectory_bridge_node.py" output="screen" />
+    
+    <!-- 启动RViz可视化 -->
+    <group if="$(arg rviz)">
+        <node name="rviz" pkg="rviz" type="rviz" args="-d $(find arm_trajectory)/rviz/path_planning.rviz" required="true" />
+    </group>
+</launch> 

@@ -2,314 +2,287 @@
 import rospy
 import cv2
 import numpy as np
-import os
 from sensor_msgs.msg import Image
+from geometry_msgs.msg import PoseArray, Pose, Point, Quaternion
 from std_msgs.msg import Bool
 from cv_bridge import CvBridge, CvBridgeError
-from stereo_vision.msg import Detection, DetectionArray
 
 class YoloDetector:
+    """YOLO目标检测器，用于检测图像中的物体"""
+    
     def __init__(self):
-        rospy.init_node('yolo_detector', anonymous=True)
-        
-        # 初始化CV桥接器
-        self.bridge = CvBridge()
+        """初始化YOLO检测器节点"""
+        rospy.init_node('yolo_detector')
         
         # 获取参数
-        self.model_path = rospy.get_param('~model_path', '')
-        self.confidence = rospy.get_param('~confidence', 0.5)
-        self.input_topic = rospy.get_param('~input_topic', '/camera/image_raw')
-        self.output_topic = rospy.get_param('~output_topic', '/camera/detections')
-        self.visualization_topic = rospy.get_param('~visualization_topic', '/detection_image')
+        self.enabled = rospy.get_param('~enabled', False)
+        self.model_name = rospy.get_param('~model', 'yolov8n.pt')
+        self.conf_threshold = rospy.get_param('~conf', 0.25)
+        self.simulation_mode = rospy.get_param('~simulation_mode', False)  # 添加模拟模式参数，默认为False
         
-        # 检测开关状态
-        self.detection_enabled = rospy.get_param('~enabled', True)
+        # 创建OpenCV桥接器
+        self.bridge = CvBridge()
         
-        # 初始化模型状态
-        self.model = None
+        # 初始化YOLO模型
         self.model_loaded = False
         
-        # 尝试加载YOLO模型
-        self.load_yolo_model()
+        if self.simulation_mode:
+            # 使用模拟模式
+            rospy.loginfo("使用模拟检测模式")
+            self.model_loaded = True
+        else:
+            # 尝试加载实际的YOLO模型
+            try:
+                try:
+                    from ultralytics import YOLO
+                    rospy.loginfo(f"正在加载YOLO模型: {self.model_name}")
+                    self.model = YOLO(self.model_name)  # 加载实际的模型
+                    self.model_loaded = True
+                    rospy.loginfo(f"成功加载YOLO模型: {self.model_name}")
+                except ImportError:
+                    rospy.logwarn("无法导入Ultralytics库: No module named 'ultralytics'")
+                    rospy.logwarn("请安装YOLOv8: pip install ultralytics")
+                    rospy.logwarn("切换到模拟检测模式")
+                    self.simulation_mode = True
+                    self.model_loaded = True
+            except Exception as e:
+                rospy.logerr(f"加载YOLO模型失败: {str(e)}")
+                rospy.logwarn("切换到模拟检测模式")
+                self.simulation_mode = True
+                self.model_loaded = True
         
-        # 发布器
-        self.detection_pub = rospy.Publisher(self.output_topic, DetectionArray, queue_size=1)
-        self.visualization_pub = rospy.Publisher(self.visualization_topic, Image, queue_size=1)
+        # 订阅图像话题
+        self.image_sub = rospy.Subscriber('/camera/image_raw', Image, self.image_callback)
         
-        # 订阅图像
-        self.image_sub = rospy.Subscriber(self.input_topic, Image, self.image_callback)
+        # 订阅控制话题
+        self.control_sub = rospy.Subscriber('/yolo/status', Bool, self.control_callback)
         
-        # 订阅检测开关控制
-        self.control_sub = rospy.Subscriber('/yolo_detection/status', Bool, self.control_callback)
+        # 创建检测结果发布器
+        self.detection_pub = rospy.Publisher('/detections/image', Image, queue_size=10)
+        self.poses_pub = rospy.Publisher('/detections/poses', PoseArray, queue_size=10)
         
-        rospy.loginfo("YOLO目标检测器已初始化，检测状态: %s", "启用" if self.detection_enabled else "禁用")
+        rospy.loginfo(f"YOLO目标检测器已初始化，检测状态: {'启用' if self.enabled else '禁用'}, 模式: {'模拟' if self.simulation_mode else '正常'}")
     
     def control_callback(self, msg):
-        """接收YOLO检测开关控制信号"""
-        old_state = self.detection_enabled
-        self.detection_enabled = msg.data
-        
-        if old_state != self.detection_enabled:
-            rospy.loginfo("YOLO检测状态已更改为: %s", "启用" if self.detection_enabled else "禁用")
+        """处理控制消息"""
+        new_state = msg.data
+        if new_state != self.enabled:
+            self.enabled = new_state
+            rospy.loginfo(f"YOLO检测已{'启用' if self.enabled else '禁用'}")
     
-    def load_yolo_model(self):
-        """尝试加载YOLO模型"""
-        try:
-            # 首先尝试使用PyTorch Hub加载
-            try:
-                if os.path.exists(self.model_path):
-                    import torch
-                    self.model = torch.hub.load('ultralytics/yolov5', 'custom', path=self.model_path)
-                    rospy.loginfo(f"成功加载YOLO模型: {self.model_path}")
-                else:
-                    # 如果没有自定义模型，使用预训练模型
-                    import torch
-                    self.model = torch.hub.load('ultralytics/yolov5', 'yolov5s')
-                    rospy.loginfo("使用预训练的YOLOv5s模型")
-                
-                # 设置置信度阈值
-                self.model.conf = self.confidence
-                self.model_loaded = True
-                return
-            except Exception as e:
-                rospy.logwarn(f"无法使用PyTorch Hub加载YOLO模型: {e}")
-            
-            # 如果PyTorch Hub失败，尝试使用OpenCV DNN
-            try:
-                rospy.loginfo("尝试使用OpenCV DNN加载模型...")
-                
-                # 检查是否有ONNX模型可用
-                onnx_path = self.model_path.replace('.pt', '.onnx')
-                if os.path.exists(onnx_path):
-                    self.model = cv2.dnn.readNetFromONNX(onnx_path)
-                    rospy.loginfo(f"使用OpenCV DNN加载ONNX模型: {onnx_path}")
-                    self.model_type = "opencv_dnn"
-                    self.model_loaded = True
-                    return
-                else:
-                    rospy.logwarn(f"找不到ONNX模型: {onnx_path}")
-            except Exception as e:
-                rospy.logwarn(f"无法使用OpenCV DNN加载模型: {e}")
-            
-            # 如果所有方法都失败，使用基本的OpenCV检测器
-            rospy.logwarn("使用基本的OpenCV级联检测器作为备用")
-            try:
-                # 加载人脸检测器作为备用
-                cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-                if os.path.exists(cascade_path):
-                    self.model = cv2.CascadeClassifier(cascade_path)
-                    self.model_type = "opencv_cascade"
-                    self.model_loaded = True
-                    rospy.loginfo("已加载OpenCV级联检测器作为备用")
-                    return
-            except Exception as e:
-                rospy.logerr(f"无法加载备用检测器: {e}")
-            
-            rospy.logerr("所有模型加载方法都失败")
-            self.model_loaded = False
-            
-        except Exception as e:
-            rospy.logerr(f"加载YOLO模型失败: {e}")
-            self.model_loaded = False
-    
-    def image_callback(self, data):
-        if not self.model_loaded:
-            rospy.logerr_once("YOLO模型未加载，无法进行检测")
+    def image_callback(self, msg):
+        """处理图像消息"""
+        if not self.enabled:
+            # 如果检测被禁用，直接转发原始图像
+            self.detection_pub.publish(msg)
             return
             
+        if not self.model_loaded:
+            rospy.logerr("YOLO模型未加载，无法进行检测")
+            self.detection_pub.publish(msg)
+            return
+        
         try:
-            # 将ROS图像消息转换为OpenCV图像
-            cv_image = self.bridge.imgmsg_to_cv2(data, "bgr8")
+            # 将ROS图像消息转换为OpenCV格式
+            cv_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
             
-            # 创建检测消息
-            detection_array = DetectionArray()
-            detection_array.header = data.header
+            # 进行YOLO检测
+            detections = self.detect_objects(cv_image)
             
             # 在图像上绘制检测结果
-            visualization_image = cv_image.copy()
+            result_image = self.draw_detections(cv_image, detections)
             
-            # 检查是否启用了检测
-            if self.detection_enabled:
-                # 根据加载的模型类型执行检测
-                if hasattr(self, 'model_type'):
-                    if self.model_type == "opencv_dnn":
-                        self.detect_with_opencv_dnn(cv_image, detection_array, visualization_image)
-                    elif self.model_type == "opencv_cascade":
-                        self.detect_with_opencv_cascade(cv_image, detection_array, visualization_image)
-                else:
-                    # 默认使用PyTorch模型
-                    self.detect_with_pytorch(cv_image, detection_array, visualization_image)
-                
-                # 发布检测结果
-                self.detection_pub.publish(detection_array)
-                
-                if len(detection_array.detections) > 0:
-                    rospy.loginfo(f"检测到 {len(detection_array.detections)} 个目标")
-                
-                # 在图像上添加状态信息
-                status_text = f"YOLO检测: 启用 | 检测到: {len(detection_array.detections)}"
-                cv2.putText(visualization_image, status_text, (10, 30), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-            else:
-                # 检测已禁用，添加状态信息
-                status_text = "YOLO检测: 禁用"
-                cv2.putText(visualization_image, status_text, (10, 30), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            # 将结果图像转换回ROS消息并发布
+            result_msg = self.bridge.cv2_to_imgmsg(result_image, "bgr8")
+            result_msg.header = msg.header
+            self.detection_pub.publish(result_msg)
             
-            # 发布可视化图像
-            visualization_msg = self.bridge.cv2_to_imgmsg(visualization_image, "bgr8")
-            visualization_msg.header = data.header
-            self.visualization_pub.publish(visualization_msg)
+            # 发布检测到的物体位姿
+            self.publish_poses(detections, msg.header)
             
-        except CvBridgeError as e:
-            rospy.logerr(f"CvBridge错误: {e}")
         except Exception as e:
-            rospy.logerr(f"处理图像时出错: {e}")
+            rospy.logerr(f"处理图像时出错: {str(e)}")
     
-    def detect_with_pytorch(self, image, detection_array, visualization_image):
-        """使用PyTorch YOLOv5模型进行检测"""
-        try:
-            # 使用YOLO进行检测
-            results = self.model(image)
+    def detect_objects(self, image):
+        """
+        使用YOLO模型检测图像中的物体
+        
+        Args:
+            image: OpenCV格式的图像
             
-            # 处理检测结果
-            detections = results.pandas().xyxy[0]  # 获取边界框坐标
-            
-            for i, detection in detections.iterrows():
-                # 提取检测数据
-                x_min = int(detection['xmin'])
-                y_min = int(detection['ymin'])
-                x_max = int(detection['xmax'])
-                y_max = int(detection['ymax'])
-                confidence = float(detection['confidence'])
-                class_id = int(detection['class'])
-                class_name = str(detection['name'])
+        Returns:
+            detections: 检测结果列表，每个元素包含 [x1, y1, x2, y2, conf, class_id]
+        """
+        if self.simulation_mode:
+            # 使用模拟的检测结果
+            return self.simulate_detections(image)
+        else:
+            # 使用实际的YOLO模型进行检测
+            try:
+                results = self.model(image)
                 
-                # 创建检测消息
-                det = Detection()
-                det.class_id = class_id
-                det.class_name = class_name
-                det.confidence = confidence
-                det.x_min = x_min
-                det.y_min = y_min
-                det.x_max = x_max
-                det.y_max = y_max
-                det.center_x = (x_min + x_max) / 2
-                det.center_y = (y_min + y_max) / 2
-                det.width = x_max - x_min
-                det.height = y_max - y_min
+                # 解析YOLO结果
+                detections = []
+                for r in results:
+                    boxes = r.boxes
+                    for box in boxes:
+                        # 获取边界框
+                        x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                        # 获取置信度
+                        conf = box.conf[0].cpu().numpy()
+                        # 获取类别ID
+                        class_id = box.cls[0].cpu().numpy()
+                        
+                        # 仅保留置信度高于阈值的检测结果
+                        if conf >= self.conf_threshold:
+                            detections.append([x1, y1, x2, y2, conf, class_id])
                 
-                detection_array.detections.append(det)
-                
-                # 在可视化图像上绘制边界框
-                cv2.rectangle(visualization_image, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
-                
-                # 添加标签
-                label = f"{class_name}: {confidence:.2f}"
-                cv2.putText(visualization_image, label, (x_min, y_min - 10),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-        except Exception as e:
-            rospy.logerr(f"PyTorch检测错误: {e}")
+                return detections
+            except Exception as e:
+                rospy.logerr(f"YOLO检测出错: {str(e)}")
+                # 出错时回退到模拟模式
+                return self.simulate_detections(image)
     
-    def detect_with_opencv_dnn(self, image, detection_array, visualization_image):
-        """使用OpenCV DNN进行检测"""
-        try:
-            height, width = image.shape[:2]
+    def simulate_detections(self, image):
+        """
+        生成模拟的检测结果
+        
+        Args:
+            image: OpenCV格式的图像
             
-            # 准备输入blob
-            blob = cv2.dnn.blobFromImage(image, 1/255.0, (640, 640), swapRB=True, crop=False)
-            self.model.setInput(blob)
-            
-            # 运行前向传播
-            outputs = self.model.forward()
-            
-            # 处理检测结果
-            for detection in outputs[0]:
-                scores = detection[5:]
-                class_id = np.argmax(scores)
-                confidence = scores[class_id]
-                
-                if confidence > self.confidence:
-                    # YOLO返回的是中心坐标和尺寸
-                    center_x = int(detection[0] * width)
-                    center_y = int(detection[1] * height)
-                    w = int(detection[2] * width)
-                    h = int(detection[3] * height)
-                    
-                    # 计算边界框坐标
-                    x_min = int(center_x - w / 2)
-                    y_min = int(center_y - h / 2)
-                    x_max = int(center_x + w / 2)
-                    y_max = int(center_y + h / 2)
-                    
-                    # 创建检测消息
-                    det = Detection()
-                    det.class_id = int(class_id)
-                    det.class_name = f"class_{class_id}"
-                    det.confidence = float(confidence)
-                    det.x_min = x_min
-                    det.y_min = y_min
-                    det.x_max = x_max
-                    det.y_max = y_max
-                    det.center_x = center_x
-                    det.center_y = center_y
-                    det.width = w
-                    det.height = h
-                    
-                    detection_array.detections.append(det)
-                    
-                    # 在可视化图像上绘制边界框
-                    cv2.rectangle(visualization_image, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
-                    
-                    # 添加标签
-                    label = f"Class {class_id}: {confidence:.2f}"
-                    cv2.putText(visualization_image, label, (x_min, y_min - 10),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-        except Exception as e:
-            rospy.logerr(f"OpenCV DNN检测错误: {e}")
+        Returns:
+            detections: 模拟的检测结果列表
+        """
+        # 创建一些模拟的检测结果
+        height, width = image.shape[:2]
+        
+        # 模拟检测到的物体
+        detections = []
+        
+        # 模拟检测到的物体1（在图像左侧）
+        if np.random.random() > 0.3:  # 70%的概率检测到
+            x1 = int(width * 0.1)
+            y1 = int(height * 0.4)
+            x2 = int(width * 0.3)
+            y2 = int(height * 0.6)
+            conf = np.random.uniform(0.6, 0.9)
+            class_id = 0  # 假设是"物体"类
+            detections.append([x1, y1, x2, y2, conf, class_id])
+        
+        # 模拟检测到的物体2（在图像右侧）
+        if np.random.random() > 0.5:  # 50%的概率检测到
+            x1 = int(width * 0.6)
+            y1 = int(height * 0.3)
+            x2 = int(width * 0.8)
+            y2 = int(height * 0.7)
+            conf = np.random.uniform(0.5, 0.8)
+            class_id = 1  # 假设是"另一种物体"类
+            detections.append([x1, y1, x2, y2, conf, class_id])
+        
+        return detections
     
-    def detect_with_opencv_cascade(self, image, detection_array, visualization_image):
-        """使用OpenCV级联分类器进行检测"""
-        try:
-            # 转换为灰度图像
-            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    def draw_detections(self, image, detections):
+        """
+        在图像上绘制检测结果
+        
+        Args:
+            image: OpenCV格式的图像
+            detections: 检测结果列表
             
-            # 使用级联分类器检测人脸
-            faces = self.model.detectMultiScale(gray, 1.1, 4)
+        Returns:
+            result_image: 绘制了检测框的图像
+        """
+        result_image = image.copy()
+        
+        # 类别名称（示例）
+        class_names = ["物体", "另一种物体"]
+        
+        # 为不同类别设置不同颜色
+        colors = [(0, 255, 0), (0, 0, 255)]
+        
+        for det in detections:
+            x1, y1, x2, y2, conf, class_id = det
             
-            # 处理检测结果
-            for i, (x, y, w, h) in enumerate(faces):
-                # 创建检测消息
-                det = Detection()
-                det.class_id = 0
-                det.class_name = "face"
-                det.confidence = 1.0  # 级联分类器没有置信度值
-                det.x_min = x
-                det.y_min = y
-                det.x_max = x + w
-                det.y_max = y + h
-                det.center_x = x + w/2
-                det.center_y = y + h/2
-                det.width = w
-                det.height = h
-                
-                detection_array.detections.append(det)
-                
-                # 在可视化图像上绘制边界框
-                cv2.rectangle(visualization_image, (x, y), (x+w, y+h), (0, 255, 0), 2)
-                
-                # 添加标签
-                label = "Face"
-                cv2.putText(visualization_image, label, (x, y - 10),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-        except Exception as e:
-            rospy.logerr(f"OpenCV级联分类器检测错误: {e}")
+            # 转换为整数坐标
+            x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+            
+            # 获取类别名称和颜色
+            class_name = class_names[int(class_id)] if int(class_id) < len(class_names) else f"类别{int(class_id)}"
+            color = colors[int(class_id) % len(colors)]
+            
+            # 绘制边界框
+            cv2.rectangle(result_image, (x1, y1), (x2, y2), color, 2)
+            
+            # 绘制类别名称和置信度
+            label = f"{class_name} {conf:.2f}"
+            cv2.putText(result_image, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+        
+        return result_image
+    
+    def publish_poses(self, detections, header):
+        """
+        发布检测到的物体位姿
+        
+        Args:
+            detections: 检测结果列表
+            header: 图像消息头
+        """
+        pose_array = PoseArray()
+        pose_array.header = header
+        
+        for det in detections:
+            x1, y1, x2, y2, conf, class_id = det
+            
+            # 计算物体中心点
+            center_x = (x1 + x2) / 2
+            center_y = (y1 + y2) / 2
+            
+            # 估计深度（这里使用模拟值，实际应该从深度图或立体视觉获取）
+            # 假设深度与物体大小成反比
+            object_width = x2 - x1
+            object_height = y2 - y1
+            object_size = np.sqrt(object_width * object_height)
+            depth = 100.0 / (object_size / 100.0)  # 模拟深度值（厘米）
+            
+            # 创建位姿
+            pose = Pose()
+            
+            # 设置位置（假设相机坐标系：X向右，Y向下，Z向前）
+            # 将像素坐标转换为相机坐标系（简化版本）
+            image_width = 640  # 假设图像宽度
+            image_height = 480  # 假设图像高度
+            fx = 500.0  # 假设相机焦距
+            fy = 500.0
+            cx = image_width / 2
+            cy = image_height / 2
+            
+            # 计算相机坐标系中的位置
+            x = (center_x - cx) * depth / fx
+            y = (center_y - cy) * depth / fy
+            z = depth
+            
+            pose.position.x = x
+            pose.position.y = y
+            pose.position.z = z
+            
+            # 设置姿态（默认朝下）
+            pose.orientation.w = 1.0
+            
+            pose_array.poses.append(pose)
+        
+        # 发布位姿数组
+        self.poses_pub.publish(pose_array)
 
-if __name__ == '__main__':
+def main():
+    """主函数"""
+    detector = YoloDetector()
+    
     try:
-        detector = YoloDetector()
         rospy.spin()
     except KeyboardInterrupt:
-        rospy.loginfo("用户中断，退出")
-    except Exception as e:
-        rospy.logerr(f"未知错误: {e}") 
+        pass
+    
+    rospy.loginfo("YOLO检测器已关闭")
+
+if __name__ == '__main__':
+    main() 

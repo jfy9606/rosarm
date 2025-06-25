@@ -52,6 +52,8 @@ CAMERA=${CAMERA:-"/dev/video0"}
 RESOLUTION="1280x480"
 FPS=30
 YOLO_ENABLED=false
+YOLO_MODEL=""
+YOLO_THRESHOLD=0.5
 
 # 命令行参数模式
 COMMAND_MODE=false
@@ -66,8 +68,9 @@ show_help() {
     echo "  -r, --resolution WxH   分辨率 (默认: 1280x480)"
     echo "  -f, --fps NUMBER       帧率 (默认: 30)"
     echo "  -y, --yolo             启用YOLO目标检测"
+    echo "  -m, --model PATH       指定YOLOv8模型路径"
+    echo "  -t, --threshold VALUE  设置检测置信度阈值 (0.0-1.0)"
     echo "  -d, --direct           直接模式，不使用ROS"
-    echo "  -t, --test             仅测试摄像头"
     echo "  -h, --help             显示此帮助信息"
     exit 0
 }
@@ -94,6 +97,16 @@ while [[ $# -gt 0 ]]; do
             YOLO_ENABLED=true
             COMMAND_MODE=true
             shift
+            ;;
+        -m|--model)
+            YOLO_MODEL="$2"
+            COMMAND_MODE=true
+            shift 2
+            ;;
+        -t|--threshold)
+            YOLO_THRESHOLD="$2"
+            COMMAND_MODE=true
+            shift 2
             ;;
         -d|--direct)
             DIRECT_MODE=true
@@ -134,13 +147,29 @@ launch_system() {
         echo -e "${BLUE}摄像头: $CAMERA, 分辨率: ${WIDTH}x${HEIGHT}, FPS: $FPS, YOLO: $YOLO_ENABLED${NC}"
         if [ "$YOLO_ENABLED" = true ]; then
             echo -e "${CYAN}YOLO目标检测初始状态: 启用${NC}"
+            if [ -n "$YOLO_MODEL" ]; then
+                echo -e "${CYAN}使用自定义YOLOv8模型: $YOLO_MODEL${NC}"
+            else
+                echo -e "${CYAN}使用默认YOLOv8s模型${NC}"
+            fi
+            echo -e "${CYAN}检测置信度阈值: $YOLO_THRESHOLD${NC}"
         else
             echo -e "${CYAN}YOLO目标检测初始状态: 禁用${NC}"
         fi
         echo -e "${CYAN}注意: 启动后，可以在GUI中随时开关YOLO检测功能${NC}"
         
-        # 启动ROS节点
-        roslaunch launch/demo.launch camera_device:=$CAMERA yolo_enabled:=$YOLO_ENABLED
+        # 构建启动命令
+        LAUNCH_CMD="roslaunch launch/demo.launch camera_device:=$CAMERA yolo_enabled:=$YOLO_ENABLED"
+        
+        # 添加额外参数
+        if [ -n "$YOLO_MODEL" ]; then
+            LAUNCH_CMD="$LAUNCH_CMD yolo_model_path:=$YOLO_MODEL"
+        fi
+        
+        LAUNCH_CMD="$LAUNCH_CMD yolo_confidence:=$YOLO_THRESHOLD"
+        
+        # 执行启动命令
+        $LAUNCH_CMD
     fi
 }
 
@@ -153,7 +182,8 @@ show_menu() {
     echo -e "${YELLOW}2. 启动系统 (YOLO初始状态: 启用)${NC}"
     echo -e "${YELLOW}3. 测试摄像头${NC}"
     echo -e "${YELLOW}4. 直接模式 (不使用ROS)${NC}"
-    echo -e "${YELLOW}5. 配置参数${NC}"
+    echo -e "${YELLOW}5. 测试路径规划${NC}"
+    echo -e "${YELLOW}6. 配置参数${NC}"
     echo -e "${YELLOW}0. 退出${NC}"
     echo -e "${BLUE}=====================================${NC}"
     echo -e "${CYAN}注意: 在系统运行后，可以通过GUI控制面板随时开关YOLO检测功能${NC}"
@@ -183,6 +213,10 @@ show_menu() {
             launch_system
             ;;
         5)
+            echo -e "${GREEN}测试路径规划...${NC}"
+            launch_path_planning
+            ;;
+        6)
             configure_params
             ;;
         0)
@@ -199,6 +233,15 @@ show_menu() {
     show_menu
 }
 
+# 启动路径规划测试
+launch_path_planning() {
+    echo -e "${GREEN}启动路径规划测试...${NC}"
+    echo -e "${BLUE}这将启动机械臂路径规划可视化${NC}"
+    
+    # 启动ROS节点
+    roslaunch launch/path_planning_test.launch
+}
+
 # 配置参数
 configure_params() {
     echo -e "${BLUE}=====================================${NC}"
@@ -209,14 +252,14 @@ configure_params() {
     echo -ne "${GREEN}输入新的摄像头设备 (留空保持不变): ${NC}"
     read -r new_camera
     if [ -n "$new_camera" ]; then
-        CAMERA=$new_camera
+        CAMERA="$new_camera"
     fi
     
-    echo -e "${YELLOW}当前分辨率: ${WIDTH}x${HEIGHT}${NC}"
-    echo -ne "${GREEN}输入新的分辨率 (格式: 宽x高，留空保持不变): ${NC}"
+    echo -e "${YELLOW}当前分辨率: $RESOLUTION${NC}"
+    echo -ne "${GREEN}输入新的分辨率，格式为 宽x高 (留空保持不变): ${NC}"
     read -r new_resolution
     if [ -n "$new_resolution" ]; then
-        RESOLUTION=$new_resolution
+        RESOLUTION="$new_resolution"
         WIDTH=$(echo $RESOLUTION | cut -d'x' -f1)
         HEIGHT=$(echo $RESOLUTION | cut -d'x' -f2)
     fi
@@ -225,19 +268,37 @@ configure_params() {
     echo -ne "${GREEN}输入新的帧率 (留空保持不变): ${NC}"
     read -r new_fps
     if [ -n "$new_fps" ]; then
-        FPS=$new_fps
+        FPS="$new_fps"
     fi
     
-    echo -e "${YELLOW}YOLO目标检测: $([ "$YOLO_ENABLED" = true ] && echo "启用" || echo "禁用")${NC}"
-    echo -ne "${GREEN}是否启用YOLO目标检测 (y/n，留空保持不变): ${NC}"
-    read -r yolo_choice
-    if [ "$yolo_choice" = "y" ] || [ "$yolo_choice" = "Y" ]; then
-        YOLO_ENABLED=true
-    elif [ "$yolo_choice" = "n" ] || [ "$yolo_choice" = "N" ]; then
-        YOLO_ENABLED=false
+    echo -e "${YELLOW}YOLO检测: $([ "$YOLO_ENABLED" = true ] && echo "启用" || echo "禁用")${NC}"
+    echo -ne "${GREEN}是否启用YOLO检测? (y/n，留空保持不变): ${NC}"
+    read -r yolo_option
+    if [ -n "$yolo_option" ]; then
+        if [[ "$yolo_option" =~ ^[Yy]$ ]]; then
+            YOLO_ENABLED=true
+            
+            echo -e "${YELLOW}当前YOLOv8模型: $([ -n "$YOLO_MODEL" ] && echo "$YOLO_MODEL" || echo "默认")${NC}"
+            echo -ne "${GREEN}输入YOLOv8模型路径 (留空使用默认模型): ${NC}"
+            read -r new_model
+            if [ -n "$new_model" ]; then
+                YOLO_MODEL="$new_model"
+            fi
+            
+            echo -e "${YELLOW}当前检测置信度阈值: $YOLO_THRESHOLD${NC}"
+            echo -ne "${GREEN}输入新的置信度阈值 (0.0-1.0，留空保持不变): ${NC}"
+            read -r new_threshold
+            if [ -n "$new_threshold" ]; then
+                YOLO_THRESHOLD="$new_threshold"
+            fi
+        else
+            YOLO_ENABLED=false
+        fi
     fi
     
-    echo -e "${GREEN}参数已更新${NC}"
+    echo -e "${BLUE}=====================================${NC}"
+    echo -e "${GREEN}配置已更新${NC}"
+    echo -e "${BLUE}=====================================${NC}"
 }
 
 # 主程序入口点

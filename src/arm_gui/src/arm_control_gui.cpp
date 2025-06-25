@@ -8,6 +8,9 @@
 #include <QGroupBox>
 #include <QVBoxLayout>
 #include <QCheckBox>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QComboBox>
 
 #include <sensor_msgs/JointState.h>
 #include <std_msgs/String.h>
@@ -149,11 +152,43 @@ void ArmControlGUI::initializeGUI()
     connect(yolo_checkbox_, &QCheckBox::toggled, this, &ArmControlGUI::onYoloDetectionToggled);
     visionLayout->addWidget(yolo_checkbox_);
     
+    // 添加路径规划控制
+    QGroupBox* pathPlanningGroup = new QGroupBox("路径规划");
+    QVBoxLayout* pathPlanningLayout = new QVBoxLayout(pathPlanningGroup);
+    
+    // 添加选择放置区的下拉框
+    QHBoxLayout* placementAreaLayout = new QHBoxLayout();
+    QLabel* placementAreaLabel = new QLabel("选择放置区:");
+    placement_area_combo_ = new QComboBox();
+    placement_area_combo_->addItem("区域1", "area_1");
+    placement_area_combo_->addItem("区域2", "area_2");
+    placement_area_combo_->addItem("区域3", "area_3");
+    placementAreaLayout->addWidget(placementAreaLabel);
+    placementAreaLayout->addWidget(placement_area_combo_);
+    pathPlanningLayout->addLayout(placementAreaLayout);
+    
+    // 添加路径规划按钮
+    QPushButton* scanObjectsButton = new QPushButton("扫描物体");
+    QPushButton* planPathButton = new QPushButton("规划路径");
+    QPushButton* executePathButton = new QPushButton("执行路径");
+    QPushButton* visualizeWorkspaceButton = new QPushButton("可视化工作空间");
+    
+    connect(scanObjectsButton, &QPushButton::clicked, this, &ArmControlGUI::onScanObjectsClicked);
+    connect(planPathButton, &QPushButton::clicked, this, &ArmControlGUI::onPlanPathClicked);
+    connect(executePathButton, &QPushButton::clicked, this, &ArmControlGUI::onExecutePathClicked);
+    connect(visualizeWorkspaceButton, &QPushButton::clicked, this, &ArmControlGUI::onVisualizeWorkspaceClicked);
+    
+    pathPlanningLayout->addWidget(scanObjectsButton);
+    pathPlanningLayout->addWidget(planPathButton);
+    pathPlanningLayout->addWidget(executePathButton);
+    pathPlanningLayout->addWidget(visualizeWorkspaceButton);
+    
     // 将示例动作组添加到controlWidget的布局中
     QVBoxLayout* controlLayout = qobject_cast<QVBoxLayout*>(ui->controlWidget->layout());
     if (controlLayout) {
         controlLayout->addWidget(demoGroup);
         controlLayout->addWidget(visionGroup);  // 添加视觉控制组
+        controlLayout->addWidget(pathPlanningGroup); // 添加路径规划控制组
     } else {
         // 如果没有布局，打印错误信息
         logMessage("错误: 无法获取控制部件布局");
@@ -434,11 +469,25 @@ void ArmControlGUI::onAbout()
 // 检测表格操作槽实现
 void ArmControlGUI::onDetectionsTableCellClicked(int row, int column)
 {
-    // 如果是"操作"列
-    if (column == 5 && row >= 0 && row < static_cast<int>(detected_objects_.size())) {
-        // 抓取被选中的物体
-        sendPickCommand(detected_objects_[row].id);
-        logMessage(QString("抓取物体 %1").arg(QString::fromStdString(detected_objects_[row].id)));
+    if (row < 0 || row >= static_cast<int>(detected_objects_.size())) {
+        return;
+    }
+    
+    // 获取选中的物体ID
+    QString object_id = ui->detectionsTable->item(row, 0)->text();
+    
+    // 如果点击的是"操作"列
+    if (column == 5) {
+        // 发送抓取命令
+        std_msgs::String cmd_msg;
+        cmd_msg.data = QString("pick %1").arg(object_id).toStdString();
+        arm_command_pub_.publish(cmd_msg);
+        
+        logMessage(QString("发送抓取命令: %1").arg(object_id));
+    } else {
+        // 高亮选中的行
+        ui->detectionsTable->selectRow(row);
+        logMessage(QString("选中物体: %1").arg(object_id));
     }
 }
 
@@ -1161,4 +1210,68 @@ void ArmControlGUI::onYoloDetectionToggled(bool checked)
             yolo_checkbox_->blockSignals(false);
         }
     }
+}
+
+// 添加路径规划相关的槽函数
+void ArmControlGUI::onScanObjectsClicked()
+{
+    logMessage("开始扫描物体...");
+    
+    // 确保YOLO检测已启用
+    if (!yolo_detection_enabled_) {
+        logMessage("启用YOLO检测以扫描物体");
+        if (yolo_checkbox_) {
+            yolo_checkbox_->setChecked(true);
+        }
+    }
+    
+    // 发送扫描命令
+    std_msgs::String cmd_msg;
+    cmd_msg.data = "scan";
+    arm_command_pub_.publish(cmd_msg);
+}
+
+void ArmControlGUI::onPlanPathClicked()
+{
+    logMessage("开始规划路径...");
+    
+    // 获取选中的检测对象
+    int selected_row = ui->detectionsTable->currentRow();
+    if (selected_row < 0 || selected_row >= static_cast<int>(detected_objects_.size())) {
+        logMessage("请先选择一个检测到的物体");
+        return;
+    }
+    
+    // 获取选中的物体ID
+    QString object_id = ui->detectionsTable->item(selected_row, 0)->text();
+    
+    // 获取选中的放置区
+    QString placement_area = placement_area_combo_->currentData().toString();
+    
+    // 发送规划命令
+    std_msgs::String cmd_msg;
+    cmd_msg.data = QString("plan %1 %2").arg(object_id).arg(placement_area).toStdString();
+    arm_command_pub_.publish(cmd_msg);
+    
+    logMessage(QString("已规划从物体 %1 到放置区 %2 的路径").arg(object_id).arg(placement_area));
+}
+
+void ArmControlGUI::onExecutePathClicked()
+{
+    logMessage("执行规划的路径...");
+    
+    // 发送执行命令
+    std_msgs::String cmd_msg;
+    cmd_msg.data = "execute";
+    arm_command_pub_.publish(cmd_msg);
+}
+
+void ArmControlGUI::onVisualizeWorkspaceClicked()
+{
+    logMessage("可视化工作空间...");
+    
+    // 发送可视化命令
+    std_msgs::String cmd_msg;
+    cmd_msg.data = "visualize_workspace";
+    arm_command_pub_.publish(cmd_msg);
 } 

@@ -149,3 +149,64 @@ roslaunch run.launch enable_yolo:=true
 
 - 感谢所有贡献者和使用者
 - 特别感谢ROS和OpenCV社区
+
+## GUI界面功能
+
+GUI界面提供了以下功能：
+
+1. **关节控制**：通过滑块直接控制机械臂各关节
+2. **视觉检测控制**：
+   - 启用/禁用YOLO目标检测
+   - 显示检测到的物体
+   - 从检测表格中选择物体进行操作
+3. **路径规划控制**：
+   - 扫描场景中的物体
+   - 规划从选定物体到指定放置区的路径
+   - 执行规划的路径
+   - 可视化工作空间
+4. **末端执行器控制**：
+   - 控制夹持器开合
+   - 控制吸盘吸附
+5. **示例动作**：预设的演示动作
+
+## 启动方式
+
+启动完整系统：
+
+```bash
+source devel/setup.bash
+roslaunch arm_gui arm_gui.launch
+```
+
+仅启动GUI界面（不包含路径规划和视觉处理）：
+
+```bash
+source devel/setup.bash
+roslaunch arm_gui arm_gui.launch with_path_planner:=false with_trajectory_planner:=false with_vision_arm_bridge:=false
+```
+
+## 使用方法
+
+1. 启动系统后，GUI界面会显示机械臂控制面板
+2. 在"视觉检测"区域勾选"启用YOLO目标检测"以开始检测物体
+3. 点击"扫描物体"按钮扫描工作空间中的物体
+4. 在检测表格中选择要操作的物体
+5. 在"路径规划"区域选择放置区，然后点击"规划路径"
+6. 点击"执行路径"开始执行抓取和放置任务
+7. 点击"可视化工作空间"可以在RViz中查看工作空间布局
+
+## 系统架构
+
+系统由以下主要模块组成：
+
+- **arm_gui**：图形用户界面
+- **stereo_vision**：立体视觉和目标检测
+- **arm_trajectory**：路径规划和轨迹生成
+- **servo_wrist**：舵机控制
+- **SimpleNetwork**：通信网络
+
+## 注意事项
+
+- 确保摄像头设备可用
+- 路径规划需要正确配置的DH参数和关节限制
+- 视觉检测需要正确的相机标定参数

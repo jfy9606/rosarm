@@ -3,20 +3,52 @@
   <!-- 设置启动参数 -->
   <arg name="use_stereo_camera" default="true" />
   <arg name="with_stereo_vision" default="true" />
-  <arg name="with_trajectory_planner" default="false" />
+  <arg name="with_trajectory_planner" default="true" />
   <arg name="with_arm_controller" default="true" />
+  <arg name="with_path_planner" default="true" />
+  <arg name="with_yolo_controller" default="true" />
+  <arg name="with_vision_arm_bridge" default="true" />
+  <arg name="simulation_mode" default="false" doc="是否使用模拟模式进行YOLO检测"/>
   
   <!-- 启动立体视觉节点 -->
   <group if="$(arg with_stereo_vision)">
-    <include file="$(find stereo_vision)/launch/stereo_arm_control.launch">
-      <arg name="enable_visualization" value="false" />
+    <include file="$(find stereo_vision)/launch/stereo_cameras.launch">
+      <!-- 不传递不存在的参数 -->
     </include>
   </group>
   
-  <!-- 启动轨迹规划节点（仅在未通过stereo_vision启动时使用） -->
+  <!-- 启动YOLO控制器 -->
+  <group if="$(arg with_yolo_controller)">
+    <node pkg="stereo_vision" type="yolo_controller.py" name="yolo_controller" output="screen">
+      <param name="initial_state" value="false" />
+    </node>
+  </group>
+  
+  <!-- 启动YOLO检测器 -->
+  <node pkg="stereo_vision" type="yolo_detector.py" name="yolo_detector" output="screen">
+    <param name="enabled" value="false" />
+    <param name="model" value="yolov8n.pt" />
+    <param name="conf" value="0.25" />
+    <param name="simulation_mode" value="$(arg simulation_mode)" />
+  </node>
+  
+  <!-- 启动路径规划节点 -->
+  <group if="$(arg with_path_planner)">
+    <node pkg="arm_trajectory" type="path_planner.py" name="path_planner_node" output="screen">
+      <param name="arm_config" value="$(find arm_trajectory)/config/arm_params.yaml" />
+    </node>
+  </group>
+  
+  <!-- 启动轨迹规划节点 -->
   <group if="$(arg with_trajectory_planner)">
     <node pkg="arm_trajectory" type="trajectory_bridge_node.py" name="arm_trajectory_bridge_gui" output="screen">
       <!-- 改名以避免冲突 -->
+    </node>
+  </group>
+  
+  <!-- 启动视觉-机械臂桥接节点 -->
+  <group if="$(arg with_vision_arm_bridge)">
+    <node pkg="arm_trajectory" type="vision_arm_bridge.py" name="vision_arm_bridge" output="screen">
     </node>
   </group>
   

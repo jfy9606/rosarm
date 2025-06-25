@@ -1,0 +1,15 @@
+<launch>
+    <!-- 摄像头参数 -->
+    <arg name="camera_device" default="/dev/video0" />
+    <arg name="image_width" default="640" />
+    <arg name="image_height" default="480" />
+    <arg name="frame_rate" default="30" />
+
+    <!-- 启动摄像头节点 -->
+    <node pkg="stereo_vision" type="camera_node.py" name="camera_node" output="screen">
+        <param name="device" value="$(arg camera_device)" />
+        <param name="width" value="$(arg image_width)" />
+        <param name="height" value="$(arg image_height)" />
+        <param name="fps" value="$(arg frame_rate)" />
+    </node>
+</launch> 
