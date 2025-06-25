@@ -193,6 +193,10 @@ private:
     void stereoMergedCallback(const sensor_msgs::Image::ConstPtr& msg);
     void yoloStatusCallback(const std_msgs::Bool::ConstPtr& msg);
     
+    // 新增统一物体检测回调函数
+    void objectDetectionCallback(const sensor_msgs::Image::ConstPtr& img_msg,
+                              const geometry_msgs::PoseArray::ConstPtr& poses_msg);
+    
     // 辅助函数
     void sendJointCommand(const std::vector<double>& positions);
     void sendGripperCommand(bool open);

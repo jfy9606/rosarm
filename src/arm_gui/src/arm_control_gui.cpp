@@ -64,30 +64,26 @@ ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     ui->cameraView->setScaledContents(false);
     ui->cameraView->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
     
-    // 订阅摄像头话题，调整话题名称以匹配实际发布的话题
-    // 尝试多种可能的话题名称，增加接收成功的可能性
+    // 订阅各种摄像头话题
     left_camera_sub_ = nh_.subscribe("/left_camera/image_raw", 1, &ArmControlGUI::leftCameraCallback, this);
     right_camera_sub_ = nh_.subscribe("/right_camera/image_raw", 1, &ArmControlGUI::rightCameraCallback, this);
-    
-    // 订阅合并的立体图像
     stereo_merged_sub_ = nh_.subscribe("/stereo_camera/image_merged", 1, &ArmControlGUI::stereoMergedCallback, this);
     
-    // 新增直接订阅原始摄像头话题，不依赖于重映射
+    // 新增直接订阅原始摄像头话题
     ros::Subscriber raw_camera_sub = nh_.subscribe("/camera/image_raw", 1, &ArmControlGUI::leftCameraCallback, this);
     
-    // 如果启用了目标检测，订阅检测结果
+    // 物体检测相关订阅
     detection_image_sub_ = nh_.subscribe("/stereo_camera/detection_image", 1, &ArmControlGUI::detectionImageCallback, this);
-    
-    // 额外订阅YOLO检测结果话题
     ros::Subscriber yolo_detection_sub = nh_.subscribe("/yolo_detection/image", 1, &ArmControlGUI::detectionImageCallback, this);
+    detection_poses_sub_ = nh_.subscribe("/yolo_detection/poses", 1, &ArmControlGUI::detectionPosesCallback, this);
     
-    // 如果启用了深度估计，订阅深度图像
+    // 深度图像订阅
     depth_image_sub_ = nh_.subscribe("/stereo_camera/depth", 1, &ArmControlGUI::depthImageCallback, this);
     
-    // 订阅YOLO状态
+    // YOLO状态订阅
     yolo_status_sub_ = nh_.subscribe("/yolo_detection/status", 1, &ArmControlGUI::yoloStatusCallback, this);
     
-    // 创建YOLO控制服务客户端
+    // YOLO控制服务客户端
     yolo_control_client_ = nh_.serviceClient<std_srvs::SetBool>("/yolo_detection/set_enabled");
     
     // 设置定时器用于更新ROS
@@ -104,9 +100,10 @@ ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     ROS_INFO(" - /stereo_camera/detection_image");
     ROS_INFO(" - /yolo_detection/image");
     ROS_INFO(" - /stereo_camera/depth");
+    ROS_INFO(" - /yolo_detection/poses");
     
     // 输出调试信息到GUI日志
-    logMessage("已订阅多个图像话题，等待数据...");
+    logMessage("已订阅图像和检测结果话题，等待数据...");
 }
 
 ArmControlGUI::~ArmControlGUI()
@@ -661,13 +658,28 @@ void ArmControlGUI::detectionPosesCallback(const geometry_msgs::PoseArray::Const
     for (size_t i = 0; i < msg->poses.size(); ++i) {
         DetectedObject obj;
         obj.id = "object_" + std::to_string(i);
-        obj.type = "未知";
-        obj.x = msg->poses[i].position.x * 100; // 转换为厘米
-        obj.y = msg->poses[i].position.y * 100;
-        obj.z = msg->poses[i].position.z * 100;
+        obj.type = "未知"; // 默认类型，理想情况下应从检测结果获取
+        
+        // 转换为图像坐标 (简化处理)
+        // 这里将3D世界坐标转为图像像素坐标
+        // 实际应用中需要使用相机内参和投影矩阵
+        double scale = 100.0; // 缩放因子
+        obj.x = static_cast<int>((msg->poses[i].position.x + 0.5) * scale); 
+        obj.y = static_cast<int>((0.5 - msg->poses[i].position.y) * scale);
+        obj.z = msg->poses[i].position.z * 100; // 转换为厘米
+        
         obj.pose = msg->poses[i];
         detected_objects_.push_back(obj);
     }
+    
+    // 检测结果更新后，立即更新视图
+    QMetaObject::invokeMethod(this, "updateCameraViews", Qt::QueuedConnection);
+    
+    // 更新检测表格
+    QMetaObject::invokeMethod(this, "updateDetectionsTable", Qt::QueuedConnection);
+    
+    // 记录检测结果
+    ROS_INFO("收到%zu个物体检测结果", detected_objects_.size());
 }
 
 // GUI更新函数实现
@@ -740,28 +752,73 @@ void ArmControlGUI::updateVacuumStatus()
 void ArmControlGUI::updateCameraViews()
 {
     try {
-        // 更新左相机视图
-        QImage display_image;
+        // 获取基础摄像头图像
+        QImage base_image;
         
-        // 优先使用检测图像(如果有)
-        if (!detection_image_.isNull() && yolo_detection_enabled_) {
-            display_image = detection_image_;
-            ROS_DEBUG("显示检测图像");
+        // 优先使用左相机/立体摄像头图像
+        if (!left_camera_image_.isNull()) {
+            base_image = left_camera_image_;
         }
-        // 其次使用立体合并图像
-        else if (!left_camera_image_.isNull()) {
-            display_image = left_camera_image_;
-            ROS_DEBUG("显示左摄像头图像");
-        }
-        // 再次使用当前图像
+        // 其次使用当前缓存图像
         else if (!current_camera_image_.isNull()) {
-            display_image = current_camera_image_;
-            ROS_DEBUG("显示当前图像");
+            base_image = current_camera_image_;
         }
         
-        if (!display_image.isNull()) {
+        if (!base_image.isNull()) {
             // 获取标签的大小
             QSize labelSize = ui->cameraView->size();
+            
+            // 创建一个绘制工作的副本
+            QImage display_image = base_image.copy();
+            
+            // 如果启用了YOLO检测且有检测结果，在基础图像上绘制检测框和标签
+            if (yolo_detection_enabled_ && !detected_objects_.empty()) {
+                // 创建绘图对象
+                QPainter painter(&display_image);
+                
+                // 设置检测框绘制样式
+                painter.setPen(QPen(Qt::green, 3));
+                
+                // 遍历检测到的物体
+                for (const DetectedObject& obj : detected_objects_) {
+                    // 计算图像坐标 (假设物体位置是在3D世界坐标系中，需要转换)
+                    // 这里简化处理，使用对象表中的x,y作为图像像素坐标
+                    // 实际项目中需要通过相机内参将3D坐标投影到图像平面
+                    int box_x = obj.x; // 需要调整适合显示范围
+                    int box_y = obj.y; // 需要调整适合显示范围
+                    
+                    // 防止坐标超出图像范围
+                    if (box_x < 0) box_x = 0;
+                    if (box_y < 0) box_y = 0;
+                    if (box_x >= display_image.width()) box_x = display_image.width() - 100;
+                    if (box_y >= display_image.height()) box_y = display_image.height() - 100;
+                    
+                    // 绘制矩形框
+                    int box_width = 100; // 示例宽度，应根据实际检测结果调整
+                    int box_height = 100; // 示例高度，应根据实际检测结果调整
+                    painter.drawRect(box_x, box_y, box_width, box_height);
+                    
+                    // 绘制标签背景
+                    QString label = QString::fromStdString(obj.type) + " #" + QString::fromStdString(obj.id);
+                    QFont font("Arial", 12, QFont::Bold);
+                    painter.setFont(font);
+                    QFontMetrics fm(font);
+                    int text_width = fm.horizontalAdvance(label) + 10;
+                    int text_height = fm.height() + 5;
+                    
+                    // 绘制标签背景
+                    painter.fillRect(QRect(box_x, box_y - text_height, text_width, text_height), QColor(0, 150, 0, 180));
+                    
+                    // 绘制标签文字
+                    painter.setPen(Qt::white);
+                    painter.drawText(box_x + 5, box_y - 5, label);
+                    
+                    // 重置笔刷用于下一次矩形绘制
+                    painter.setPen(QPen(Qt::green, 3));
+                }
+                
+                painter.end();
+            }
             
             // 按比例缩放图像，保持原始宽高比
             QPixmap scaled_pixmap = QPixmap::fromImage(display_image).scaled(
@@ -779,11 +836,12 @@ void ArmControlGUI::updateCameraViews()
             QPainter painter(&background);
             painter.drawPixmap(x, y, scaled_pixmap);
             
-            // 添加调试信息
+            // 添加状态信息
             painter.setPen(Qt::white);
             painter.setFont(QFont("Arial", 10));
             painter.drawText(10, 20, QString("图像尺寸: %1x%2").arg(display_image.width()).arg(display_image.height()));
             painter.drawText(10, 40, QString("YOLO: %1").arg(yolo_detection_enabled_ ? "启用" : "禁用"));
+            painter.drawText(10, 60, QString("检测到物体: %1 个").arg(detected_objects_.size()));
             painter.end();
             
             // 设置到标签
@@ -1372,4 +1430,47 @@ void ArmControlGUI::onVisualizeWorkspaceClicked()
     std_msgs::String cmd_msg;
     cmd_msg.data = "visualize_workspace";
     arm_command_pub_.publish(cmd_msg);
+}
+
+// 新增统一的物体检测回调函数，处理YOLO格式的检测结果
+void ArmControlGUI::objectDetectionCallback(const sensor_msgs::Image::ConstPtr& img_msg, 
+                                         const geometry_msgs::PoseArray::ConstPtr& poses_msg)
+{
+    try {
+        // 处理检测图像
+        cv_bridge::CvImageConstPtr cv_ptr = cv_bridge::toCvShare(img_msg, "bgr8");
+        
+        // 转换为QImage并保存
+        QImage image(cv_ptr->image.data, cv_ptr->image.cols, cv_ptr->image.rows, 
+                     cv_ptr->image.step, QImage::Format_RGB888);
+        image = image.rgbSwapped(); // BGR to RGB
+        
+        // 更新基础图像和检测图像
+        left_camera_image_ = image;
+        current_camera_image_ = image;
+        
+        // 处理物体位置数据
+        detected_objects_.clear();
+        for (size_t i = 0; i < poses_msg->poses.size(); ++i) {
+            DetectedObject obj;
+            obj.id = "object_" + std::to_string(i);
+            obj.type = "物体"; // 默认类型
+            
+            // 转换为图像坐标 (简化处理)
+            double scale = 100.0; // 缩放因子
+            obj.x = static_cast<int>((poses_msg->poses[i].position.x + 0.5) * scale);
+            obj.y = static_cast<int>((0.5 - poses_msg->poses[i].position.y) * scale);
+            obj.z = poses_msg->poses[i].position.z * 100;
+            
+            obj.pose = poses_msg->poses[i];
+            detected_objects_.push_back(obj);
+        }
+        
+        // 更新UI
+        QMetaObject::invokeMethod(this, "updateCameraViews", Qt::QueuedConnection);
+        QMetaObject::invokeMethod(this, "updateDetectionsTable", Qt::QueuedConnection);
+        
+    } catch (cv_bridge::Exception& e) {
+        ROS_ERROR("统一物体检测回调中的cv_bridge异常: %s", e.what());
+    }
 } 
