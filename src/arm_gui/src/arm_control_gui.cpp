@@ -659,7 +659,7 @@ void ArmControlGUI::depthImageCallback(const sensor_msgs::Image::ConstPtr& msg)
         }
         
         // 更新UI (在主线程中)
-        QMetaObject::invokeMethod(this, "updateDepthView", Qt::QueuedConnection);
+        QMetaObject::invokeMethod(this, "updateCameraViews", Qt::QueuedConnection);
     }
     catch (cv_bridge::Exception& e) {
         ROS_ERROR("cv_bridge exception in depth image callback: %s", e.what());
@@ -861,6 +861,9 @@ void ArmControlGUI::updateCameraViews()
             // 设置到标签
             ui->cameraView->setPixmap(background);
             camera_pixmap_ = background;  // 保存当前显示的图像
+            
+            // 打印调试信息
+            ROS_DEBUG("已更新摄像头视图，尺寸: %dx%d", background.width(), background.height());
         } else {
             // 摄像头图像为空，显示提示信息
             if (ui->cameraView->pixmap() == nullptr || ui->cameraView->pixmap()->isNull()) {
@@ -911,14 +914,17 @@ void ArmControlGUI::updateDepthView()
             QPainter painter(&background);
             painter.drawPixmap(x, y, scaled_pixmap);
             
-            // 添加深度图信息
+            // 添加状态信息
             painter.setPen(Qt::white);
             painter.setFont(QFont("Arial", 10));
-            painter.drawText(10, 20, "深度图视图");
+            painter.drawText(10, 20, QString("深度图尺寸: %1x%2").arg(depth_image_.width()).arg(depth_image_.height()));
             painter.end();
             
             // 设置到标签
             ui->depthView->setPixmap(background);
+            
+            // 打印调试信息
+            ROS_DEBUG("已更新深度视图，尺寸: %dx%d", background.width(), background.height());
         } else {
             // 深度图像为空，显示提示信息
             if (ui->depthView->pixmap() == nullptr || ui->depthView->pixmap()->isNull()) {
@@ -929,7 +935,7 @@ void ArmControlGUI::updateDepthView()
                 QPainter painter(&emptyPix);
                 painter.setPen(Qt::white);
                 painter.setFont(QFont("Arial", 14, QFont::Bold));
-                painter.drawText(emptyPix.rect(), Qt::AlignCenter, "等待深度数据...\n\n请启用深度相机");
+                painter.drawText(emptyPix.rect(), Qt::AlignCenter, "等待深度图数据...\n\n请确认:\n1.立体相机已连接\n2.深度话题已正确发布");
                 painter.end();
                 
                 ui->depthView->setPixmap(emptyPix);
