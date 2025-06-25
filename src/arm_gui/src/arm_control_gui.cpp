@@ -487,6 +487,8 @@ void ArmControlGUI::onUpdateGUI()
     updateJointControlWidgets();
     updateEndEffectorPose();
     updateCameraViews();
+    updateJointInfo();
+    updateConnectionStatus();
 }
 
 // ROS回调函数实现
@@ -1459,4 +1461,64 @@ void ArmControlGUI::objectDetectionCallback(const sensor_msgs::Image::ConstPtr& 
     } catch (cv_bridge::Exception& e) {
         ROS_ERROR("统一物体检测回调中的cv_bridge异常: %s", e.what());
     }
+}
+
+// 添加updateJointInfo函数实现
+void ArmControlGUI::updateJointInfo()
+{
+    // 更新关节信息显示
+    if (current_joint_values_.size() >= 6) {
+        // 更新关节角度标签
+        if (ui->joint1_value) {
+            ui->joint1_value->setText(QString::number(current_joint_values_[0] * 180.0 / M_PI, 'f', 1) + "°");
+        }
+        if (ui->joint2_value) {
+            ui->joint2_value->setText(QString::number(current_joint_values_[1], 'f', 1) + "°");
+        }
+        if (ui->joint3_value) {
+            ui->joint3_value->setText(QString::number(current_joint_values_[2] * 180.0 / M_PI, 'f', 1) + "°");
+        }
+        if (ui->joint4_value) {
+            ui->joint4_value->setText(QString::number(current_joint_values_[3] * 180.0 / M_PI, 'f', 1) + "°");
+        }
+        if (ui->joint6_value) {
+            ui->joint6_value->setText(QString::number(current_joint_values_[5], 'f', 1) + "°");
+        }
+    }
+}
+
+// 添加updateConnectionStatus函数实现
+void ArmControlGUI::updateConnectionStatus()
+{
+    // 检查ROS连接状态
+    bool ros_ok = ros::ok();
+    
+    // 检查相机连接状态
+    bool camera_ok = !left_camera_image_.isNull() || !current_camera_image_.isNull();
+    
+    // 检查深度相机连接状态
+    bool depth_ok = !depth_image_.isNull();
+    
+    // 更新状态栏
+    QString status;
+    if (ros_ok) {
+        status += "ROS: 已连接 | ";
+    } else {
+        status += "ROS: 未连接 | ";
+    }
+    
+    if (camera_ok) {
+        status += "相机: 已连接 | ";
+    } else {
+        status += "相机: 未连接 | ";
+    }
+    
+    if (depth_ok) {
+        status += "深度相机: 已连接";
+    } else {
+        status += "深度相机: 未连接";
+    }
+    
+    // 设置状态栏文本
+    statusBar()->showMessage(status);
 } 
