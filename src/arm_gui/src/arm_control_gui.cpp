@@ -44,12 +44,11 @@ ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     initializeGUI();
     initializeJointControlConnections();
     initializeROS();
-    initializeOpenGL();
     
     // 设置定时器用于GUI更新
     updateTimer = new QTimer(this);
-    connect(updateTimer, &QTimer::timeout, this, &ArmControlGUI::onUpdateGUI);
-    updateTimer->start(50); // 20Hz更新率
+    connect(updateTimer, SIGNAL(timeout()), this, SLOT(onUpdateGUI()));
+    updateTimer->start(100); // 10Hz更新
     
     // 默认关节值初始化
     current_joint_values_ = std::vector<double>{0, 0, 0, 0, M_PI/2, 10};
@@ -274,13 +273,6 @@ void ArmControlGUI::initializeROS()
     
     // 发布舵机控制命令
     servo_control_pub_ = nh_.advertise<servo_wrist::SerControl>("/servo_control_topic", 10);
-}
-
-void ArmControlGUI::initializeOpenGL()
-{
-    // 这里可以初始化OpenGL相关的内容
-    // 例如：加载3D模型、设置光照等
-    // ...
 }
 
 // 关节控制槽实现
@@ -511,14 +503,31 @@ void ArmControlGUI::onDetectionsTableCellClicked(int row, int column)
 // 定时器槽实现
 void ArmControlGUI::onUpdateGUI()
 {
-    // 在这里更新GUI元素，如3D视图、状态等
-    updateJointControlWidgets();
-    updateEndEffectorPose();
-    updateCameraViews();
-    updateDetectionsTable();
-    
-    // 更新OpenGL渲染
-    ui->armView->update();
+    try {
+        // 更新ROS
+        ros::spinOnce();
+        
+        // 更新UI
+        updateUI();
+        
+        // 更新关节控制小部件
+        updateJointControlWidgets();
+        
+        // 更新末端执行器姿态
+        updateEndEffectorPose();
+        
+        // 更新摄像头视图
+        updateCameraViews();
+        
+        // 更新检测表格
+        updateDetectionsTable();
+        
+        // 更新真空吸盘状态
+        updateVacuumStatus();
+    }
+    catch (std::exception &e) {
+        ROS_ERROR("Error in onUpdateGUI: %s", e.what());
+    }
 }
 
 // ROS回调函数实现
@@ -1083,14 +1092,6 @@ void ArmControlGUI::logMessage(const QString& message)
     ui->logTextEdit->moveCursor(QTextCursor::End);
 }
 
-// OpenGL渲染
-void ArmControlGUI::renderRobotArm()
-{
-    // 这里应该实现OpenGL渲染机械臂的代码
-    // 需要使用当前的关节值计算各个连杆的位置和姿态
-    // ...
-}
-
 // 电机控制函数
 void ArmControlGUI::sendMotorOrder(uint8_t station_num, uint8_t form, int16_t vel, uint16_t vel_ac, uint16_t vel_de, bool pos_mode, int32_t pos, uint16_t pos_thr)
 {
@@ -1492,47 +1493,4 @@ void ArmControlGUI::onVisualizeWorkspaceClicked()
     std_msgs::String cmd_msg;
     cmd_msg.data = "visualize_workspace";
     arm_command_pub_.publish(cmd_msg);
-}
-
-// 新增统一的物体检测回调函数，处理YOLO格式的检测结果
-void ArmControlGUI::objectDetectionCallback(const sensor_msgs::Image::ConstPtr& img_msg, 
-                                         const geometry_msgs::PoseArray::ConstPtr& poses_msg)
-{
-    try {
-        // 处理检测图像
-        cv_bridge::CvImageConstPtr cv_ptr = cv_bridge::toCvShare(img_msg, "bgr8");
-        
-        // 转换为QImage并保存
-        QImage image(cv_ptr->image.data, cv_ptr->image.cols, cv_ptr->image.rows, 
-                     cv_ptr->image.step, QImage::Format_RGB888);
-        image = image.rgbSwapped(); // BGR to RGB
-        
-        // 更新基础图像和检测图像
-        left_camera_image_ = image;
-        current_camera_image_ = image;
-        
-        // 处理物体位置数据
-        detected_objects_.clear();
-        for (size_t i = 0; i < poses_msg->poses.size(); ++i) {
-            DetectedObject obj;
-            obj.id = "object_" + std::to_string(i);
-            obj.type = "物体"; // 默认类型
-            
-            // 转换为图像坐标 (简化处理)
-            double scale = 100.0; // 缩放因子
-            obj.x = static_cast<int>((poses_msg->poses[i].position.x + 0.5) * scale);
-            obj.y = static_cast<int>((0.5 - poses_msg->poses[i].position.y) * scale);
-            obj.z = poses_msg->poses[i].position.z * 100;
-            
-            obj.pose = poses_msg->poses[i];
-            detected_objects_.push_back(obj);
-        }
-        
-        // 更新UI
-        QMetaObject::invokeMethod(this, "updateCameraViews", Qt::QueuedConnection);
-        QMetaObject::invokeMethod(this, "updateDetectionsTable", Qt::QueuedConnection);
-        
-    } catch (cv_bridge::Exception& e) {
-        ROS_ERROR("统一物体检测回调中的cv_bridge异常: %s", e.what());
-    }
 } 
