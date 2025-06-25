@@ -25,7 +25,7 @@ try:
     if current_dir not in sys.path:
         sys.path.append(current_dir)
     # 直接导入本地文件
-    from whales_optimizer import WhaleOptimizer, forward_kinematics_dh
+from whales_optimizer import WhaleOptimizer, forward_kinematics_dh
 except ImportError as e:
     rospy.logerr(f"导入WhaleOptimizer失败: {e}")
     sys.exit(1)
