@@ -35,9 +35,13 @@ echo -e "${BLUE}正在检测摄像头设备...${NC}"
 VIDEO_DEVICES=$(ls /dev/video* 2>/dev/null | sort)
 VIDEO_COUNT=$(echo "$VIDEO_DEVICES" | wc -l)
 
+# 默认摄像头设备
+DEFAULT_CAMERA="/dev/video0"
+
 if [ "$VIDEO_COUNT" -eq 0 ]; then
-    echo -e "${RED}未检测到任何摄像头设备${NC}"
+    echo -e "${YELLOW}未检测到任何摄像头设备，将使用默认设备: ${DEFAULT_CAMERA}${NC}"
     echo -e "${YELLOW}请确保摄像头已连接并有正确权限${NC}"
+    CAMERA=$DEFAULT_CAMERA
     HAS_CAMERA=false
 else
     echo -e "${GREEN}检测到以下摄像头设备:${NC}"
@@ -48,7 +52,6 @@ else
 fi
 
 # 默认参数
-CAMERA=${CAMERA:-"/dev/video0"}
 RESOLUTION="1280x480"
 FPS=30
 YOLO_ENABLED=false

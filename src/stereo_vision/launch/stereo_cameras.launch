@@ -1,18 +1,15 @@
-<?xml version="1.0"?>
 <launch>
     <!-- 摄像头参数 -->
-    <arg name="device" default="/dev/video0" doc="摄像头设备"/>
-    <arg name="width" default="640" doc="图像宽度"/>
-    <arg name="height" default="480" doc="图像高度"/>
-    <arg name="fps" default="30" doc="帧率"/>
-    <arg name="simulation_mode" default="false" doc="是否使用模拟模式"/>
+    <arg name="camera_device" default="/dev/video0" />
+    <arg name="image_width" default="640" />
+    <arg name="image_height" default="480" />
+    <arg name="frame_rate" default="30" />
 
-    <!-- 启动双目摄像头节点 -->
-    <node name="stereo_camera_node" pkg="stereo_vision" type="stereo_camera.py" output="screen">
-        <param name="device" value="$(arg device)" />
-        <param name="width" value="$(arg width)" />
-        <param name="height" value="$(arg height)" />
-        <param name="fps" value="$(arg fps)" />
-        <param name="simulation_mode" value="$(arg simulation_mode)" />
+    <!-- 启动摄像头节点 -->
+    <node pkg="stereo_vision" type="camera_node.py" name="camera_node" output="screen">
+        <param name="device" value="$(arg camera_device)" />
+        <param name="width" value="$(arg image_width)" />
+        <param name="height" value="$(arg image_height)" />
+        <param name="fps" value="$(arg frame_rate)" />
     </node>
 </launch> 

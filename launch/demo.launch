@@ -35,6 +35,8 @@
     <param name="width" value="640" />
     <param name="height" value="480" />
     <param name="fps" value="30" />
+    <param name="retry_count" value="5" />
+    <param name="retry_delay" value="2.0" />
   </node>
 
   <!-- 启动YOLO控制节点 -->

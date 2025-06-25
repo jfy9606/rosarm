@@ -12,7 +12,134 @@ from std_msgs.msg import Bool
 from arm_trajectory.srv import PlanTrajectory, PlanTrajectoryRequest, PlanTrajectoryResponse
 from arm_trajectory.msg import TrajectoryPath, TrajectoryPoint
 
-# 导入鲸鱼优化器
+# 定义一个简单的备选优化器类
+class SimpleOptimizer:
+    """简单的优化器，作为WhaleOptimizer的替代"""
+    
+    def __init__(self, 
+                 num_particles=30,
+                 max_iter=100, 
+                 forward_kinematics_func=None,
+                 dh_params=None,
+                 joint_limits=None):
+        """初始化简单优化器"""
+        self.num_particles = num_particles
+        self.max_iter = max_iter
+        self.forward_kinematics = forward_kinematics_func
+        self.dh_params = dh_params
+        
+        # 默认关节限制
+        if joint_limits is None:
+            # 默认限制 [theta1, d2, theta3, theta4, theta5, d6]
+            self.joint_limits = [
+                [-pi, pi],      # theta1 (rad)
+                [0, 43],       # d2 (cm)
+                [-pi/2, pi/2], # theta3 (rad)
+                [0, pi],       # theta4 (rad)
+                [pi/2, pi/2],  # theta5 (rad, fixed)
+                [5, 15]        # d6 (cm)
+            ]
+        else:
+            self.joint_limits = joint_limits
+        
+        self.dim = len(self.joint_limits)
+        rospy.loginfo(f"初始化SimpleOptimizer，替代WhaleOptimizer")
+    
+    def random_joint_config(self):
+        """生成随机关节配置"""
+        config = []
+        for i in range(self.dim):
+            min_val, max_val = self.joint_limits[i]
+            config.append(np.random.uniform(min_val, max_val))
+        return np.array(config)
+    
+    def clamp_joints(self, joints):
+        """限制关节在有效范围内"""
+        for i in range(self.dim):
+            min_val, max_val = self.joint_limits[i]
+            joints[i] = max(min_val, min(max_val, joints[i]))
+        return joints
+    
+    def transformation_error(self, T1, T2):
+        """计算两个变换矩阵之间的误差"""
+        # 位置误差 - 欧几里得距离
+        pos_error = np.linalg.norm(T1[:3, 3] - T2[:3, 3])
+        
+        # 方向误差 - 使用旋转矩阵差异
+        R1 = T1[:3, :3]
+        R2 = T2[:3, :3]
+        orientation_error = np.linalg.norm(R1 - R2, 'fro') / np.sqrt(6)
+        
+        # 权重位置与方向
+        position_weight = 0.7
+        orientation_weight = 0.3
+        
+        return position_weight * pos_error + orientation_weight * orientation_error
+    
+    def fitness_function(self, joints, target_T):
+        """基于当前和目标姿态之间的变换误差计算适应度"""
+        current_T = self.forward_kinematics(joints)
+        error = self.transformation_error(current_T, target_T)
+        return error
+    
+    def optimize(self, target_T, initial_joints=None):
+        """运行优化以找到达到目标姿态的关节配置"""
+        # 初始化粒子群
+        particles = np.zeros((self.num_particles, self.dim))
+        
+        # 如果提供了初始关节，则从那里开始
+        if initial_joints is not None:
+            particles[0] = initial_joints
+            for i in range(1, self.num_particles):
+                particles[i] = self.random_joint_config()
+        else:
+            for i in range(self.num_particles):
+                particles[i] = self.random_joint_config()
+        
+        # 初始化最佳粒子位置
+        fitness = np.zeros(self.num_particles)
+        for i in range(self.num_particles):
+            fitness[i] = self.fitness_function(particles[i], target_T)
+        
+        best_idx = np.argmin(fitness)
+        best_particle = particles[best_idx].copy()
+        best_fitness = fitness[best_idx]
+        
+        # 初始化跟踪变量
+        fitness_history = []
+        
+        # 主优化循环
+        for iteration in range(self.max_iter):
+            # 更新每个粒子位置
+            for i in range(self.num_particles):
+                # 随机扰动
+                particles[i] = particles[i] + np.random.normal(0, 0.1, self.dim)
+                
+                # 向最佳粒子移动
+                particles[i] = particles[i] + 0.1 * (best_particle - particles[i])
+                
+                # 限制关节范围
+                particles[i] = self.clamp_joints(particles[i])
+                
+                # 更新适应度
+                fitness[i] = self.fitness_function(particles[i], target_T)
+            
+            # 更新最佳粒子
+            new_best_idx = np.argmin(fitness)
+            if fitness[new_best_idx] < best_fitness:
+                best_particle = particles[new_best_idx].copy()
+                best_fitness = fitness[new_best_idx]
+            
+            # 存储此迭代的最佳适应度
+            fitness_history.append(best_fitness)
+            
+            # 每10次迭代记录一次进度
+            if iteration % 10 == 0 or iteration == self.max_iter - 1:
+                rospy.loginfo(f"迭代 {iteration}: 最佳适应度 = {best_fitness}")
+        
+        return best_particle, best_fitness, fitness_history
+
+# 尝试导入WhaleOptimizer
 try:
     # 获取当前脚本路径
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -26,10 +153,57 @@ try:
     # 尝试直接导入本地文件
     from whales_optimizer import WhaleOptimizer, forward_kinematics_dh
     rospy.loginfo("成功导入WhaleOptimizer")
+    # 设置全局变量以便后续使用
+    USING_WHALE_OPTIMIZER = True
 except ImportError as e:
     rospy.logerr(f"导入WhaleOptimizer失败: {e}")
-    # 不退出程序，而是在需要时提供备选方案
+    # 不退出程序，而是使用备选优化方法
     rospy.logwarn("将使用备选优化方法")
+    # 设置全局变量以便后续使用
+    USING_WHALE_OPTIMIZER = False
+    # 导入forward_kinematics_dh函数
+    def compute_dh_transform(theta, d, a, alpha):
+        """计算单个关节的DH变换矩阵"""
+        ct = np.cos(theta)
+        st = np.sin(theta)
+        ca = np.cos(alpha)
+        sa = np.sin(alpha)
+        
+        return np.array([
+            [ct, -st*ca, st*sa, a*ct],
+            [st, ct*ca, -ct*sa, a*st],
+            [0, sa, ca, d],
+            [0, 0, 0, 1]
+        ])
+
+    def forward_kinematics_dh(joint_values, dh_params):
+        """
+        使用DH参数计算正向运动学
+        
+        Args:
+            joint_values: 关节值列表 [θ1, d2, θ3, θ4, θ5, d6]
+            dh_params: DH参数列表 [(d, θ, a, α), ...]，其中关节值替换适当的参数
+        
+        Returns:
+            T: 末端执行器变换矩阵 (4x4)
+        """
+        T = np.eye(4)
+        
+        for i, (joint_type, d, theta, a, alpha) in enumerate(dh_params):
+            if joint_type == "revolute":
+                # θ是变量
+                theta = joint_values[i]
+            elif joint_type == "prismatic":
+                # d是变量
+                d = joint_values[i]
+                
+            # 计算此关节的变换矩阵
+            T_i = compute_dh_transform(theta, d, a, alpha)
+            
+            # 更新总变换
+            T = T @ T_i
+            
+        return T
 
 class CoordinateSystem:
     """机械臂工作空间坐标系统"""
@@ -203,101 +377,51 @@ class CoordinateSystem:
 class PathPlanner:
     """机械臂路径规划器"""
     
-    def __init__(self, coord_system, arm_config_file=None):
-        """初始化路径规划器"""
-        self.coord_system = coord_system
+    def __init__(self, coordinate_system, arm_config):
+        """
+        初始化路径规划器
         
-        # 加载机械臂配置
-        self.load_arm_config(arm_config_file)
+        Args:
+            coordinate_system: 坐标系统对象
+            arm_config: 机械臂配置参数
+        """
+        self.coord_system = coordinate_system
+        self.arm_config = arm_config
         
-        # 设置DH参数
-        self.setup_dh_params()
-        
-        # 初始化优化器
-        try:
+        # 初始化优化器，根据导入情况选择
+        if USING_WHALE_OPTIMIZER:
+            rospy.loginfo("使用WhaleOptimizer进行路径规划")
             self.optimizer = WhaleOptimizer(
-                num_whales=30,
-                max_iter=100,
-                forward_kinematics_func=self.forward_kinematics,
-                dh_params=self.dh_params,
-                joint_limits=self.joint_limits
+                num_whales=arm_config["optimizer"]["population_size"],
+                max_iter=arm_config["optimizer"]["max_iterations"],
+                forward_kinematics_func=lambda joints: forward_kinematics_dh(joints, arm_config["dh_params"]),
+                joint_limits=arm_config["joint_limits"]
             )
-            rospy.loginfo("成功初始化WhaleOptimizer")
-        except NameError:
-            # 如果WhaleOptimizer导入失败，使用备选优化器
-            rospy.logwarn("WhaleOptimizer不可用，使用备选优化器")
-            from whales_optimizer import SimpleOptimizer
+        else:
+            rospy.loginfo("使用SimpleOptimizer进行路径规划")
             self.optimizer = SimpleOptimizer(
-                forward_kinematics_func=self.forward_kinematics,
-                joint_limits=self.joint_limits
+                num_particles=arm_config["optimizer"]["population_size"],
+                max_iter=arm_config["optimizer"]["max_iterations"],
+                forward_kinematics_func=lambda joints: forward_kinematics_dh(joints, arm_config["dh_params"]),
+                joint_limits=arm_config["joint_limits"]
             )
         
         # 初始化路径可视化发布器
-        self.path_vis_pub = rospy.Publisher('/path_visualization', MarkerArray, queue_size=10)
+        self.path_marker_pub = rospy.Publisher('/path_visualization', MarkerArray, queue_size=1)
         
-        # 初始化关节状态发布器
-        self.joint_pub = rospy.Publisher('/joint_states', JointState, queue_size=10)
+        # 订阅可视化命令
+        rospy.Subscriber('/path_planner/visualize_workspace', Bool, self.handle_visualize_workspace)
         
-        # 初始化障碍物列表
-        self.obstacles = []
+        # 吸盘末端执行器参数（单位：厘米）
+        self.gripper_length = 5.0
+        self.approach_distance = 10.0  # 接近距离
         
         rospy.loginfo("路径规划器初始化完成")
-    
-    def load_arm_config(self, arm_config_file):
-        """加载机械臂配置"""
-        # 这里应该从配置文件加载，但为了简单起见，我们使用默认值
-        self.dh_params = [
-            # a, alpha, d, theta
-            [0, pi/2, 0, 0],  # 关节1 - 底座旋转
-            [30, 0, 0, 0],    # 关节2 - 伸缩关节
-            [0, pi/2, 0, 0],  # 关节3 - 肩部关节
-            [30, 0, 0, 0],    # 关节4 - 肘部关节
-            [0, pi/2, 0, 0],  # 关节5 - 腕部旋转
-            [0, 0, 10, 0]     # 关节6 - 末端伸缩
-        ]
-        
-        self.joint_limits = [
-            # min, max (弧度或厘米)
-            [-pi, pi],      # 关节1 - 底座旋转 (-180° ~ 180°)
-            [0, 43],        # 关节2 - 伸缩关节 (0 ~ 43cm)
-            [-pi/2, pi/2],  # 关节3 - 肩部关节 (-90° ~ 90°)
-            [0, pi],        # 关节4 - 肘部关节 (0° ~ 180°)
-            [-pi, pi],      # 关节5 - 腕部旋转 (-180° ~ 180°)
-            [5, 15]         # 关节6 - 末端伸缩 (5 ~ 15cm)
-        ]
-    
-    def setup_dh_params(self):
-        """设置DH参数"""
-        # 这里应该从配置文件加载，但为了简单起见，我们使用默认值
-        self.dh_params = [
-            # a, alpha, d, theta
-            [0, pi/2, 0, 0],  # 关节1 - 底座旋转
-            [30, 0, 0, 0],    # 关节2 - 伸缩关节
-            [0, pi/2, 0, 0],  # 关节3 - 肩部关节
-            [30, 0, 0, 0],    # 关节4 - 肘部关节
-            [0, pi/2, 0, 0],  # 关节5 - 腕部旋转
-            [0, 0, 10, 0]     # 关节6 - 末端伸缩
-        ]
-        
-        self.joint_limits = [
-            # min, max (弧度或厘米)
-            [-pi, pi],      # 关节1 - 底座旋转 (-180° ~ 180°)
-            [0, 43],        # 关节2 - 伸缩关节 (0 ~ 43cm)
-            [-pi/2, pi/2],  # 关节3 - 肩部关节 (-90° ~ 90°)
-            [0, pi],        # 关节4 - 肘部关节 (0° ~ 180°)
-            [-pi, pi],      # 关节5 - 腕部旋转 (-180° ~ 180°)
-            [5, 15]         # 关节6 - 末端伸缩 (5 ~ 15cm)
-        ]
-    
-    def forward_kinematics(self, joints):
-        """正向运动学"""
-        # 这里应该实现正向运动学计算，但为了简单起见，我们使用默认值
-        return forward_kinematics_dh(joints, self.dh_params)
     
     def inverse_kinematics(self, target_pose, initial_joints=None):
         """求解逆运动学"""
         if initial_joints is None:
-            initial_joints = self.dh_params[-1]  # 使用末端关节作为初始关节
+            initial_joints = self.arm_config['default_pose']
         
         # 使用鲸鱼优化算法求解
         best_joints, fitness, _ = self.optimizer.optimize(target_pose, initial_joints)
@@ -354,11 +478,11 @@ class PathPlanner:
         # 这里仅作为示例
         
         # 使用正向运动学计算机械臂位姿
-        arm_pose = self.forward_kinematics(joints)
+        arm_pose = forward_kinematics_dh(joints, self.arm_config['dh_params'])
         arm_position = arm_pose[:3, 3]
         
         # 检查是否与任何障碍物碰撞
-        for obstacle in self.obstacles:
+        for obstacle in self.coord_system.obstacles:
             obs_center = np.array(obstacle["center"])
             obs_size = np.array(obstacle["size"]) / 2  # 半尺寸
             
@@ -377,7 +501,7 @@ class PathPlanner:
         # 添加路径点
         for i, joints in enumerate(path):
             # 计算路径点的笛卡尔坐标
-            pose = self.forward_kinematics(joints)
+            pose = forward_kinematics_dh(joints, self.arm_config['dh_params'])
             position = pose[:3, 3]
             
             # 创建球体标记
@@ -410,7 +534,7 @@ class PathPlanner:
             
             # 添加路径线段（除第一个点外）
             if i > 0:
-                prev_pose = self.forward_kinematics(path[i-1])
+                prev_pose = forward_kinematics_dh(path[i-1], self.arm_config['dh_params'])
                 prev_position = prev_pose[:3, 3]
                 
                 # 创建线段标记
@@ -448,8 +572,14 @@ class PathPlanner:
                 marker_array.markers.append(line_marker)
         
         # 发布标记数组
-        self.path_vis_pub.publish(marker_array)
+        self.path_marker_pub.publish(marker_array)
         rospy.loginfo(f"已发布包含 {len(path)} 个点的路径可视化")
+
+    def handle_visualize_workspace(self, msg):
+        """处理可视化工作空间命令"""
+        if msg.data:
+            rospy.loginfo("接收到可视化工作空间命令")
+            self.coord_system.visualize_workspace()
 
 class TaskPlanner:
     """任务规划器，用于生成抓取和放置任务"""
@@ -701,7 +831,7 @@ def plan_trajectory_service(req, path_planner, task_planner):
                 point.joint_positions = joints
                 
                 # 计算位姿
-                pose_matrix = path_planner.forward_kinematics(joints)
+                pose_matrix = forward_kinematics_dh(joints, path_planner.arm_config["dh_params"])
                 
                 point.pose.position.x = pose_matrix[0, 3]
                 point.pose.position.y = pose_matrix[1, 3]
@@ -752,8 +882,35 @@ def main():
     # 创建坐标系统
     coord_system = CoordinateSystem()
     
+    # 加载机械臂配置
+    arm_config = {
+        "dh_params": [
+            # a, alpha, d, theta
+            [0, pi/2, 0, 0],  # 关节1 - 底座旋转
+            [30, 0, 0, 0],    # 关节2 - 伸缩关节
+            [0, pi/2, 0, 0],  # 关节3 - 肩部关节
+            [30, 0, 0, 0],    # 关节4 - 肘部关节
+            [0, pi/2, 0, 0],  # 关节5 - 腕部旋转
+            [0, 0, 10, 0]     # 关节6 - 末端伸缩
+        ],
+        "joint_limits": [
+            # min, max (弧度或厘米)
+            [-pi, pi],      # 关节1 - 底座旋转 (-180° ~ 180°)
+            [0, 43],        # 关节2 - 伸缩关节 (0 ~ 43cm)
+            [-pi/2, pi/2],  # 关节3 - 肩部关节 (-90° ~ 90°)
+            [0, pi],        # 关节4 - 肘部关节 (0° ~ 180°)
+            [-pi, pi],      # 关节5 - 腕部旋转 (-180° ~ 180°)
+            [5, 15]         # 关节6 - 末端伸缩 (5 ~ 15cm)
+        ],
+        "optimizer": {
+            "max_iterations": 50,
+            "population_size": 30,
+            "spiral_constant": 1.0
+        }
+    }
+    
     # 创建路径规划器
-    path_planner = PathPlanner(coord_system, arm_config_file)
+    path_planner = PathPlanner(coord_system, arm_config)
     
     # 创建任务规划器
     task_planner = TaskPlanner(coord_system, path_planner)
