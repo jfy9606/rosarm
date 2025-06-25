@@ -22,13 +22,34 @@
 ### 安装依赖
 
 ```bash
-# 安装基本依赖
+# 安装ROS基本依赖
 sudo apt-get update
-sudo apt-get install ros-noetic-image-view ros-noetic-tf2-ros
+sudo apt-get install ros-noetic-image-view ros-noetic-tf2-ros ros-noetic-cv-bridge ros-noetic-serial
+
+# 安装Qt5依赖
+sudo apt-get install qtbase5-dev libqt5-opengl-dev libqt5core5a libqt5gui5 libqt5widgets5 libqt5opengl5
+
+# 安装其他系统依赖
+sudo apt-get install libopengl0 libglx0 libgl1-mesa-dev
 
 # 安装Python依赖
 pip3 install numpy opencv-python torch ultralytics
+
+# 安装消息和功能包依赖
+sudo apt-get install ros-noetic-moveit-msgs ros-noetic-geometry-msgs ros-noetic-sensor-msgs ros-noetic-tf2-ros
+
+# 安装通信和网络依赖
+sudo apt-get install ros-noetic-image-transport
 ```
+
+### 工作空间目录结构
+
+系统包含以下ROS功能包：
+- **arm_gui**: 机械臂控制GUI界面
+- **arm_trajectory**: 轨迹规划和生成
+- **liancheng_socket**: 网络通信接口（原名SimpleNetwork）
+- **servo_wrist**: 舵机控制
+- **stereo_vision**: 立体视觉处理
 
 ### 编译工作空间
 
@@ -100,21 +121,26 @@ roslaunch run.launch enable_yolo:=true
 
 ### 常见问题
 
-1. **摄像头不工作**
+1. **编译错误**
+   - 确保所有依赖包都已安装
+   - 检查工作空间中的包名是否与CMakeLists.txt中的包名一致
+   - 如果出现liancheng_socket相关错误，确保SimpleNetwork目录已被重命名为liancheng_socket
+
+2. **摄像头不工作**
    - 检查摄像头设备是否存在: `ls -la /dev/video*`
    - 确保摄像头权限正确: `sudo chmod a+rw /dev/video*`
    - 尝试直接测试模式: `./start.sh --test`
 
-2. **图像显示问题**
+3. **图像显示问题**
    - 检查分辨率设置是否与摄像头匹配
    - 如果图像为黑屏，可能是摄像头曝光问题
    - 尝试不同的像素格式 (YUYV, MJPEG)
 
-3. **目标检测不工作**
+4. **目标检测不工作**
    - 确保已安装所需的Python库
    - 检查YOLO模型路径是否正确
 
-4. **轨迹规划错误**
+5. **轨迹规划错误**
    - 检查机械臂配置参数
    - 确保已安装所有ROS依赖包
 
@@ -203,7 +229,7 @@ roslaunch arm_gui arm_gui.launch with_path_planner:=false with_trajectory_planne
 - **stereo_vision**：立体视觉和目标检测
 - **arm_trajectory**：路径规划和轨迹生成
 - **servo_wrist**：舵机控制
-- **SimpleNetwork**：通信网络
+- **liancheng_socket**：通信网络（原名SimpleNetwork）
 
 ## 注意事项
 
