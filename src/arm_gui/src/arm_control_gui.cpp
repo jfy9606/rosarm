@@ -1463,26 +1463,36 @@ void ArmControlGUI::objectDetectionCallback(const sensor_msgs::Image::ConstPtr& 
     }
 }
 
-// 添加updateJointInfo函数实现
+// 修改updateJointInfo函数实现，使用正确的UI元素
 void ArmControlGUI::updateJointInfo()
 {
     // 更新关节信息显示
     if (current_joint_values_.size() >= 6) {
-        // 更新关节角度标签
-        if (ui->joint1_value) {
-            ui->joint1_value->setText(QString::number(current_joint_values_[0] * 180.0 / M_PI, 'f', 1) + "°");
+        // 更新关节角度标签 - 使用关节控制组中的标签
+        // 由于UI中没有专门的joint*_value标签，我们可以更新关节控制组中的标签文本
+        if (ui->label_joint1) {
+            ui->label_joint1->setText(QString("底座旋转 (θ1)：%1°").arg(
+                QString::number(current_joint_values_[0] * 180.0 / M_PI, 'f', 1)));
         }
-        if (ui->joint2_value) {
-            ui->joint2_value->setText(QString::number(current_joint_values_[1], 'f', 1) + "°");
+        
+        if (ui->label_joint2) {
+            ui->label_joint2->setText(QString("伸缩关节 (d2)：%1cm").arg(
+                QString::number(current_joint_values_[1], 'f', 1)));
         }
-        if (ui->joint3_value) {
-            ui->joint3_value->setText(QString::number(current_joint_values_[2] * 180.0 / M_PI, 'f', 1) + "°");
+        
+        if (ui->label_joint3) {
+            ui->label_joint3->setText(QString("肩部关节 (θ3)：%1°").arg(
+                QString::number(current_joint_values_[2] * 180.0 / M_PI, 'f', 1)));
         }
-        if (ui->joint4_value) {
-            ui->joint4_value->setText(QString::number(current_joint_values_[3] * 180.0 / M_PI, 'f', 1) + "°");
+        
+        if (ui->label_joint4) {
+            ui->label_joint4->setText(QString("肘部关节 (θ4)：%1°").arg(
+                QString::number(current_joint_values_[3] * 180.0 / M_PI, 'f', 1)));
         }
-        if (ui->joint6_value) {
-            ui->joint6_value->setText(QString::number(current_joint_values_[5], 'f', 1) + "°");
+        
+        if (ui->label_joint6) {
+            ui->label_joint6->setText(QString("末端伸缩 (d6)：%1cm").arg(
+                QString::number(current_joint_values_[5], 'f', 1)));
         }
     }
 }
