@@ -430,114 +430,124 @@
        </property>
        <layout class="QVBoxLayout" name="verticalLayout_9">
         <item>
-         <widget class="QGroupBox" name="groupBox3DView">
+         <widget class="QGroupBox" name="groupBoxDepthView">
           <property name="title">
-           <string>3D视图</string>
+           <string>深度视图</string>
           </property>
           <property name="sizePolicy">
            <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
             <horstretch>0</horstretch>
             <verstretch>1</verstretch>
            </sizepolicy>
-       </property>
-        <layout class="QVBoxLayout" name="verticalLayout_6">
-         <item>
-          <widget class="QOpenGLWidget" name="armView"/>
-         </item>
-        </layout>
-       </widget>
+          </property>
+          <layout class="QVBoxLayout" name="verticalLayout_6">
+            <item>
+              <widget class="QLabel" name="depthView">
+                <property name="sizePolicy">
+                  <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+                    <horstretch>0</horstretch>
+                    <verstretch>0</verstretch>
+                  </sizepolicy>
+                </property>
+                <property name="minimumSize">
+                  <size>
+                    <width>640</width>
+                    <height>240</height>
+                  </size>
+                </property>
+                <property name="frameShape">
+                  <enum>QFrame::Box</enum>
+                </property>
+                <property name="text">
+                  <string>深度视图</string>
+                </property>
+                <property name="alignment">
+                  <set>Qt::AlignCenter</set>
+                </property>
+              </widget>
+            </item>
+          </layout>
+         </widget>
         </item>
         <item>
          <widget class="QGroupBox" name="groupBoxCameraView">
           <property name="title">
-         <string>摄像头视图</string>
+            <string>摄像头视图</string>
           </property>
           <property name="sizePolicy">
-           <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
-            <horstretch>0</horstretch>
-            <verstretch>1</verstretch>
-           </sizepolicy>
+            <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
+              <horstretch>0</horstretch>
+              <verstretch>1</verstretch>
+            </sizepolicy>
           </property>
-        <layout class="QVBoxLayout" name="verticalLayout_7">
-         <item>
-            <widget class="QLabel" name="cameraView">
-             <property name="sizePolicy">
-              <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-               <horstretch>0</horstretch>
-               <verstretch>0</verstretch>
-              </sizepolicy>
-              </property>
-              <property name="minimumSize">
-               <size>
-               <width>640</width>
-                <height>240</height>
-               </size>
-              </property>
-              <property name="frameShape">
-               <enum>QFrame::Box</enum>
-              </property>
-              <property name="text">
-              <string>相机视图</string>
-              </property>
-              <property name="alignment">
-               <set>Qt::AlignCenter</set>
-              </property>
-             </widget>
+          <layout class="QVBoxLayout" name="verticalLayout_7">
+            <item>
+              <widget class="QLabel" name="cameraView">
+                <property name="sizePolicy">
+                  <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+                    <horstretch>0</horstretch>
+                    <verstretch>0</verstretch>
+                  </sizepolicy>
+                </property>
+                <property name="minimumSize">
+                  <size>
+                    <width>640</width>
+                    <height>240</height>
+                  </size>
+                </property>
+                <property name="frameShape">
+                  <enum>QFrame::Box</enum>
+                </property>
+                <property name="text">
+                  <string>相机视图</string>
+                </property>
+                <property name="alignment">
+                  <set>Qt::AlignCenter</set>
+                </property>
+              </widget>
             </item>
-           </layout>
-          </widget>
-         </item>
-         <item>
-         <widget class="QGroupBox" name="groupBoxDetections">
-          <property name="title">
-           <string>物体检测</string>
-           </property>
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
-            <horstretch>0</horstretch>
-            <verstretch>1</verstretch>
-           </sizepolicy>
-           </property>
-        <layout class="QVBoxLayout" name="verticalLayout_8">
-         <item>
-          <widget class="QTableWidget" name="detectionsTable">
-           <property name="columnCount">
-            <number>6</number>
-           </property>
-           <column>
-            <property name="text">
-             <string>ID</string>
-            </property>
-           </column>
-           <column>
-            <property name="text">
-             <string>类型</string>
-            </property>
-           </column>
-           <column>
-            <property name="text">
-             <string>X (cm)</string>
-            </property>
-           </column>
-           <column>
-            <property name="text">
-             <string>Y (cm)</string>
-            </property>
-           </column>
-           <column>
-            <property name="text">
-             <string>Z (cm)</string>
-            </property>
-           </column>
-           <column>
-            <property name="text">
-             <string>操作</string>
-            </property>
-           </column>
-          </widget>
-         </item>
-        </layout>
-       </widget>
+            <item>
+              <widget class="QTableWidget" name="detectionsTable">
+                <property name="maximumHeight">
+                  <number>120</number>
+                </property>
+                <property name="columnCount">
+                  <number>6</number>
+                </property>
+                <column>
+                  <property name="text">
+                    <string>ID</string>
+                  </property>
+                </column>
+                <column>
+                  <property name="text">
+                    <string>类型</string>
+                  </property>
+                </column>
+                <column>
+                  <property name="text">
+                    <string>X (cm)</string>
+                  </property>
+                </column>
+                <column>
+                  <property name="text">
+                    <string>Y (cm)</string>
+                  </property>
+                </column>
+                <column>
+                  <property name="text">
+                    <string>Z (cm)</string>
+                  </property>
+                </column>
+                <column>
+                  <property name="text">
+                    <string>操作</string>
+                  </property>
+                </column>
+              </widget>
+            </item>
+          </layout>
+         </widget>
         </item>
        </layout>
       </widget>

@@ -625,11 +625,11 @@ void ArmControlGUI::depthImageCallback(const sensor_msgs::Image::ConstPtr& msg)
         // 将ROS图像转换为OpenCV图像
         cv_bridge::CvImageConstPtr cv_ptr = cv_bridge::toCvShare(msg, "mono16");
         
-        // 转换为QImage (归一化深度值)
+        // 转换为彩色深度图
         cv::Mat normalized;
         cv::normalize(cv_ptr->image, normalized, 0, 255, cv::NORM_MINMAX, CV_8UC1);
         
-        // 创建彩色深度图
+        // 应用彩色映射
         cv::Mat colorized;
         cv::applyColorMap(normalized, colorized, cv::COLORMAP_JET);
         
@@ -641,11 +641,19 @@ void ArmControlGUI::depthImageCallback(const sensor_msgs::Image::ConstPtr& msg)
         // 保存图像
         depth_image_ = image;
         
+        // 记录成功接收的帧
+        static int frame_count = 0;
+        frame_count++;
+        if (frame_count % 30 == 0) {  // 每30帧记录一次
+            ROS_INFO("成功接收到深度图像帧：%d (尺寸: %dx%d)", 
+                    frame_count, image.width(), image.height());
+        }
+        
         // 更新UI (在主线程中)
-        QMetaObject::invokeMethod(this, "updateCameraView", Qt::QueuedConnection);
+        QMetaObject::invokeMethod(this, "updateDepthView", Qt::QueuedConnection);
     }
     catch (cv_bridge::Exception& e) {
-        ROS_ERROR("cv_bridge exception: %s", e.what());
+        ROS_ERROR("cv_bridge exception in depth image callback: %s", e.what());
     }
 }
 
@@ -771,7 +779,7 @@ void ArmControlGUI::updateCameraViews()
             // 创建一个绘制工作的副本
             QImage display_image = base_image.copy();
             
-            // 如果启用了YOLO检测且有检测结果，在基础图像上绘制检测框和标签
+            // 如果启用了YOLO检测且有检测结果，在图像上绘制检测框和标签
             if (yolo_detection_enabled_ && !detected_objects_.empty()) {
                 // 创建绘图对象
                 QPainter painter(&display_image);
@@ -781,9 +789,7 @@ void ArmControlGUI::updateCameraViews()
                 
                 // 遍历检测到的物体
                 for (const DetectedObject& obj : detected_objects_) {
-                    // 计算图像坐标 (假设物体位置是在3D世界坐标系中，需要转换)
-                    // 这里简化处理，使用对象表中的x,y作为图像像素坐标
-                    // 实际项目中需要通过相机内参将3D坐标投影到图像平面
+                    // 计算图像坐标 (假设物体位置是在3D世界坐标系中)
                     int box_x = obj.x; // 需要调整适合显示范围
                     int box_y = obj.y; // 需要调整适合显示范围
                     
@@ -794,8 +800,8 @@ void ArmControlGUI::updateCameraViews()
                     if (box_y >= display_image.height()) box_y = display_image.height() - 100;
                     
                     // 绘制矩形框
-                    int box_width = 100; // 示例宽度，应根据实际检测结果调整
-                    int box_height = 100; // 示例高度，应根据实际检测结果调整
+                    int box_width = 100; // 示例宽度，根据实际调整
+                    int box_height = 100; // 示例高度，根据实际调整
                     painter.drawRect(box_x, box_y, box_width, box_height);
                     
                     // 绘制标签背景
@@ -813,10 +819,9 @@ void ArmControlGUI::updateCameraViews()
                     painter.setPen(Qt::white);
                     painter.drawText(box_x + 5, box_y - 5, label);
                     
-                    // 重置笔刷用于下一次矩形绘制
+                    // 重置笔刷用于下一次绘制
                     painter.setPen(QPen(Qt::green, 3));
                 }
-                
                 painter.end();
             }
             
@@ -839,7 +844,7 @@ void ArmControlGUI::updateCameraViews()
             // 添加状态信息
             painter.setPen(Qt::white);
             painter.setFont(QFont("Arial", 10));
-            painter.drawText(10, 20, QString("图像尺寸: %1x%2").arg(display_image.width()).arg(display_image.height()));
+            painter.drawText(10, 20, QString("图像尺寸: %1x%2").arg(base_image.width()).arg(base_image.height()));
             painter.drawText(10, 40, QString("YOLO: %1").arg(yolo_detection_enabled_ ? "启用" : "禁用"));
             painter.drawText(10, 60, QString("检测到物体: %1 个").arg(detected_objects_.size()));
             painter.end();
@@ -864,8 +869,65 @@ void ArmControlGUI::updateCameraViews()
                 ROS_WARN_THROTTLE(5, "等待摄像头数据...");
             }
         }
+        
+        // 更新深度视图
+        updateDepthView();
+        
     } catch (std::exception &e) {
         ROS_ERROR("Error in updateCameraViews: %s", e.what());
+    }
+}
+
+void ArmControlGUI::updateDepthView()
+{
+    try {
+        // 如果有深度图像，显示它
+        if (!depth_image_.isNull()) {
+            // 获取标签的大小
+            QSize labelSize = ui->depthView->size();
+            
+            // 按比例缩放图像，保持原始宽高比
+            QPixmap scaled_pixmap = QPixmap::fromImage(depth_image_).scaled(
+                labelSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            
+            // 创建一个背景图像，用于居中显示
+            QPixmap background(labelSize);
+            background.fill(Qt::black);
+            
+            // 计算居中位置
+            int x = (labelSize.width() - scaled_pixmap.width()) / 2;
+            int y = (labelSize.height() - scaled_pixmap.height()) / 2;
+            
+            // 在背景上绘制缩放后的图像
+            QPainter painter(&background);
+            painter.drawPixmap(x, y, scaled_pixmap);
+            
+            // 添加深度图信息
+            painter.setPen(Qt::white);
+            painter.setFont(QFont("Arial", 10));
+            painter.drawText(10, 20, "深度图视图");
+            painter.end();
+            
+            // 设置到标签
+            ui->depthView->setPixmap(background);
+        } else {
+            // 深度图像为空，显示提示信息
+            if (ui->depthView->pixmap() == nullptr || ui->depthView->pixmap()->isNull()) {
+                QPixmap emptyPix(ui->depthView->width(), ui->depthView->height());
+                emptyPix.fill(Qt::black);
+                
+                // 添加提示文字
+                QPainter painter(&emptyPix);
+                painter.setPen(Qt::white);
+                painter.setFont(QFont("Arial", 14, QFont::Bold));
+                painter.drawText(emptyPix.rect(), Qt::AlignCenter, "等待深度数据...\n\n请启用深度相机");
+                painter.end();
+                
+                ui->depthView->setPixmap(emptyPix);
+            }
+        }
+    } catch (std::exception &e) {
+        ROS_ERROR("Error in updateDepthView: %s", e.what());
     }
 }
 
