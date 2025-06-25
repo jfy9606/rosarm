@@ -1,12 +1,12 @@
 #ifndef ARM_CONTROL_GUI_H
 #define ARM_CONTROL_GUI_H
 
-// Standard Qt headers
 #include <QMainWindow>
 #include <QLabel>
 #include <QSlider>
 #include <QDoubleSpinBox>
 #include <QPushButton>
+#include <QOpenGLWidget>
 #include <QTimer>
 #include <QTableWidget>
 #include <QImage>
@@ -17,7 +17,6 @@
 #include <QCheckBox>
 #include <QComboBox>
 
-// ROS headers
 #include <ros/ros.h>
 #include <std_msgs/String.h>
 #include <std_msgs/Bool.h>
@@ -121,6 +120,12 @@ private slots:
     void onExecutePathClicked();
     void onVisualizeWorkspaceClicked();
 
+    void updateJointInfo();
+    void updateEndEffectorPose();
+    void updateCameraViews();
+    void updateDepthView();
+    void updateConnectionStatus();
+
 private:
     // UI相关
     Ui::ArmControlMainWindow* ui;
@@ -188,8 +193,15 @@ private:
     void depthImageCallback(const sensor_msgs::Image::ConstPtr& msg);
     void detectionImageCallback(const sensor_msgs::Image::ConstPtr& msg);
     void detectionPosesCallback(const geometry_msgs::PoseArray::ConstPtr& msg);
+    void cameraCallback(const sensor_msgs::Image::ConstPtr& msg);
+    void detectionCallback(const sensor_msgs::Image::ConstPtr& msg);
+    void depthCallback(const sensor_msgs::Image::ConstPtr& msg);
     void stereoMergedCallback(const sensor_msgs::Image::ConstPtr& msg);
     void yoloStatusCallback(const std_msgs::Bool::ConstPtr& msg);
+    
+    // 新增统一物体检测回调函数
+    void objectDetectionCallback(const sensor_msgs::Image::ConstPtr& img_msg,
+                              const geometry_msgs::PoseArray::ConstPtr& poses_msg);
     
     // 辅助函数
     void sendJointCommand(const std::vector<double>& positions);
@@ -202,6 +214,7 @@ private:
     void initializeGUI();
     void initializeJointControlConnections();
     void initializeROS();
+    void initializeOpenGL();
     
     // 更新函数
     void updateJointControlWidgets();
@@ -219,6 +232,9 @@ private:
     // 运动学函数
     std::vector<double> poseToJoints(const geometry_msgs::Pose& pose);
     geometry_msgs::Pose jointsToPos(const std::vector<double>& joint_values);
+    
+    // 渲染函数
+    void renderRobotArm();
     
     // 电机命令
     void sendMotorOrder(uint8_t station_num, uint8_t form, int16_t vel, uint16_t vel_ac, uint16_t vel_de, bool pos_mode, int32_t pos, uint16_t pos_thr);

@@ -506,46 +506,6 @@
                 </property>
               </widget>
             </item>
-            <item>
-              <widget class="QTableWidget" name="detectionsTable">
-                <property name="maximumHeight">
-                  <number>120</number>
-                </property>
-                <property name="columnCount">
-                  <number>6</number>
-                </property>
-                <column>
-                  <property name="text">
-                    <string>ID</string>
-                  </property>
-                </column>
-                <column>
-                  <property name="text">
-                    <string>类型</string>
-                  </property>
-                </column>
-                <column>
-                  <property name="text">
-                    <string>X (cm)</string>
-                  </property>
-                </column>
-                <column>
-                  <property name="text">
-                    <string>Y (cm)</string>
-                  </property>
-                </column>
-                <column>
-                  <property name="text">
-                    <string>Z (cm)</string>
-                  </property>
-                </column>
-                <column>
-                  <property name="text">
-                    <string>操作</string>
-                  </property>
-                </column>
-              </widget>
-            </item>
           </layout>
          </widget>
         </item>
