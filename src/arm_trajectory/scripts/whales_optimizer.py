@@ -244,3 +244,73 @@ def forward_kinematics_dh(joint_values, dh_params):
         T = T @ T_i
         
     return T
+
+# 添加一个简单的备用优化器，以防无法导入WhaleOptimizer
+class SimpleOptimizer:
+    """
+    简单的优化器，用于在WhaleOptimizer不可用时作为备选
+    """
+    def __init__(self, forward_kinematics_func=None, joint_limits=None):
+        self.forward_kinematics = forward_kinematics_func
+        
+        # Default joint limits if not provided
+        if joint_limits is None:
+            # Default limits for a 6-DOF arm: [theta1, d2, theta3, theta4, theta5, d6]
+            self.joint_limits = [
+                [-pi, pi],      # theta1 (rad)
+                [0, 43],       # d2 (cm)
+                [-pi/2, pi/2], # theta3 (rad)
+                [0, pi],       # theta4 (rad)
+                [pi/2, pi/2],  # theta5 (rad, fixed)
+                [5, 15]        # d6 (cm)
+            ]
+        else:
+            self.joint_limits = joint_limits
+        
+        self.dim = len(self.joint_limits)  # Number of joints
+        
+        rospy.loginfo("初始化简单优化器")
+    
+    def transformation_error(self, T1, T2):
+        """计算两个变换矩阵之间的误差"""
+        pos_error = np.linalg.norm(T1[:3, 3] - T2[:3, 3])
+        R1 = T1[:3, :3]
+        R2 = T2[:3, :3]
+        orientation_error = np.linalg.norm(R1 - R2, 'fro') / np.sqrt(6)
+        
+        position_weight = 0.7
+        orientation_weight = 0.3
+        
+        return position_weight * pos_error + orientation_weight * orientation_error
+    
+    def optimize(self, target_T, initial_joints=None):
+        """简单的随机搜索优化"""
+        best_joints = initial_joints if initial_joints is not None else np.zeros(self.dim)
+        best_fitness = float('inf')
+        fitness_history = []
+        
+        # 进行100次随机尝试
+        for i in range(100):
+            # 生成随机关节配置
+            joints = np.zeros(self.dim)
+            for j in range(self.dim):
+                min_val, max_val = self.joint_limits[j]
+                joints[j] = np.random.uniform(min_val, max_val)
+            
+            # 计算正向运动学
+            current_T = self.forward_kinematics(joints)
+            
+            # 计算误差
+            error = self.transformation_error(current_T, target_T)
+            
+            # 更新最佳结果
+            if error < best_fitness:
+                best_fitness = error
+                best_joints = joints.copy()
+            
+            fitness_history.append(best_fitness)
+            
+            if i % 10 == 0:
+                rospy.loginfo(f"简单优化器迭代 {i}: 最佳适应度 = {best_fitness}")
+        
+        return best_joints, best_fitness, fitness_history
