@@ -215,17 +215,6 @@ void ArmControlGUI::initializeGUI()
     connect(demoButton1, &QPushButton::clicked, this, &ArmControlGUI::onDemoAction1Clicked);
     connect(demoButton2, &QPushButton::clicked, this, &ArmControlGUI::onDemoAction2Clicked);
     connect(demoButton3, &QPushButton::clicked, this, &ArmControlGUI::onDemoAction3Clicked);
-    
-    // 连接检测表格
-    connect(ui->detectionsTable, &QTableWidget::cellClicked, this, &ArmControlGUI::onDetectionsTableCellClicked);
-    
-    // 设置检测表格
-    ui->detectionsTable->setColumnWidth(0, 50);  // ID
-    ui->detectionsTable->setColumnWidth(1, 100); // 类型
-    ui->detectionsTable->setColumnWidth(2, 80);  // X
-    ui->detectionsTable->setColumnWidth(3, 80);  // Y
-    ui->detectionsTable->setColumnWidth(4, 80);  // Z
-    ui->detectionsTable->setColumnWidth(5, 100); // 操作
 }
 
 void ArmControlGUI::initializeJointControlConnections()
@@ -486,26 +475,9 @@ void ArmControlGUI::onAbout()
 // 检测表格操作槽实现
 void ArmControlGUI::onDetectionsTableCellClicked(int row, int column)
 {
-    if (row < 0 || row >= static_cast<int>(detected_objects_.size())) {
-        return;
-    }
-    
-    // 获取选中的物体ID
-    QString object_id = ui->detectionsTable->item(row, 0)->text();
-    
-    // 如果点击的是"操作"列
-    if (column == 5) {
-        // 发送抓取命令
-        std_msgs::String cmd_msg;
-        cmd_msg.data = QString("pick %1").arg(object_id).toStdString();
-        arm_command_pub_.publish(cmd_msg);
-        
-        logMessage(QString("发送抓取命令: %1").arg(object_id));
-    } else {
-        // 高亮选中的行
-        ui->detectionsTable->selectRow(row);
-        logMessage(QString("选中物体: %1").arg(object_id));
-    }
+    // 由于已经移除了检测表格，此函数现在为空实现
+    // 保留函数定义以避免编译错误，但不执行任何操作
+    ROS_WARN("onDetectionsTableCellClicked被调用，但检测表格已被移除");
 }
 
 // 定时器槽实现
@@ -515,9 +487,6 @@ void ArmControlGUI::onUpdateGUI()
     updateJointControlWidgets();
     updateEndEffectorPose();
     updateCameraViews();
-    
-    // 更新OpenGL渲染
-    ui->armView->update();
 }
 
 // ROS回调函数实现
@@ -1409,15 +1378,15 @@ void ArmControlGUI::onPlanPathClicked()
 {
     logMessage("开始规划路径...");
     
-    // 获取选中的检测对象
-    int selected_row = ui->detectionsTable->currentRow();
-    if (selected_row < 0 || selected_row >= static_cast<int>(detected_objects_.size())) {
-        logMessage("请先选择一个检测到的物体");
+    // 由于检测表格已被移除，我们直接使用第一个检测到的物体（如果有的话）
+    if (detected_objects_.empty()) {
+        logMessage("没有检测到物体，无法规划路径");
         return;
     }
     
-    // 获取选中的物体ID
-    QString object_id = ui->detectionsTable->item(selected_row, 0)->text();
+    // 使用第一个检测到的物体
+    const DetectedObject& obj = detected_objects_[0];
+    QString object_id = QString::fromStdString(obj.id);
     
     // 获取选中的放置区
     QString placement_area = placement_area_combo_->currentData().toString();

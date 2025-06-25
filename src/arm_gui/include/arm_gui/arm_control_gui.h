@@ -120,6 +120,7 @@ private slots:
     void onExecutePathClicked();
     void onVisualizeWorkspaceClicked();
 
+    // 更新函数
     void updateJointInfo();
     void updateEndEffectorPose();
     void updateCameraViews();
@@ -216,13 +217,9 @@ private:
     void initializeROS();
     void initializeOpenGL();
     
-    // 更新函数
+    // 更新函数 - 移除重复声明，因为已在private slots中声明
     void updateJointControlWidgets();
-    void updateEndEffectorPose();
     void updateVacuumStatus();
-    void updateCameraViews();
-    void updateDetectionsTable();
-    void updateDepthView();
     
     // 命令函数
     void sendPickCommand(const std::string& object_id);
