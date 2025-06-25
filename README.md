@@ -203,6 +203,31 @@ roslaunch run.launch enable_yolo:=true
    # 修改launch文件中的camera_device参数为其他可用设备
    ```
 
+10. **GUI无法显示摄像头画面但guvcview正常**
+    - 如果guvcview能正常显示摄像头画面，但ROS GUI无法显示，可能是视频格式或分辨率配置问题：
+    ```bash
+    # 查看摄像头支持的格式和分辨率
+    v4l2-ctl --list-formats-ext -d /dev/video0
+    
+    # 检查并记录guvcview使用的成功配置
+    guvcview -d /dev/video0 -g
+    
+    # 修改camera_node.py或相关launch文件中的摄像头参数，与guvcview成功的配置保持一致：
+    # - 像素格式 (如MJPG, YUYV)
+    # - 分辨率
+    # - 帧率
+    
+    # 检查ROS图像传输是否工作
+    rostopic list | grep image
+    rostopic echo /camera/image_raw/header -n 1
+    ```
+    
+    - 可能需要修改以下ROS相关配置：
+      - 检查cv_bridge是否正确将OpenCV图像转换为ROS图像消息
+      - 确保使用了正确的图像编码格式(如bgr8, mono8等)
+      - 检查图像话题的发布和订阅是否正确
+      - 尝试使用rqt_image_view工具检查图像话题是否有发布
+
 ## 系统架构
 
 系统采用模块化设计，主要包括以下ROS节点：

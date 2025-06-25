@@ -20,6 +20,9 @@ class CameraNode:
         self.fps = rospy.get_param('~fps', 30)
         self.retry_count = rospy.get_param('~retry_count', 5)
         self.retry_delay = rospy.get_param('~retry_delay', 2.0)
+        self.pixel_format = rospy.get_param('~pixel_format', 'mjpeg')
+        
+        rospy.loginfo(f"摄像头配置: 设备={self.device}, 分辨率={self.width}x{self.height}, FPS={self.fps}, 像素格式={self.pixel_format}")
         
         # 创建图像发布器
         self.image_pub = rospy.Publisher('/camera/image_raw', Image, queue_size=10)
@@ -68,6 +71,23 @@ class CameraNode:
                 # 设置分辨率
                 self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
                 self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+                self.cap.set(cv2.CAP_PROP_FPS, self.fps)
+                
+                # 设置像素格式
+                if self.pixel_format.lower() == 'mjpeg':
+                    self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M','J','P','G'))
+                    rospy.loginfo("设置像素格式为MJPEG")
+                elif self.pixel_format.lower() == 'yuyv':
+                    self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('Y','U','Y','V'))
+                    rospy.loginfo("设置像素格式为YUYV")
+                
+                # 检查并打印实际的摄像头设置
+                actual_width = self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+                actual_height = self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+                actual_fps = self.cap.get(cv2.CAP_PROP_FPS)
+                actual_fourcc = self.cap.get(cv2.CAP_PROP_FOURCC)
+                
+                rospy.loginfo(f"摄像头实际设置: 分辨率={actual_width}x{actual_height}, FPS={actual_fps}, FOURCC={int(actual_fourcc)}")
                 
                 # 检查摄像头是否工作
                 ret, frame = self.cap.read()
@@ -78,6 +98,7 @@ class CameraNode:
                         rospy.sleep(self.retry_delay)
                     continue
                 
+                rospy.loginfo(f"成功读取第一帧，尺寸: {frame.shape[1]}x{frame.shape[0]}")
                 self.use_test_image = False
                 rospy.loginfo("摄像头已成功初始化")
                 return
