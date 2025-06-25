@@ -2,10 +2,17 @@
 import rospy
 import cv2
 import numpy as np
+import os
+import sys
 from sensor_msgs.msg import Image
 from geometry_msgs.msg import PoseArray, Pose, Point, Quaternion
 from std_msgs.msg import Bool
 from cv_bridge import CvBridge, CvBridgeError
+
+# 添加系统Python路径以找到ultralytics
+sys.path.append('/usr/local/lib/python3.8/dist-packages')
+sys.path.append('/usr/lib/python3/dist-packages')
+sys.path.append('/home/www/.local/lib/python3.8/site-packages')
 
 class YoloDetector:
     """YOLO目标检测器，用于检测图像中的物体"""
@@ -33,14 +40,34 @@ class YoloDetector:
         else:
             # 尝试加载实际的YOLO模型
             try:
+                # 打印Python路径以便调试
+                rospy.loginfo(f"Python路径: {sys.path}")
+                
                 try:
+                    # 尝试直接导入ultralytics
                     from ultralytics import YOLO
                     rospy.loginfo(f"正在加载YOLO模型: {self.model_name}")
-                    self.model = YOLO(self.model_name)  # 加载实际的模型
+                    
+                    # 确保模型文件存在或可下载
+                    model_path = self.model_name
+                    if not os.path.exists(model_path) and not model_path.startswith(('http://', 'https://')):
+                        # 尝试在几个常见位置查找模型
+                        possible_paths = [
+                            os.path.join(os.path.dirname(__file__), self.model_name),
+                            os.path.join(os.path.expanduser('~'), self.model_name),
+                            os.path.join('/tmp', self.model_name)
+                        ]
+                        
+                        for path in possible_paths:
+                            if os.path.exists(path):
+                                model_path = path
+                                break
+                    
+                    self.model = YOLO(model_path)  # 加载实际的模型
                     self.model_loaded = True
                     rospy.loginfo(f"成功加载YOLO模型: {self.model_name}")
-                except ImportError:
-                    rospy.logwarn("无法导入Ultralytics库: No module named 'ultralytics'")
+                except ImportError as e:
+                    rospy.logwarn(f"无法导入Ultralytics库: {str(e)}")
                     rospy.logwarn("请安装YOLOv8: pip install ultralytics")
                     rospy.logwarn("切换到模拟检测模式")
                     self.simulation_mode = True

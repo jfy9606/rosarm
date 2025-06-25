@@ -9,6 +9,15 @@
   <arg name="with_yolo_controller" default="true" />
   <arg name="with_vision_arm_bridge" default="true" />
   <arg name="simulation_mode" default="false" doc="是否使用模拟模式进行YOLO检测"/>
+  <arg name="camera_device" default="/dev/video0" doc="摄像头设备"/>
+  
+  <!-- 启动摄像头节点 -->
+  <node name="camera_node" pkg="stereo_vision" type="camera_node.py" output="screen">
+    <param name="device" value="$(arg camera_device)" />
+    <param name="width" value="640" />
+    <param name="height" value="480" />
+    <param name="fps" value="30" />
+  </node>
   
   <!-- 启动立体视觉节点 -->
   <group if="$(arg with_stereo_vision)">
@@ -20,13 +29,13 @@
   <!-- 启动YOLO控制器 -->
   <group if="$(arg with_yolo_controller)">
     <node pkg="stereo_vision" type="yolo_controller.py" name="yolo_controller" output="screen">
-      <param name="initial_state" value="false" />
+      <param name="initial_state" value="true" />
     </node>
   </group>
   
   <!-- 启动YOLO检测器 -->
   <node pkg="stereo_vision" type="yolo_detector.py" name="yolo_detector" output="screen">
-    <param name="enabled" value="false" />
+    <param name="enabled" value="true" />
     <param name="model" value="yolov8n.pt" />
     <param name="conf" value="0.25" />
     <param name="simulation_mode" value="$(arg simulation_mode)" />
@@ -57,4 +66,7 @@
     <!-- GUI参数 -->
     <param name="update_rate" value="20" />
   </node>
+
+  <!-- 加载机械臂描述参数 -->
+  <rosparam command="load" file="$(find arm_trajectory)/config/arm_params.yaml" />
 </launch> 

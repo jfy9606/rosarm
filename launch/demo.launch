@@ -55,12 +55,6 @@
     <!-- 启动GUI节点 -->
     <node pkg="arm_gui" type="arm_gui_node" name="arm_gui" output="screen"/>
 
-    <!-- 启动其他节点... -->
-    <node pkg="servo_wrist" type="wrist_ctrl" name="wrist_controller" output="screen">
-      <!-- 为第二个舵机控制节点添加波特率参数 -->
-      <param name="baudrate" value="115200" />
-    </node>
-    
     <!-- 启动路径规划相关节点 -->
     <group if="$(arg path_planning)">
       <!-- 轨迹桥接节点 -->

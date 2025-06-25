@@ -3,6 +3,8 @@ import numpy as np
 import rospy
 import tf.transformations
 from math import pi, cos, sin, atan2, sqrt
+import sys
+import os
 from geometry_msgs.msg import Pose, Point, Quaternion, Vector3
 from sensor_msgs.msg import JointState
 from visualization_msgs.msg import Marker, MarkerArray
@@ -12,19 +14,22 @@ from arm_trajectory.msg import TrajectoryPath, TrajectoryPoint
 
 # 导入鲸鱼优化器
 try:
-    # 直接导入本地文件
-    import sys
-    import os
     # 获取当前脚本路径
     current_dir = os.path.dirname(os.path.abspath(__file__))
     # 将当前目录添加到sys.path
     if current_dir not in sys.path:
         sys.path.append(current_dir)
-    # 直接导入本地文件
+    
+    # 打印路径以便调试
+    rospy.loginfo(f"Python路径: {sys.path}")
+    
+    # 尝试直接导入本地文件
     from whales_optimizer import WhaleOptimizer, forward_kinematics_dh
+    rospy.loginfo("成功导入WhaleOptimizer")
 except ImportError as e:
     rospy.logerr(f"导入WhaleOptimizer失败: {e}")
-    sys.exit(1)
+    # 不退出程序，而是在需要时提供备选方案
+    rospy.logwarn("将使用备选优化方法")
 
 class CoordinateSystem:
     """机械臂工作空间坐标系统"""
