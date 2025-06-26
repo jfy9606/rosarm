@@ -76,6 +76,7 @@ qt5_wrap_ui(QT_UI_CPP
 # 库文件
 add_library(${PROJECT_NAME}
   src/arm_control_gui.cpp
+  src/scene_3d_renderer.cpp
   include/${PROJECT_NAME}/arm_control_gui.h
   ${QT_UI_CPP}
   ${QT_RESOURCES_CPP}

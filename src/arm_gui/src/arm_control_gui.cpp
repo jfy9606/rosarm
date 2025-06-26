@@ -38,6 +38,7 @@ ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     , vacuum_power_(0)
     , gripper_open_(false)
     , yolo_detection_enabled_(false)
+    , selected_object_index_(-1)
 {
     // 设置UI
     ui->setupUi(this);
@@ -67,6 +68,21 @@ ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     ui->cameraView->setScaledContents(false);
     ui->cameraView->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
     
+    // 设置鼠标追踪，以便实现图像点击选择物体
+    ui->cameraView->setMouseTracking(true);
+    ui->cameraView->installEventFilter(this);
+    
+    // 初始化3D场景
+    scene_3d_renderer_ = new Scene3DRenderer(ui->openGLView);
+    ui->openGLView->setLayout(new QHBoxLayout());
+    ui->openGLView->layout()->addWidget(scene_3d_renderer_);
+    
+    // 连接3D场景物体选择信号
+    connect(scene_3d_renderer_, &Scene3DRenderer::objectSelected, this, &ArmControlGUI::on3DViewObjectSelected);
+    
+    // 设置相机参数
+    setupCameraParameters();
+    
     // 只订阅合成的双目摄像头话题 (OV4689, 1280x480)
     stereo_merged_sub_ = nh_.subscribe("/stereo_camera/image_merged", 1, &ArmControlGUI::stereoMergedCallback, this);
     
@@ -89,17 +105,22 @@ ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     connect(ros_timer, &QTimer::timeout, this, &ArmControlGUI::updateROS);
     ros_timer->start(10); // 10ms
     
+    // 设置定时器用于更新3D场景
+    QTimer *scene_timer = new QTimer(this);
+    connect(scene_timer, &QTimer::timeout, this, &ArmControlGUI::updateScene3D);
+    scene_timer->start(100); // 10Hz
+    
     // 打印订阅的话题信息
     ROS_INFO("GUI已订阅摄像头话题:");
     ROS_INFO(" - /stereo_camera/image_merged (合成双目图像)");
     ROS_INFO(" - /camera/image_raw (原始摄像头图像)");
     ROS_INFO(" - /stereo_camera/detection_image");
     ROS_INFO(" - /yolo_detection/image");
-    ROS_INFO(" - /stereo_camera/depth");
     ROS_INFO(" - /yolo_detection/poses");
     
     // 输出调试信息到GUI日志
     logMessage("已订阅图像和检测结果话题，等待数据...");
+    logMessage("3D视图已准备就绪，可通过鼠标右键旋转视角，滚轮缩放");
 }
 
 ArmControlGUI::~ArmControlGUI()
@@ -114,7 +135,29 @@ ArmControlGUI::~ArmControlGUI()
     detection_image_sub_.shutdown();
     yolo_status_sub_.shutdown();
     
+    // 释放3D渲染器
+    if (scene_3d_renderer_) {
+        delete scene_3d_renderer_;
+    }
+    
     delete ui;
+}
+
+// 事件过滤器实现，用于处理相机视图的鼠标事件
+bool ArmControlGUI::eventFilter(QObject* watched, QEvent* event)
+{
+    if (watched == ui->cameraView) {
+        if (event->type() == QEvent::MouseButtonPress) {
+            QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
+            if (mouseEvent->button() == Qt::LeftButton) {
+                // 处理相机视图点击
+                onCameraViewClicked(mouseEvent->pos());
+                return true;
+            }
+        }
+    }
+    
+    return QMainWindow::eventFilter(watched, event);
 }
 
 // 初始化函数实现
@@ -263,9 +306,184 @@ void ArmControlGUI::initializeROS()
 
 void ArmControlGUI::initializeOpenGL()
 {
-    // 这里可以初始化OpenGL相关的内容
-    // 例如：加载3D模型、设置光照等
-    // ...
+    // 这里不需要额外的初始化，Scene3DRenderer会自行初始化
+    logMessage("3D渲染初始化完成");
+}
+
+// 设置相机参数
+void ArmControlGUI::setupCameraParameters()
+{
+    // 相机内参矩阵
+    // 假设焦距fx=fy=500，主点cx=640, cy=240
+    camera_intrinsic_.setToIdentity();
+    camera_intrinsic_(0, 0) = 500.0f; // fx
+    camera_intrinsic_(1, 1) = 500.0f; // fy
+    camera_intrinsic_(0, 2) = 640.0f; // cx
+    camera_intrinsic_(1, 2) = 240.0f; // cy
+    camera_intrinsic_(2, 2) = 1.0f;
+    camera_intrinsic_(3, 3) = 1.0f;
+    
+    // 相机外参矩阵 (初始为单位矩阵)
+    camera_extrinsic_.setToIdentity();
+    
+    // 设置摄像头在机械臂末端的变换
+    // 假设摄像头位于末端往下10cm处
+    camera_extrinsic_.translate(0.0f, 0.0f, -0.1f);
+}
+
+// 更新3D场景
+void ArmControlGUI::updateScene3D()
+{
+    if (!scene_3d_renderer_) {
+        return;
+    }
+    
+    // 更新场景中的物体
+    updateSceneObjects();
+    
+    // 更新机械臂姿态
+    scene_3d_renderer_->setRobotPose(current_joint_values_);
+    
+    // 更新选中的物体
+    scene_3d_renderer_->setSelectedObject(selected_object_index_);
+}
+
+// 更新场景中的物体
+void ArmControlGUI::updateSceneObjects()
+{
+    scene_objects_.clear();
+    
+    // 将检测到的物体添加到场景中
+    for (const DetectedObject& obj : detected_objects_) {
+        // 创建物体在3D场景中的位置和颜色
+        QVector3D position(obj.x / 100.0f, obj.y / 100.0f, obj.z / 100.0f);
+        QColor color(255, 0, 0); // 默认红色
+        
+        scene_objects_.push_back(std::make_pair(position, color));
+    }
+    
+    // 更新场景渲染器中的物体
+    scene_3d_renderer_->updateObjects(scene_objects_);
+}
+
+// 从图像点获取3D位置
+QVector3D ArmControlGUI::imagePointTo3D(const QPoint& image_point, float depth)
+{
+    // 将图像坐标转换为归一化坐标
+    float x = (image_point.x() - camera_intrinsic_(0, 2)) / camera_intrinsic_(0, 0);
+    float y = (image_point.y() - camera_intrinsic_(1, 2)) / camera_intrinsic_(1, 1);
+    
+    // 计算3D点在相机坐标系中的位置
+    QVector3D point_camera(x * depth, y * depth, depth);
+    
+    // 转换到世界坐标系
+    QVector4D point_world = camera_extrinsic_ * QVector4D(point_camera, 1.0f);
+    
+    return QVector3D(point_world.x(), point_world.y(), point_world.z());
+}
+
+// 从3D位置计算图像点
+QPoint ArmControlGUI::point3DToImage(const QVector3D& point_3d)
+{
+    // 转换到相机坐标系
+    QVector4D point_camera = camera_extrinsic_.inverted() * QVector4D(point_3d, 1.0f);
+    
+    // 计算图像坐标
+    float x = (point_camera.x() / point_camera.z()) * camera_intrinsic_(0, 0) + camera_intrinsic_(0, 2);
+    float y = (point_camera.y() / point_camera.z()) * camera_intrinsic_(1, 1) + camera_intrinsic_(1, 2);
+    
+    return QPoint(static_cast<int>(x), static_cast<int>(y));
+}
+
+// 从深度图获取深度值
+float ArmControlGUI::getDepthAtPoint(const QPoint& image_point)
+{
+    // 这里应该从实际的深度图中获取深度值
+    // 目前没有深度图，所以返回一个默认值
+    return 1.0f;
+}
+
+// 处理相机视图点击
+void ArmControlGUI::onCameraViewClicked(QPoint pos)
+{
+    if (current_camera_image_.isNull() || detected_objects_.empty()) {
+        return;
+    }
+    
+    // 调整点击位置到原始图像尺寸
+    QLabel* camera_view = ui->cameraView;
+    QSize scaled_size = camera_view->pixmap().size();
+    QSize original_size = current_camera_image_.size();
+    
+    // 计算缩放比例
+    double x_ratio = static_cast<double>(original_size.width()) / scaled_size.width();
+    double y_ratio = static_cast<double>(original_size.height()) / scaled_size.height();
+    
+    // 调整点击位置
+    int x = static_cast<int>(pos.x() * x_ratio);
+    int y = static_cast<int>(pos.y() * y_ratio);
+    
+    // 查找最近的物体
+    int closest_object = -1;
+    double min_distance = 100.0; // 阈值，单位：像素
+    
+    for (size_t i = 0; i < detected_objects_.size(); ++i) {
+        const DetectedObject& obj = detected_objects_[i];
+        
+        // 将3D位置投影到图像平面
+        QVector3D obj_3d(obj.x / 100.0f, obj.y / 100.0f, obj.z / 100.0f);
+        QPoint obj_image = point3DToImage(obj_3d);
+        
+        // 计算距离
+        double distance = std::sqrt(std::pow(x - obj_image.x(), 2) + std::pow(y - obj_image.y(), 2));
+        
+        if (distance < min_distance) {
+            min_distance = distance;
+            closest_object = i;
+        }
+    }
+    
+    // 如果找到最近的物体，则选中它
+    if (closest_object >= 0) {
+        selected_object_index_ = closest_object;
+        scene_3d_renderer_->setSelectedObject(closest_object);
+        
+        // 更新检测表格的选择
+        if (ui->detectionsTable->rowCount() > closest_object) {
+            ui->detectionsTable->selectRow(closest_object);
+        }
+        
+        // 日志
+        const DetectedObject& obj = detected_objects_[closest_object];
+        logMessage(QString("选中物体: %1 (%2, %3, %4)").arg(
+            QString::fromStdString(obj.id)).arg(obj.x).arg(obj.y).arg(obj.z));
+    }
+}
+
+// 处理3D视图中物体选择
+void ArmControlGUI::on3DViewObjectSelected(int index)
+{
+    selected_object_index_ = index;
+    
+    // 更新检测表格的选择
+    if (index >= 0 && ui->detectionsTable->rowCount() > index) {
+        ui->detectionsTable->selectRow(index);
+        
+        // 日志
+        const DetectedObject& obj = detected_objects_[index];
+        logMessage(QString("3D视图中选中物体: %1 (%2, %3, %4)").arg(
+            QString::fromStdString(obj.id)).arg(obj.x).arg(obj.y).arg(obj.z));
+    }
+}
+
+// 发送物体拾取命令
+void ArmControlGUI::sendPickObjectCommand(int object_index)
+{
+    if (object_index >= 0 && object_index < static_cast<int>(detected_objects_.size())) {
+        const DetectedObject& obj = detected_objects_[object_index];
+        sendPickCommand(obj.id);
+        logMessage(QString("发送拾取命令: %1").arg(QString::fromStdString(obj.id)));
+    }
 }
 
 // 关节控制槽实现
@@ -471,19 +689,40 @@ void ArmControlGUI::onAbout()
 // 检测表格操作槽实现
 void ArmControlGUI::onDetectionsTableCellClicked(int row, int column)
 {
-    // 由于已经移除了检测表格，此函数现在为空实现
-    // 保留函数定义以避免编译错误，但不执行任何操作
-    ROS_WARN("onDetectionsTableCellClicked被调用，但检测表格已被移除");
+    if (row >= 0 && row < static_cast<int>(detected_objects_.size())) {
+        // 更新选中的物体索引
+        selected_object_index_ = row;
+        
+        // 更新3D视图中的选择
+        if (scene_3d_renderer_) {
+            scene_3d_renderer_->setSelectedObject(row);
+        }
+        
+        // 日志
+        const DetectedObject& obj = detected_objects_[row];
+        logMessage(QString("选中表格中的物体: %1 (%2, %3, %4)").arg(
+            QString::fromStdString(obj.id)).arg(obj.x).arg(obj.y).arg(obj.z));
+        
+        // 如果点击的是操作列，不需要进一步处理
+        if (column == 5) {
+            return;
+        }
+    }
 }
 
 // 定时器槽实现
 void ArmControlGUI::onUpdateGUI()
 {
-    // 在这里更新GUI元素，如3D视图、状态等
-    updateJointControlWidgets();
-    updateEndEffectorPose();
-    updateCameraViews();
+    // 更新关节信息
     updateJointInfo();
+    
+    // 更新末端执行器位姿
+    updateEndEffectorPose();
+    
+    // 更新摄像头视图
+    updateCameraViews();
+    
+    // 更新连接状态
     updateConnectionStatus();
 }
 
@@ -552,22 +791,17 @@ void ArmControlGUI::detectionImageCallback(const sensor_msgs::Image::ConstPtr& m
                      cv_ptr->image.step, QImage::Format_RGB888);
         image = image.rgbSwapped(); // BGR to RGB
         
-        // 保存图像
+        // 保存检测图像
         detection_image_ = image;
         
-        // 记录成功接收的检测图像帧
-        static int frame_count = 0;
-        frame_count++;
-        if (frame_count % 30 == 0) {  // 每30帧记录一次
-            ROS_INFO("成功接收到检测图像帧：%d (尺寸: %dx%d)", 
-                   frame_count, image.width(), image.height());
-        }
+        // 使用检测图像作为当前显示图像
+        current_camera_image_ = image;
         
-        // 更新UI (在主线程中)
-        QMetaObject::invokeMethod(this, "updateCameraView", Qt::QueuedConnection);
-    }
-    catch (cv_bridge::Exception& e) {
-        ROS_ERROR("cv_bridge exception in detection image callback: %s", e.what());
+        // 更新UI
+        QMetaObject::invokeMethod(this, "updateCameraViews", Qt::QueuedConnection);
+        
+    } catch (cv_bridge::Exception& e) {
+        ROS_ERROR("cv_bridge 异常 in detection callback: %s", e.what());
     }
 }
 
@@ -576,34 +810,29 @@ void ArmControlGUI::detectionPosesCallback(const geometry_msgs::PoseArray::Const
     // 清空之前的检测结果
     detected_objects_.clear();
     
-    // 生成新的检测列表
+    // 处理新的检测结果
     for (size_t i = 0; i < msg->poses.size(); ++i) {
         DetectedObject obj;
-        obj.id = std::to_string(i+1);  // 从1开始编号
-        obj.type = "物体";  // 默认类型
+        obj.id = "object_" + std::to_string(i + 1);
+        obj.type = "未知";
         
-        // 转换为图像坐标 (简化处理)
-        // 这里将3D世界坐标转为图像像素坐标
-        // 实际应用中需要使用相机内参和投影矩阵
-        double scale = 100.0; // 缩放因子
-        obj.x = static_cast<int>((msg->poses[i].position.x + 0.5) * scale); 
-        obj.y = static_cast<int>((0.5 - msg->poses[i].position.y) * scale);
-        obj.z = msg->poses[i].position.z * 100; // 转换为厘米
+        // 提取3D位置信息（单位：厘米）
+        obj.x = msg->poses[i].position.x * 100.0;
+        obj.y = msg->poses[i].position.y * 100.0;
+        obj.z = msg->poses[i].position.z * 100.0;
         
+        // 保存原始位姿
         obj.pose = msg->poses[i];
+        
+        // 添加到检测结果列表
         detected_objects_.push_back(obj);
     }
     
-    // 更新检测结果表格
-    updateDetectionsTable();
+    // 更新UI (在主线程中)
+    QMetaObject::invokeMethod(this, "updateDetectionsTableUI", Qt::QueuedConnection);
     
-    // 检测结果更新后，立即更新视图
-    QMetaObject::invokeMethod(this, "updateCameraViews", Qt::QueuedConnection);
-    
-    // 记录检测结果
-    if (!detected_objects_.empty()) {
-        ROS_INFO("收到%zu个物体检测结果", detected_objects_.size());
-    }
+    // 也更新3D场景
+    QMetaObject::invokeMethod(this, "updateScene3D", Qt::QueuedConnection);
 }
 
 // GUI更新函数实现
@@ -675,132 +904,86 @@ void ArmControlGUI::updateVacuumStatus()
 
 void ArmControlGUI::updateCameraViews()
 {
-    updateCameraView();
-}
-
-void ArmControlGUI::updateCameraView()
-{
-    try {
-        // 获取相机视图的大小
-        QSize labelSize = ui->cameraView->size();
-        
-        // 获取基础图像
-        QImage base_image;
-        if (!current_camera_image_.isNull()) {
-            base_image = current_camera_image_;
-        } else if (!left_camera_image_.isNull()) {
-            base_image = left_camera_image_;
-        } else {
-            // 如果没有图像，显示空白
-            ui->cameraView->setText("等待摄像头图像...");
-            return;
-        }
-        
-        // 创建可绘制的图像副本
-        QImage drawable_image = base_image.copy();
-        
-        // 如果启用了YOLO检测且有检测结果，在基础图像上绘制检测框和标签
-        if (yolo_detection_enabled_ && !detected_objects_.empty()) {
-            QPainter painter(&drawable_image);
-            painter.setRenderHint(QPainter::Antialiasing);
+    // 检查是否有有效图像
+    if (current_camera_image_.isNull()) {
+        return;
+    }
+    
+    // 创建用于显示的图像副本
+    QImage display_image = current_camera_image_.copy();
+    QPainter painter(&display_image);
+    
+    // 绘制检测到的物体
+    if (yolo_detection_enabled_ && !detected_objects_.empty()) {
+        for (size_t i = 0; i < detected_objects_.size(); ++i) {
+            const DetectedObject& obj = detected_objects_[i];
             
-            // 设置字体
-            QFont font = painter.font();
-            font.setPointSize(14);
-            font.setBold(true);
-            painter.setFont(font);
+            // 将3D位置投影到图像平面
+            QVector3D obj_3d(obj.x / 100.0f, obj.y / 100.0f, obj.z / 100.0f);
+            QPoint obj_image = point3DToImage(obj_3d);
             
-            // 遍历所有检测到的物体
-            for (const DetectedObject& obj : detected_objects_) {
-                // 计算边界框 (这里假设x,y是物体中心坐标)
-                int box_width = 80;  // 根据实际情况调整
-                int box_height = 80;
-                int x1 = obj.x - box_width/2;
-                int y1 = obj.y - box_height/2;
-                int x2 = obj.x + box_width/2;
-                int y2 = obj.y + box_height/2;
-                
-                // 确保边界框在图像范围内
-                x1 = qMax(0, x1);
-                y1 = qMax(0, y1);
-                x2 = qMin(drawable_image.width() - 1, x2);
-                y2 = qMin(drawable_image.height() - 1, y2);
-                
-                // 设置绘制颜色和宽度
-                QPen pen(Qt::red);
-                pen.setWidth(3);
-                painter.setPen(pen);
-                
-                // 绘制边界框
-                painter.drawRect(x1, y1, x2 - x1, y2 - y1);
-                
-                // 绘制物体标签背景
-                QFontMetrics fm(font);
-                QString label = QString("%1 (%.1fcm)").arg(QString::fromStdString(obj.type)).arg(obj.z);
-                QRect textRect = fm.boundingRect(label);
-                QRect bgRect(x1, y1 - 25, textRect.width() + 10, 25);
-                painter.fillRect(bgRect, QColor(0, 0, 0, 180)); // 半透明黑色背景
-                
-                // 绘制物体标签
-                painter.setPen(Qt::white);
-                painter.drawText(x1 + 5, y1 - 5, label);
-                
-                // 绘制距离信息
-                QString distInfo = QString("距离: %.1fcm").arg(obj.z);
-                painter.drawText(x1 + 5, y2 + 20, distInfo);
+            // 设置画笔颜色和宽度
+            if (static_cast<int>(i) == selected_object_index_) {
+                painter.setPen(QPen(Qt::yellow, 3));
+            } else {
+                painter.setPen(QPen(Qt::red, 2));
             }
             
-            // 绘制状态信息
-            painter.setPen(Qt::green);
-            painter.drawText(10, 30, QString("YOLO: 启用"));
-            painter.drawText(10, 60, QString("检测到物体: %1 个").arg(detected_objects_.size()));
-        } else {
-            // 绘制YOLO状态信息
-            QPainter painter(&drawable_image);
-            painter.setRenderHint(QPainter::Antialiasing);
+            // 计算矩形大小（基于物体距离）
+            int box_size = 40;
+            QRect rect(obj_image.x() - box_size/2, obj_image.y() - box_size/2, box_size, box_size);
             
+            // 绘制矩形框
+            painter.drawRect(rect);
+            
+            // 设置字体和颜色
             QFont font = painter.font();
-            font.setPointSize(12);
+            font.setBold(true);
+            font.setPointSize(10);
             painter.setFont(font);
             
-            painter.setPen(Qt::red);
-            painter.drawText(10, 30, QString("YOLO: %1").arg(yolo_detection_enabled_ ? "启用（等待检测结果）" : "禁用"));
-        }
-        
-        // 缩放图像以适应标签大小，保持纵横比
-        QPixmap scaled_pixmap = QPixmap::fromImage(drawable_image).scaled(
-            ui->cameraView->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
-        
-        // 创建背景
-        QPixmap background(ui->cameraView->size());
-        background.fill(Qt::black);
-        
-        // 将图像放在中间
-        int x = (ui->cameraView->size().width() - scaled_pixmap.width()) / 2;
-        int y = (ui->cameraView->size().height() - scaled_pixmap.height()) / 2;
-        
-        QPainter painter(&background);
-        painter.drawPixmap(x, y, scaled_pixmap);
-        
-        // 设置图像
-        ui->cameraView->setPixmap(background);
-        
-        // 如果图像为空，显示错误信息
-        if (ui->cameraView->pixmap() == nullptr || ui->cameraView->pixmap()->isNull()) {
-            QPixmap emptyPix(ui->cameraView->width(), ui->cameraView->height());
-            emptyPix.fill(Qt::black);
+            if (static_cast<int>(i) == selected_object_index_) {
+                painter.setPen(QPen(Qt::yellow));
+            } else {
+                painter.setPen(QPen(Qt::white));
+            }
             
-            QPainter painter(&emptyPix);
-            painter.setPen(Qt::white);
-            painter.setFont(QFont("Arial", 14));
-            painter.drawText(emptyPix.rect(), Qt::AlignCenter, "摄像头未连接或未启动");
+            // 准备文本
+            QString text = QString::fromStdString(obj.id);
             
-            ui->cameraView->setPixmap(emptyPix);
+            // 获取文本尺寸
+            QFontMetrics fm(font);
+            QRect text_rect = fm.boundingRect(text);
+            
+            // 绘制背景
+            QRect background_rect(
+                obj_image.x() - text_rect.width()/2 - 2,
+                obj_image.y() - box_size/2 - text_rect.height() - 4,
+                text_rect.width() + 4,
+                text_rect.height() + 4
+            );
+            
+            painter.fillRect(background_rect, QColor(0, 0, 0, 128));
+            
+            // 绘制文本
+            painter.drawText(
+                obj_image.x() - text_rect.width()/2,
+                obj_image.y() - box_size/2 - 4,
+                text
+            );
         }
     }
-    catch (std::exception& e) {
-        ROS_ERROR("Error in updateCameraView: %s", e.what());
-    }
+    
+    // 结束绘制
+    painter.end();
+    
+    // 显示图像
+    QPixmap pixmap = QPixmap::fromImage(display_image);
+    ui->cameraView->setPixmap(pixmap);
+    
+    // 更新视图中显示的图像尺寸标签
+    QString image_info = QString("图像尺寸: %1 x %2").arg(display_image.width()).arg(display_image.height());
+    ui->cameraView->setToolTip(image_info);
 }
 
 // 操作函数实现
@@ -1063,157 +1246,25 @@ void ArmControlGUI::updateROS()
     }
 }
 
-// 原来的updateCameraView函数已删除，实现已合并到主要的updateCameraView函数中
-
-// 添加缺失的按钮点击处理函数
-void ArmControlGUI::on_homeButton_clicked()
-{
-    onHomeButtonClicked();
-}
-
-void ArmControlGUI::on_stopButton_clicked()
-{
-    // 停止所有运动
-    std_msgs::String cmd_msg;
-    cmd_msg.data = "stop arm1";
-    arm_command_pub_.publish(cmd_msg);
-    logMessage("停止所有运动");
-}
-
-void ArmControlGUI::on_moveButton_clicked()
-{
-    onMoveToPositionClicked();
-}
-
-void ArmControlGUI::on_gripperOpenButton_clicked()
-{
-    sendGripperCommand(true);
-    logMessage("打开夹持器");
-}
-
-void ArmControlGUI::on_gripperCloseButton_clicked()
-{
-    sendGripperCommand(false);
-    logMessage("关闭夹持器");
-}
-
-void ArmControlGUI::on_vacuumOnButton_clicked()
-{
-    onVacuumOnButtonClicked();
-}
-
-void ArmControlGUI::on_vacuumOffButton_clicked()
-{
-    onVacuumOffButtonClicked();
-}
-
-void ArmControlGUI::on_example1Button_clicked()
-{
-    onDemoAction1Clicked();
-}
-
-void ArmControlGUI::on_example2Button_clicked()
-{
-    onDemoAction2Clicked();
-}
-
-void ArmControlGUI::on_example3Button_clicked()
-{
-    onDemoAction3Clicked();
-}
-
-void ArmControlGUI::updateUI()
-{
-    onUpdateGUI();
-}
-
-void ArmControlGUI::sendGripperCommand(bool open)
-{
-    // 创建夹持器命令消息
-    std_msgs::Bool gripper_cmd;
-    gripper_cmd.data = open;
-    
-    // 发布夹持器命令
-    gripper_cmd_pub_.publish(gripper_cmd);
-    
-    // 更新状态
-    gripper_open_ = open;
-}
-
-// 添加舵机控制函数实现
-void ArmControlGUI::sendServoCommand(int servo_id, int position, int velocity, int acceleration)
-{
-    servo_wrist::SerControl msg;
-    msg.servo_id = servo_id;
-    msg.target_position = position;
-    msg.velocity = velocity;
-    msg.acceleration = acceleration;
-    
-    // 发布舵机控制消息
-    servo_control_pub_.publish(msg);
-    
-    logMessage(QString("发送舵机命令: ID=%1, 位置=%2, 速度=%3").arg(servo_id).arg(position).arg(velocity));
-}
-
-// 添加辅助函数用于映射范围
-int ArmControlGUI::map(int value, int fromLow, int fromHigh, int toLow, int toHigh)
-{
-    return (value - fromLow) * (toHigh - toLow) / (fromHigh - fromLow) + toLow;
-}
-
-// 添加新的回调函数用于处理合并的立体图像
-void ArmControlGUI::stereoMergedCallback(const sensor_msgs::Image::ConstPtr& msg)
-{
-    try {
-        // 将ROS图像转换为OpenCV图像
-        cv_bridge::CvImageConstPtr cv_ptr = cv_bridge::toCvShare(msg, "bgr8");
-        
-        // 转换为QImage
-        QImage image(cv_ptr->image.data, cv_ptr->image.cols, cv_ptr->image.rows, 
-                     cv_ptr->image.step, QImage::Format_RGB888);
-        image = image.rgbSwapped(); // BGR to RGB
-        
-        // 保存图像
-        left_camera_image_ = image; // 使用合并图像作为主图像
-        current_camera_image_ = image; // 同时设置为当前图像
-        
-        // 记录成功接收的图像帧
-        static int frame_count = 0;
-        frame_count++;
-        if (frame_count % 30 == 0) {  // 每30帧记录一次
-            ROS_INFO("成功接收到立体合并图像帧：%d (尺寸: %dx%d)", 
-                   frame_count, image.width(), image.height());
-        }
-        
-        // 更新UI (在主线程中)
-        QMetaObject::invokeMethod(this, "updateCameraView", Qt::QueuedConnection);
-    }
-    catch (cv_bridge::Exception& e) {
-        ROS_ERROR("cv_bridge exception in stereo merged callback: %s", e.what());
-    }
-}
-
 // 修改YOLO状态回调函数
 void ArmControlGUI::yoloStatusCallback(const std_msgs::Bool::ConstPtr& msg)
 {
-    bool previous_state = yolo_detection_enabled_;
+    bool was_enabled = yolo_detection_enabled_;
     yolo_detection_enabled_ = msg->data;
     
-    // 当状态变化时记录
-    if (previous_state != yolo_detection_enabled_) {
-        ROS_INFO("YOLO检测状态改变: %s", yolo_detection_enabled_ ? "启用" : "禁用");
-        logMessage(QString("YOLO检测状态已改变: %1").arg(yolo_detection_enabled_ ? "启用" : "禁用"));
+    if (was_enabled != yolo_detection_enabled_) {
+        // 状态发生变化，更新UI
+        if (yolo_checkbox_) {
+            yolo_checkbox_->blockSignals(true);
+            yolo_checkbox_->setChecked(yolo_detection_enabled_);
+            yolo_checkbox_->blockSignals(false);
+        }
+        
+        logMessage(QString("YOLO检测状态变为: %1").arg(yolo_detection_enabled_ ? "启用" : "禁用"));
+        
+        // 更新视图
+        QMetaObject::invokeMethod(this, "updateCameraViews", Qt::QueuedConnection);
     }
-    
-    // 更新复选框状态，但不触发信号
-    if (yolo_checkbox_) {
-        yolo_checkbox_->blockSignals(true);
-        yolo_checkbox_->setChecked(yolo_detection_enabled_);
-        yolo_checkbox_->blockSignals(false);
-    }
-    
-    // 立即更新视图，以便正确显示检测结果或普通图像
-    updateCameraViews();
 }
 
 // 修改YOLO切换处理函数
@@ -1497,73 +1548,54 @@ void ArmControlGUI::updateDetectionsTable()
 // 在主线程中更新检测结果表格
 void ArmControlGUI::updateDetectionsTableUI()
 {
-    if (!ui->detectionsTable) {
-        return;  // 表格不存在，可能是旧版UI
-    }
-    
-    // 阻止表格信号以避免触发不必要的回调
-    ui->detectionsTable->blockSignals(true);
+    // 保存当前选中行
+    int currentRow = ui->detectionsTable->currentRow();
     
     // 清空表格
     ui->detectionsTable->setRowCount(0);
     
-    // 设置表格列数
-    ui->detectionsTable->setColumnCount(6);
-    
-    // 设置表头
-    QStringList headers;
-    headers << "ID" << "类型" << "X" << "Y" << "Z" << "操作";
-    ui->detectionsTable->setHorizontalHeaderLabels(headers);
-    
-    // 填充检测结果
+    // 填充表格
     for (size_t i = 0; i < detected_objects_.size(); ++i) {
         const DetectedObject& obj = detected_objects_[i];
         
-        // 添加新行
         int row = ui->detectionsTable->rowCount();
         ui->detectionsTable->insertRow(row);
         
-        // 设置ID
-        QTableWidgetItem* idItem = new QTableWidgetItem(QString::fromStdString(obj.id));
-        ui->detectionsTable->setItem(row, 0, idItem);
+        // ID列
+        ui->detectionsTable->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(obj.id)));
         
-        // 设置类型
-        QTableWidgetItem* typeItem = new QTableWidgetItem(QString::fromStdString(obj.type));
-        ui->detectionsTable->setItem(row, 1, typeItem);
+        // 类型列
+        ui->detectionsTable->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(obj.type)));
         
-        // 设置X坐标
-        QTableWidgetItem* xItem = new QTableWidgetItem(QString::number(obj.pose.position.x * 100, 'f', 1));
-        ui->detectionsTable->setItem(row, 2, xItem);
+        // X坐标列
+        ui->detectionsTable->setItem(row, 2, new QTableWidgetItem(QString::number(obj.x, 'f', 1)));
         
-        // 设置Y坐标
-        QTableWidgetItem* yItem = new QTableWidgetItem(QString::number(obj.pose.position.y * 100, 'f', 1));
-        ui->detectionsTable->setItem(row, 3, yItem);
+        // Y坐标列
+        ui->detectionsTable->setItem(row, 3, new QTableWidgetItem(QString::number(obj.y, 'f', 1)));
         
-        // 设置Z坐标
-        QTableWidgetItem* zItem = new QTableWidgetItem(QString::number(obj.pose.position.z * 100, 'f', 1));
-        ui->detectionsTable->setItem(row, 4, zItem);
+        // Z坐标列
+        ui->detectionsTable->setItem(row, 4, new QTableWidgetItem(QString::number(obj.z, 'f', 1)));
         
-        // 添加操作按钮
+        // 操作列 - 添加抓取按钮
         QPushButton* pickButton = new QPushButton("抓取");
         pickButton->setProperty("object_id", QString::fromStdString(obj.id));
-        connect(pickButton, &QPushButton::clicked, this, [this, id=obj.id]() {
-            this->sendPickCommand(id);
+        pickButton->setProperty("object_index", static_cast<int>(i));
+        
+        connect(pickButton, &QPushButton::clicked, this, [this, i]() {
+            this->sendPickObjectCommand(i);
         });
+        
         ui->detectionsTable->setCellWidget(row, 5, pickButton);
     }
     
-    // 调整列宽以适应内容
-    ui->detectionsTable->resizeColumnsToContents();
-    
-    // 恢复表格信号
-    ui->detectionsTable->blockSignals(false);
-    
-    // 如果没有检测结果，显示提示信息
-    if (detected_objects_.empty()) {
-        ui->detectionsTable->setRowCount(1);
-        QTableWidgetItem* noDataItem = new QTableWidgetItem("无检测结果");
-        noDataItem->setTextAlignment(Qt::AlignCenter);
-        ui->detectionsTable->setSpan(0, 0, 1, 6);
-        ui->detectionsTable->setItem(0, 0, noDataItem);
+    // 恢复选中行
+    if (currentRow >= 0 && currentRow < ui->detectionsTable->rowCount()) {
+        ui->detectionsTable->selectRow(currentRow);
+    } else if (selected_object_index_ >= 0 && selected_object_index_ < ui->detectionsTable->rowCount()) {
+        ui->detectionsTable->selectRow(selected_object_index_);
     }
+    
+    // 连接表格选择信号
+    connect(ui->detectionsTable, &QTableWidget::cellClicked, 
+            this, &ArmControlGUI::onDetectionsTableCellClicked, Qt::UniqueConnection);
 } 

@@ -54,13 +54,12 @@ fi
 # 默认参数
 RESOLUTION="1280x480"
 FPS=30
-YOLO_ENABLED=false
+YOLO_ENABLED=true
 YOLO_MODEL=""
 YOLO_THRESHOLD=0.5
 
 # 命令行参数模式
 COMMAND_MODE=false
-DIRECT_MODE=false
 TEST_MODE=false
 
 # 帮助信息
@@ -73,7 +72,6 @@ show_help() {
     echo "  -y, --yolo             启用YOLO目标检测"
     echo "  -m, --model PATH       指定YOLOv8模型路径"
     echo "  -t, --threshold VALUE  设置检测置信度阈值 (0.0-1.0)"
-    echo "  -d, --direct           直接模式，不使用ROS"
     echo "  -h, --help             显示此帮助信息"
     exit 0
 }
@@ -111,11 +109,6 @@ while [[ $# -gt 0 ]]; do
             COMMAND_MODE=true
             shift 2
             ;;
-        -d|--direct)
-            DIRECT_MODE=true
-            COMMAND_MODE=true
-            shift
-            ;;
         -t|--test)
             TEST_MODE=true
             COMMAND_MODE=true
@@ -135,86 +128,73 @@ done
 WIDTH=$(echo $RESOLUTION | cut -d'x' -f1)
 HEIGHT=$(echo $RESOLUTION | cut -d'x' -f2)
 
+# 启动完整系统
+launch_full_system() {
+    echo -e "${GREEN}启动完整视觉控制系统...${NC}"
+    echo -e "${BLUE}摄像头: $CAMERA, 分辨率: ${WIDTH}x${HEIGHT}, FPS: $FPS${NC}"
+    echo -e "${CYAN}YOLO目标检测: 在GUI中控制开关${NC}"
+    
+    if [ -n "$YOLO_MODEL" ]; then
+        echo -e "${CYAN}使用自定义YOLOv8模型: $YOLO_MODEL${NC}"
+    else
+        echo -e "${CYAN}使用默认YOLOv8s模型${NC}"
+    fi
+    echo -e "${CYAN}检测置信度阈值: $YOLO_THRESHOLD${NC}"
+    
+    # 构建启动命令
+    LAUNCH_CMD="roslaunch launch/demo.launch camera_device:=$CAMERA yolo_enabled:=$YOLO_ENABLED"
+    
+    # 添加额外参数
+    if [ -n "$YOLO_MODEL" ]; then
+        LAUNCH_CMD="$LAUNCH_CMD yolo_model_path:=$YOLO_MODEL"
+    fi
+    
+    LAUNCH_CMD="$LAUNCH_CMD yolo_confidence:=$YOLO_THRESHOLD"
+    
+    # 执行启动命令
+    $LAUNCH_CMD
+}
+
+# 测试摄像头
+test_camera() {
+    echo -e "${GREEN}测试摄像头...${NC}"
+    # 使用Python直接测试摄像头
+    python3 src/stereo_vision/scripts/camera_direct.py --device 0 --width $WIDTH --height $HEIGHT --fps $FPS
+}
+
 # 根据命令行参数启动
 launch_system() {
     if [ "$TEST_MODE" = true ]; then
-        echo -e "${GREEN}测试摄像头模式${NC}"
-        # 使用Python直接测试摄像头
-        python3 src/stereo_vision/scripts/camera_direct.py --device 0 --width $WIDTH --height $HEIGHT --fps $FPS
-    elif [ "$DIRECT_MODE" = true ]; then
-        echo -e "${GREEN}直接模式，不使用ROS${NC}"
-        # 启动直接摄像头模式
-        roslaunch launch/direct_camera.launch
+        test_camera
     else
-        echo -e "${GREEN}启动ROS系统${NC}"
-        echo -e "${BLUE}摄像头: $CAMERA, 分辨率: ${WIDTH}x${HEIGHT}, FPS: $FPS, YOLO: $YOLO_ENABLED${NC}"
-        if [ "$YOLO_ENABLED" = true ]; then
-            echo -e "${CYAN}YOLO目标检测初始状态: 启用${NC}"
-            if [ -n "$YOLO_MODEL" ]; then
-                echo -e "${CYAN}使用自定义YOLOv8模型: $YOLO_MODEL${NC}"
-            else
-                echo -e "${CYAN}使用默认YOLOv8s模型${NC}"
-            fi
-            echo -e "${CYAN}检测置信度阈值: $YOLO_THRESHOLD${NC}"
-        else
-            echo -e "${CYAN}YOLO目标检测初始状态: 禁用${NC}"
-        fi
-        echo -e "${CYAN}注意: 启动后，可以在GUI中随时开关YOLO检测功能${NC}"
-        
-        # 构建启动命令
-        LAUNCH_CMD="roslaunch launch/demo.launch camera_device:=$CAMERA yolo_enabled:=$YOLO_ENABLED"
-        
-        # 添加额外参数
-        if [ -n "$YOLO_MODEL" ]; then
-            LAUNCH_CMD="$LAUNCH_CMD yolo_model_path:=$YOLO_MODEL"
-        fi
-        
-        LAUNCH_CMD="$LAUNCH_CMD yolo_confidence:=$YOLO_THRESHOLD"
-        
-        # 执行启动命令
-        $LAUNCH_CMD
+        launch_full_system
     fi
 }
 
-# 显示菜单（如果没有命令行参数）
+# 显示简化菜单（如果没有命令行参数）
 show_menu() {
     echo -e "${BLUE}=====================================${NC}"
     echo -e "${GREEN}机械臂视觉控制系统启动菜单${NC}"
     echo -e "${BLUE}=====================================${NC}"
-    echo -e "${YELLOW}1. 启动完整系统${NC}"
+    echo -e "${YELLOW}1. 启动视觉控制系统${NC}"
     echo -e "${YELLOW}2. 测试摄像头${NC}"
-    echo -e "${YELLOW}3. 直接模式 (不使用ROS)${NC}"
-    echo -e "${YELLOW}4. 测试路径规划${NC}"
-    echo -e "${YELLOW}5. 配置参数${NC}"
+    echo -e "${YELLOW}3. 配置参数${NC}"
     echo -e "${YELLOW}0. 退出${NC}"
     echo -e "${BLUE}=====================================${NC}"
-    echo -e "${CYAN}注意: 可以通过GUI控制面板随时开关YOLO检测功能${NC}"
+    echo -e "${CYAN}注意: 系统包含路径规划和3D视图功能${NC}"
+    echo -e "${CYAN}      可以通过GUI控制面板随时开关YOLO检测${NC}"
     echo -e "${BLUE}=====================================${NC}"
     echo -ne "${GREEN}请选择: ${NC}"
     read -r choice
     
     case $choice in
         1)
-            echo -e "${GREEN}启动完整系统...${NC}"
-            # 设置YOLO初始状态为启用，通过GUI可以控制开关
-            YOLO_ENABLED=true
-            launch_system
+            launch_full_system
             ;;
         2)
-            echo -e "${GREEN}测试摄像头...${NC}"
-            TEST_MODE=true
-            launch_system
+            test_camera
             ;;
         3)
-            echo -e "${GREEN}直接模式...${NC}"
-            DIRECT_MODE=true
-            launch_system
-            ;;
-        4)
-            echo -e "${GREEN}测试路径规划...${NC}"
-            launch_path_planning
-            ;;
-        5)
             configure_params
             ;;
         0)
@@ -229,15 +209,6 @@ show_menu() {
     echo -e "${YELLOW}按任意键返回菜单...${NC}"
     read -r -n 1
     show_menu
-}
-
-# 启动路径规划测试
-launch_path_planning() {
-    echo -e "${GREEN}启动路径规划测试...${NC}"
-    echo -e "${BLUE}这将启动机械臂路径规划可视化${NC}"
-    
-    # 启动ROS节点
-    roslaunch launch/path_planning_test.launch
 }
 
 # 配置参数
@@ -269,29 +240,18 @@ configure_params() {
         FPS="$new_fps"
     fi
     
-    echo -e "${YELLOW}YOLO检测: $([ "$YOLO_ENABLED" = true ] && echo "启用" || echo "禁用")${NC}"
-    echo -ne "${GREEN}是否启用YOLO检测? (y/n，留空保持不变): ${NC}"
-    read -r yolo_option
-    if [ -n "$yolo_option" ]; then
-        if [[ "$yolo_option" =~ ^[Yy]$ ]]; then
-            YOLO_ENABLED=true
-            
-            echo -e "${YELLOW}当前YOLOv8模型: $([ -n "$YOLO_MODEL" ] && echo "$YOLO_MODEL" || echo "默认")${NC}"
-            echo -ne "${GREEN}输入YOLOv8模型路径 (留空使用默认模型): ${NC}"
-            read -r new_model
-            if [ -n "$new_model" ]; then
-                YOLO_MODEL="$new_model"
-            fi
-            
-            echo -e "${YELLOW}当前检测置信度阈值: $YOLO_THRESHOLD${NC}"
-            echo -ne "${GREEN}输入新的置信度阈值 (0.0-1.0，留空保持不变): ${NC}"
-            read -r new_threshold
-            if [ -n "$new_threshold" ]; then
-                YOLO_THRESHOLD="$new_threshold"
-            fi
-        else
-            YOLO_ENABLED=false
-        fi
+    echo -e "${YELLOW}当前YOLOv8模型: $([ -n "$YOLO_MODEL" ] && echo "$YOLO_MODEL" || echo "默认")${NC}"
+    echo -ne "${GREEN}输入YOLOv8模型路径 (留空使用默认模型): ${NC}"
+    read -r new_model
+    if [ -n "$new_model" ]; then
+        YOLO_MODEL="$new_model"
+    fi
+    
+    echo -e "${YELLOW}当前检测置信度阈值: $YOLO_THRESHOLD${NC}"
+    echo -ne "${GREEN}输入新的置信度阈值 (0.0-1.0，留空保持不变): ${NC}"
+    read -r new_threshold
+    if [ -n "$new_threshold" ]; then
+        YOLO_THRESHOLD="$new_threshold"
     fi
     
     echo -e "${BLUE}=====================================${NC}"

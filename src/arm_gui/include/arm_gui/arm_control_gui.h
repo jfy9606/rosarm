@@ -7,6 +7,8 @@
 #include <QDoubleSpinBox>
 #include <QPushButton>
 #include <QOpenGLWidget>
+#include <QOpenGLFunctions>
+#include <QMouseEvent>
 #include <QTimer>
 #include <QTableWidget>
 #include <QImage>
@@ -16,6 +18,8 @@
 #include <QTextCursor>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QMatrix4x4>
+#include <QVector3D>
 
 #include <ros/ros.h>
 #include <std_msgs/String.h>
@@ -36,6 +40,76 @@
 namespace Ui {
 class ArmControlMainWindow;
 }
+
+// 自定义OpenGL渲染器类
+class Scene3DRenderer : public QOpenGLWidget, protected QOpenGLFunctions {
+    Q_OBJECT
+    
+public:
+    explicit Scene3DRenderer(QWidget* parent = nullptr);
+    ~Scene3DRenderer() override;
+    
+    // 更新场景中的物体
+    void updateObjects(const std::vector<std::pair<QVector3D, QColor>>& objects);
+    
+    // 设置选中的物体
+    void setSelectedObject(int index);
+    
+    // 获取选中的物体索引
+    int getSelectedObject() const;
+    
+    // 添加机械臂模型
+    void setRobotPose(const std::vector<double>& joint_values);
+    
+signals:
+    void objectSelected(int index);
+    
+protected:
+    void initializeGL() override;
+    void resizeGL(int w, int h) override;
+    void paintGL() override;
+    
+    void mousePressEvent(QMouseEvent* event) override;
+    void mouseMoveEvent(QMouseEvent* event) override;
+    void wheelEvent(QWheelEvent* event) override;
+    
+private:
+    // 场景中的物体 (位置, 颜色)
+    std::vector<std::pair<QVector3D, QColor>> objects_;
+    
+    // 选中的物体索引
+    int selected_object_;
+    
+    // 相机参数
+    QVector3D camera_position_;
+    QVector3D camera_target_;
+    QVector3D camera_up_;
+    
+    // 上一次鼠标位置
+    QPoint last_mouse_pos_;
+    
+    // 视角旋转角度
+    float yaw_;
+    float pitch_;
+    
+    // 缩放因子
+    float zoom_;
+    
+    // 机械臂关节值
+    std::vector<double> robot_joints_;
+    
+    // 渲染函数
+    void renderObjects();
+    void renderRobot();
+    void renderCoordinateAxes();
+    
+    // 根据屏幕坐标计算3D空间中的射线
+    QVector3D screenToRay(int x, int y);
+    
+    // 判断射线与物体相交
+    bool rayIntersectsSphere(const QVector3D& ray_origin, const QVector3D& ray_dir, 
+                            const QVector3D& sphere_center, float sphere_radius);
+};
 
 class ArmControlGUI : public QMainWindow {
     Q_OBJECT
@@ -128,6 +202,13 @@ private slots:
 
     // 添加新的槽函数
     void updateDetectionsTableUI();
+
+    // 3D视图相关槽
+    void on3DViewObjectSelected(int index);
+    void updateScene3D();
+    
+    // 摄像头图像鼠标事件处理
+    void onCameraViewClicked(QPoint pos);
 
 private:
     // UI相关
@@ -241,6 +322,40 @@ private:
 
     // 添加新的辅助函数
     void updateDetectionsTable();
+
+    // 3D渲染器
+    Scene3DRenderer* scene_3d_renderer_;
+    
+    // 3D场景中的物体
+    std::vector<std::pair<QVector3D, QColor>> scene_objects_;
+    
+    // 选中的物体索引
+    int selected_object_index_;
+    
+    // 相机内参和外参
+    QMatrix4x4 camera_intrinsic_;
+    QMatrix4x4 camera_extrinsic_;
+    
+    // 从摄像头图像点获取3D位置
+    QVector3D imagePointTo3D(const QPoint& image_point, float depth = 1.0);
+    
+    // 从3D位置计算摄像头图像点
+    QPoint point3DToImage(const QVector3D& point_3d);
+    
+    // 渲染3D场景
+    void render3DScene();
+    
+    // 更新3D场景中的物体
+    void updateSceneObjects();
+    
+    // 设置摄像头参数
+    void setupCameraParameters();
+    
+    // 从深度图获取深度值
+    float getDepthAtPoint(const QPoint& image_point);
+    
+    // 发送物体拾取命令
+    void sendPickObjectCommand(int object_index);
 };
 
 #endif // ARM_CONTROL_GUI_H 
