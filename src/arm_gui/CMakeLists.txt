@@ -21,8 +21,6 @@ find_package(catkin REQUIRED COMPONENTS
   sensor_msgs
   geometry_msgs
   moveit_msgs
-  tf2
-  tf2_ros
   cv_bridge
   image_transport
   liancheng_socket
@@ -45,8 +43,8 @@ catkin_package(
     sensor_msgs 
     geometry_msgs 
     moveit_msgs
-    tf2 
-    tf2_ros
+    cv_bridge
+    image_transport
     liancheng_socket
     servo_wrist
   DEPENDS Qt5Core Qt5Gui Qt5Widgets Qt5OpenGL OPENGL

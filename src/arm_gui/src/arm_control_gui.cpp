@@ -28,14 +28,12 @@
 #include <QImage>
 #include <QPixmap>
 #include <QPainter>
-
-#include <tf2/transformations.h>
+#include <QQuaternion>
 
 ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     : QMainWindow(parent)
     , ui(new Ui::ArmControlMainWindow)
     , nh_(nh)
-    , tf_listener_(tf_buffer_)
     , vacuum_on_(false)
     , vacuum_power_(0)
     , gripper_open_(false)
@@ -333,9 +331,9 @@ void ArmControlGUI::updateScene3D()
     if (!scene_3d_renderer_) {
         return;
     }
-    
-    // 更新场景中的物体
-    updateSceneObjects();
+        
+        // 更新场景中的物体
+        updateSceneObjects();
     
     // 更新机械臂姿态
     scene_3d_renderer_->setRobotPose(current_joint_values_);
@@ -403,18 +401,41 @@ void ArmControlGUI::updateCameraTransform(const geometry_msgs::Pose& end_effecto
         1.0f
     ));
     
-    // 从四元数设置旋转部分
-    tf2::Quaternion q(
+    // 从四元数创建旋转矩阵
+    QQuaternion q(
+        end_effector_pose.orientation.w,  // Qt quaternion 构造顺序是 w,x,y,z
         end_effector_pose.orientation.x,
         end_effector_pose.orientation.y,
-        end_effector_pose.orientation.z,
-        end_effector_pose.orientation.w
+        end_effector_pose.orientation.z
     );
-    tf2::Matrix3x3 rot_mat(q);
     
+    // 创建旋转矩阵并应用到变换矩阵
+    QMatrix3x3 rot_mat;
+    float x2 = q.x() * q.x();
+    float y2 = q.y() * q.y();
+    float z2 = q.z() * q.z();
+    float xy = q.x() * q.y();
+    float xz = q.x() * q.z();
+    float yz = q.y() * q.z();
+    float wx = q.w() * q.x();
+    float wy = q.w() * q.y();
+    float wz = q.w() * q.z();
+    
+    // 填充旋转矩阵
+    rot_mat(0, 0) = 1.0f - 2.0f * (y2 + z2);
+    rot_mat(0, 1) = 2.0f * (xy - wz);
+    rot_mat(0, 2) = 2.0f * (xz + wy);
+    rot_mat(1, 0) = 2.0f * (xy + wz);
+    rot_mat(1, 1) = 1.0f - 2.0f * (x2 + z2);
+    rot_mat(1, 2) = 2.0f * (yz - wx);
+    rot_mat(2, 0) = 2.0f * (xz - wy);
+    rot_mat(2, 1) = 2.0f * (yz + wx);
+    rot_mat(2, 2) = 1.0f - 2.0f * (x2 + y2);
+    
+    // 设置旋转部分
     for (int i = 0; i < 3; ++i) {
         for (int j = 0; j < 3; ++j) {
-            world_to_end_effector(i, j) = rot_mat[i][j];
+            world_to_end_effector(i, j) = rot_mat(i, j);
         }
     }
     
@@ -1013,13 +1034,13 @@ void ArmControlGUI::updateCameraViews()
     
     // 绘制检测到的物体
     if (yolo_detection_enabled_ && !detected_objects_.empty()) {
-        for (size_t i = 0; i < detected_objects_.size(); ++i) {
-            const DetectedObject& obj = detected_objects_[i];
+    for (size_t i = 0; i < detected_objects_.size(); ++i) {
+        const DetectedObject& obj = detected_objects_[i];
             
             // 使用物体在相机坐标系中的原始位置
             QVector3D obj_camera(obj.x / 100.0f, obj.y / 100.0f, obj.z / 100.0f);
-            
-            // 将3D位置投影到图像平面
+        
+        // 将3D位置投影到图像平面
             QPoint obj_image = QPoint(
                 static_cast<int>(obj_camera.x() / obj_camera.z() * camera_intrinsic_(0, 0) + camera_intrinsic_(0, 2)),
                 static_cast<int>(obj_camera.y() / obj_camera.z() * camera_intrinsic_(1, 1) + camera_intrinsic_(1, 2))
@@ -1031,60 +1052,60 @@ void ArmControlGUI::updateCameraViews()
                 obj_camera.z() <= 0.0f) {
                 continue; // 不在视野内的物体不显示
             }
-            
-            // 设置画笔颜色和宽度
-            if (static_cast<int>(i) == selected_object_index_) {
-                painter.setPen(QPen(Qt::yellow, 3));
-            } else {
-                painter.setPen(QPen(Qt::red, 2));
-            }
-            
-            // 计算矩形大小（基于物体距离）
+        
+        // 设置画笔颜色和宽度
+        if (static_cast<int>(i) == selected_object_index_) {
+            painter.setPen(QPen(Qt::yellow, 3));
+        } else {
+            painter.setPen(QPen(Qt::red, 2));
+        }
+        
+        // 计算矩形大小（基于物体距离）
             // 距离越远，框越小
             float distance_factor = 0.5f / obj_camera.z();
             int box_size = static_cast<int>(40 * distance_factor);
             box_size = std::max(20, std::min(80, box_size)); // 限制大小范围
             
             QRect rect(obj_image.x() - box_size/2, obj_image.y() - box_size/2, box_size, box_size);
-            
-            // 绘制矩形框
-            painter.drawRect(rect);
-            
-            // 设置字体和颜色
-            QFont font = painter.font();
-            font.setBold(true);
-            font.setPointSize(10);
-            painter.setFont(font);
-            
-            if (static_cast<int>(i) == selected_object_index_) {
-                painter.setPen(QPen(Qt::yellow));
-            } else {
-                painter.setPen(QPen(Qt::white));
-            }
-            
-            // 准备文本
-            QString text = QString::fromStdString(obj.id);
-            
-            // 获取文本尺寸
-            QFontMetrics fm(font);
-            QRect text_rect = fm.boundingRect(text);
-            
-            // 绘制背景
-            QRect background_rect(
+                    
+                    // 绘制矩形框
+        painter.drawRect(rect);
+        
+        // 设置字体和颜色
+        QFont font = painter.font();
+        font.setBold(true);
+        font.setPointSize(10);
+                    painter.setFont(font);
+        
+        if (static_cast<int>(i) == selected_object_index_) {
+            painter.setPen(QPen(Qt::yellow));
+        } else {
+            painter.setPen(QPen(Qt::white));
+        }
+        
+        // 准备文本
+        QString text = QString::fromStdString(obj.id);
+        
+        // 获取文本尺寸
+                    QFontMetrics fm(font);
+        QRect text_rect = fm.boundingRect(text);
+        
+        // 绘制背景
+        QRect background_rect(
                 obj_image.x() - text_rect.width()/2 - 2,
                 obj_image.y() - box_size/2 - text_rect.height() - 4,
-                text_rect.width() + 4,
-                text_rect.height() + 4
-            );
-            
-            painter.fillRect(background_rect, QColor(0, 0, 0, 128));
-            
-            // 绘制文本
-            painter.drawText(
+            text_rect.width() + 4,
+            text_rect.height() + 4
+        );
+        
+        painter.fillRect(background_rect, QColor(0, 0, 0, 128));
+        
+        // 绘制文本
+        painter.drawText(
                 obj_image.x() - text_rect.width()/2,
                 obj_image.y() - box_size/2 - 4,
-                text
-            );
+            text
+        );
             
             // 绘制距离信息
             QString distance_text = QString::number(obj_camera.z(), 'f', 2) + "m";

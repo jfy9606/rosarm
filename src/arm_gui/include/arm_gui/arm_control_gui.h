@@ -21,6 +21,7 @@
 #include <QMatrix4x4>
 #include <QMatrix3x3>
 #include <QVector3D>
+#include <QQuaternion>
 
 #include <ros/ros.h>
 #include <std_msgs/String.h>
@@ -31,10 +32,7 @@
 #include <geometry_msgs/Pose.h>
 #include <geometry_msgs/PoseArray.h>
 #include <cv_bridge/cv_bridge.h>
-#include <tf2_ros/transform_listener.h>
-#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include "liancheng_socket/MotorOrder.h"
-#include <tf2_ros/buffer.h>
 #include <servo_wrist/SerControl.h>
 #include <std_srvs/SetBool.h>
 
@@ -241,8 +239,6 @@ private:
     ros::Publisher motor_order_pub_;
     ros::Publisher relay_order_pub_;
     ros::Publisher servo_control_pub_;
-    tf2_ros::Buffer tf_buffer_;
-    tf2_ros::TransformListener tf_listener_;
     
     // 图像显示相关
     QImage left_camera_image_;
