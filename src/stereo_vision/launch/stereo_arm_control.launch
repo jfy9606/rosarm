@@ -39,14 +39,14 @@
 
   <!-- TF Static Publisher for camera to world transform -->
   <node pkg="tf2_ros" type="static_transform_publisher" name="camera_link_broadcaster"
-        args="0 0 1.5 0 0 0 world camera_link" />
+        args="0.3 0 1.0 -0.2 0.4 0 world camera_link" />
 
   <!-- Launch tf broadcaster for coordinate frames -->
   <node pkg="tf" type="static_transform_publisher" name="arm1_base_link_broadcaster"
-        args="0 0.5 0 0 0 0 world arm1_base_link 100" />
+        args="0 0.75 0 0 0 0 world arm1_base_link 100" />
   
   <node pkg="tf" type="static_transform_publisher" name="arm2_base_link_broadcaster"
-        args="0 -0.5 0 0 0 0 world arm2_base_link 100" />
+        args="0 -0.75 0 0 0 0 world arm2_base_link 100" />
 
   <!-- Launch a command line interface for arm control -->
   <node pkg="rostopic" type="rostopic" name="arm_command_interface" output="screen"
