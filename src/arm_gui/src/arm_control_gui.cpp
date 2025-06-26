@@ -29,7 +29,6 @@
 #include <QPixmap>
 #include <QPainter>
 
-#include <Eigen/Dense>
 #include <tf2/transformations.h>
 
 ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)

@@ -208,15 +208,21 @@ roslaunch run.launch enable_yolo:=true
    - 如果图像为黑屏，可能是摄像头曝光问题
    - 尝试不同的像素格式 (YUYV, MJPEG)
 
-5. **目标检测不工作**
+5. **编译错误：Eigen/Dense缺失**
+   - 如果遇到 `fatal error: Eigen/Dense: 没有那个文件或目录` 错误，这是因为系统使用Qt矩阵类替代了Eigen
+   - 确保已安装Qt5 OpenGL开发库：`sudo apt-get install libqt5opengl5-dev -y`
+   - 编辑 `src/arm_gui/src/arm_control_gui.cpp` 文件，移除 `#include <Eigen/Dense>` 行
+   - 如果确实需要使用Eigen库，可以安装：`sudo apt-get install libeigen3-dev -y`
+
+6. **目标检测不工作**
    - 确保已安装所需的Python库
    - 检查YOLO模型路径是否正确
 
-6. **轨迹规划错误**
+7. **轨迹规划错误**
    - 检查机械臂配置参数
    - 确保已安装所有ROS依赖包
 
-7. **Python导入错误**
+8. **Python导入错误**
    - 如果出现 `cannot import name 'WhaleOptimizer' from 'whales_optimizer'` 错误，需要检查：
    ```bash
    # 检查文件是否存在
@@ -233,32 +239,32 @@ roslaunch run.launch enable_yolo:=true
    chmod +x ~/catkin_ws/src/arm_trajectory/scripts/*.py
    ```
 
-8. **Qt信号槽警告**
+9. **Qt信号槽警告**
    - 如果出现 `QMetaObject::connectSlotsByName: No matching signal for on_XXXButton_clicked()` 警告，这通常是UI文件中定义的按钮没有对应的槽函数。您可以：
      - 在相应的类中添加缺失的槽函数
      - 或修改UI文件，移除未使用的按钮连接
 
-9. **摄像头超时问题**
-   - 如果出现 `VIDEOIO(V4L2:/dev/video0): select() timeout` 或 `摄像头读取失败` 警告：
-   ```bash
-   # 检查摄像头设备
-   ls -la /dev/video*
-   
-   # 重置摄像头
-   sudo modprobe -r uvcvideo
-   sudo modprobe uvcvideo
-   
-   # 检查摄像头是否被其他进程占用
-   sudo fuser -v /dev/video*
-   
-   # 如果摄像头被占用，终止相关进程
-   sudo fuser -k /dev/video0
-   
-   # 尝试使用其他摄像头设备
-   # 修改launch文件中的camera_device参数为其他可用设备
-   ```
+10. **摄像头超时问题**
+    - 如果出现 `VIDEOIO(V4L2:/dev/video0): select() timeout` 或 `摄像头读取失败` 警告：
+    ```bash
+    # 检查摄像头设备
+    ls -la /dev/video*
+    
+    # 重置摄像头
+    sudo modprobe -r uvcvideo
+    sudo modprobe uvcvideo
+    
+    # 检查摄像头是否被其他进程占用
+    sudo fuser -v /dev/video*
+    
+    # 如果摄像头被占用，终止相关进程
+    sudo fuser -k /dev/video0
+    
+    # 尝试使用其他摄像头设备
+    # 修改launch文件中的camera_device参数为其他可用设备
+    ```
 
-10. **GUI无法显示摄像头画面但guvcview正常**
+11. **GUI无法显示摄像头画面但guvcview正常**
     - 如果guvcview能正常显示摄像头画面，但ROS GUI无法显示，可能是视频格式或分辨率配置问题：
     ```bash
     # 查看摄像头支持的格式和分辨率
