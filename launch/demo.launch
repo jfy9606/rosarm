@@ -29,14 +29,25 @@
   <!-- 加载机械臂描述参数 -->
   <rosparam command="load" file="$(find arm_trajectory)/config/arm_params.yaml" />
 
-  <!-- 启动摄像头节点 -->
+  <!-- 启动摄像头节点 - 使用OV4689双目摄像头 -->
   <node name="camera_node" pkg="stereo_vision" type="camera_node.py" output="screen">
     <param name="device" value="$(arg camera_device)" />
-    <param name="width" value="640" />
+    <param name="width" value="1280" />
     <param name="height" value="480" />
     <param name="fps" value="30" />
+    <param name="pixel_format" value="mjpeg" />
     <param name="retry_count" value="5" />
     <param name="retry_delay" value="2.0" />
+  </node>
+  
+  <!-- 使用topic_tools/relay节点将图像转发到GUI订阅的话题 -->
+  <node name="camera_relay_merged" pkg="topic_tools" type="relay" args="/camera/image_raw /stereo_camera/image_merged" />
+  
+  <!-- 启动深度估计节点 -->
+  <node name="depth_estimator" pkg="stereo_vision" type="depth_estimator.py" output="screen">
+    <param name="input_topic" value="/stereo_camera/image_merged" />
+    <param name="output_topic" value="/stereo_camera/depth" />
+    <param name="point_cloud_topic" value="/stereo_camera/points" />
   </node>
 
   <!-- 启动YOLO控制节点 -->

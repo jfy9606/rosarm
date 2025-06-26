@@ -67,13 +67,11 @@ ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     ui->cameraView->setScaledContents(false);
     ui->cameraView->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
     
-    // 订阅各种摄像头话题
-    left_camera_sub_ = nh_.subscribe("/left_camera/image_raw", 1, &ArmControlGUI::leftCameraCallback, this);
-    right_camera_sub_ = nh_.subscribe("/right_camera/image_raw", 1, &ArmControlGUI::rightCameraCallback, this);
+    // 只订阅合成的双目摄像头话题 (OV4689, 1280x480)
     stereo_merged_sub_ = nh_.subscribe("/stereo_camera/image_merged", 1, &ArmControlGUI::stereoMergedCallback, this);
     
-    // 新增直接订阅原始摄像头话题
-    ros::Subscriber raw_camera_sub = nh_.subscribe("/camera/image_raw", 1, &ArmControlGUI::leftCameraCallback, this);
+    // 直接订阅原始摄像头话题
+    ros::Subscriber raw_camera_sub = nh_.subscribe("/camera/image_raw", 1, &ArmControlGUI::stereoMergedCallback, this);
     
     // 物体检测相关订阅
     detection_image_sub_ = nh_.subscribe("/stereo_camera/detection_image", 1, &ArmControlGUI::detectionImageCallback, this);
@@ -84,10 +82,10 @@ ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     depth_image_sub_ = nh_.subscribe("/stereo_camera/depth", 1, &ArmControlGUI::depthImageCallback, this);
     
     // YOLO状态订阅
-    yolo_status_sub_ = nh_.subscribe("/yolo_detection/status", 1, &ArmControlGUI::yoloStatusCallback, this);
+    yolo_status_sub_ = nh_.subscribe("/yolo/status", 1, &ArmControlGUI::yoloStatusCallback, this);
     
     // YOLO控制服务客户端
-    yolo_control_client_ = nh_.serviceClient<std_srvs::SetBool>("/yolo_detection/set_enabled");
+    yolo_control_client_ = nh_.serviceClient<std_srvs::SetBool>("/yolo/control");
     
     // 设置定时器用于更新ROS
     QTimer *ros_timer = new QTimer(this);
@@ -96,10 +94,8 @@ ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     
     // 打印订阅的话题信息
     ROS_INFO("GUI已订阅摄像头话题:");
-    ROS_INFO(" - /left_camera/image_raw");
-    ROS_INFO(" - /right_camera/image_raw");
-    ROS_INFO(" - /stereo_camera/image_merged");
-    ROS_INFO(" - /camera/image_raw");
+    ROS_INFO(" - /stereo_camera/image_merged (合成双目图像)");
+    ROS_INFO(" - /camera/image_raw (原始摄像头图像)");
     ROS_INFO(" - /stereo_camera/detection_image");
     ROS_INFO(" - /yolo_detection/image");
     ROS_INFO(" - /stereo_camera/depth");
@@ -117,8 +113,6 @@ ArmControlGUI::~ArmControlGUI()
     }
     
     // 关闭ROS订阅
-    left_camera_sub_.shutdown();
-    right_camera_sub_.shutdown();
     stereo_merged_sub_.shutdown();
     depth_image_sub_.shutdown();
     detection_image_sub_.shutdown();

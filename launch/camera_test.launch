@@ -9,10 +9,11 @@
 
   <!-- 摄像头节点 -->
   <node name="camera" pkg="stereo_vision" type="camera_node.py" output="screen" respawn="true">
-    <param name="camera_device" value="$(arg camera_device)" />
-    <param name="resolution_width" value="$(arg resolution_width)" />
-    <param name="resolution_height" value="$(arg resolution_height)" />
+    <param name="device" value="$(arg camera_device)" />
+    <param name="width" value="$(arg resolution_width)" />
+    <param name="height" value="$(arg resolution_height)" />
     <param name="fps" value="$(arg fps)" />
+    <param name="pixel_format" value="mjpeg" />
     <param name="log_level" value="0" /> <!-- 详细日志模式 -->
   </node>
 

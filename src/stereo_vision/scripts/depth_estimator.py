@@ -49,27 +49,62 @@ class DepthEstimator:
     def init_stereo_matcher(self):
         """初始化OpenCV立体匹配算法"""
         try:
+            # 针对OV4689双目摄像头优化的参数
             # 创建StereoBM对象
             # numDisparities必须是16的倍数，表示最大视差值
             # blockSize是匹配块大小，必须是奇数
+            window_size = 7  # 匹配块大小
+            min_disp = 0
+            num_disp = 160  # 增大视差范围以适应不同深度
+            
+            # 使用SGBM匹配器，针对OV4689摄像头优化参数
             self.stereo = cv2.StereoSGBM_create(
-                minDisparity=0,
-                numDisparities=128,  # 增大视差范围
-                blockSize=5,
-                P1=8 * 3 * 5**2,
-                P2=32 * 3 * 5**2,
+                minDisparity=min_disp,
+                numDisparities=num_disp,
+                blockSize=window_size,
+                P1=8 * 3 * window_size**2,  # 控制视差平滑度
+                P2=32 * 3 * window_size**2,  # 越大越平滑
                 disp12MaxDiff=1,
-                uniquenessRatio=15,
-                speckleWindowSize=100,
-                speckleRange=32,
-                mode=cv2.STEREO_SGBM_MODE_SGBM_3WAY
+                uniquenessRatio=5,  # 降低独特性比率以获取更多匹配点
+                speckleWindowSize=200,  # 增大斑点窗口
+                speckleRange=2,  # 降低斑点范围以减少噪点
+                preFilterCap=63,  # 预处理滤波器上限
+                mode=cv2.STEREO_SGBM_MODE_SGBM_3WAY  # 使用全范围模式
             )
-            rospy.loginfo("已初始化OpenCV立体匹配算法(SGBM)")
+            
+            # 创建WLS滤波器进一步优化视差图
+            try:
+                self.wls_filter = cv2.ximgproc.createDisparityWLSFilter(self.stereo)
+                self.wls_filter.setLambda(8000)
+                self.wls_filter.setSigmaColor(1.5)
+                
+                # 右视图匹配器（用于WLS滤波）
+                self.stereo_right = cv2.StereoSGBM_create(
+                    minDisparity=-num_disp,
+                    numDisparities=num_disp,
+                    blockSize=window_size,
+                    P1=8 * 3 * window_size**2,
+                    P2=32 * 3 * window_size**2,
+                    disp12MaxDiff=1,
+                    uniquenessRatio=5,
+                    speckleWindowSize=200,
+                    speckleRange=2,
+                    preFilterCap=63,
+                    mode=cv2.STEREO_SGBM_MODE_SGBM_3WAY
+                )
+                self.use_wls_filter = True
+                rospy.loginfo("已启用WLS滤波器来优化视差图")
+            except (AttributeError, ImportError):
+                self.use_wls_filter = False
+                rospy.loginfo("WLS滤波器不可用，将使用原始视差图")
+            
+            rospy.loginfo("已初始化优化的OpenCV立体匹配算法(SGBM)")
         except Exception as e:
             rospy.logerr(f"无法初始化OpenCV立体匹配: {e}")
             # 尝试使用更简单的StereoBM
             try:
-                self.stereo = cv2.StereoBM_create(numDisparities=64, blockSize=15)
+                self.stereo = cv2.StereoBM_create(numDisparities=64, blockSize=9)
+                self.use_wls_filter = False
                 rospy.loginfo("已初始化OpenCV立体匹配算法(BM)")
             except Exception as e2:
                 rospy.logerr(f"无法初始化任何立体匹配算法: {e2}")
@@ -107,7 +142,8 @@ class DepthEstimator:
             
             # 分割左右图像
             height, width = cv_image.shape[:2]
-            if width > height * 1.5:  # 判断是否为合并的双目图像
+            if width > height * 1.5:  # 判断是否为合并的双目图像（OV4689，1280x480）
+                # 精确划分左右图像
                 mid = width // 2
                 left_img = cv_image[:, :mid]
                 right_img = cv_image[:, mid:]
@@ -116,24 +152,49 @@ class DepthEstimator:
                 left_gray = cv2.cvtColor(left_img, cv2.COLOR_BGR2GRAY)
                 right_gray = cv2.cvtColor(right_img, cv2.COLOR_BGR2GRAY)
                 
-                # 使用立体匹配算法计算视差
-                disparity = self.stereo.compute(left_gray, right_gray)
+                # 预处理：直方图均衡化以提高匹配质量
+                left_gray = cv2.equalizeHist(left_gray)
+                right_gray = cv2.equalizeHist(right_gray)
                 
-                # 归一化视差图到0-255
-                disparity_normalized = cv2.normalize(disparity, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
-                
-                # 创建伪彩色深度图
-                depth_colormap = cv2.applyColorMap(disparity_normalized, cv2.COLORMAP_JET)
-                
-                # 发布深度图
-                depth_msg = self.bridge.cv2_to_imgmsg(depth_colormap, "bgr8")
-                depth_msg.header = data.header
-                self.depth_pub.publish(depth_msg)
-                
-                # 生成点云
-                if self.camera_info is not None:
-                    point_cloud = self.generate_point_cloud(disparity_normalized, left_img, self.camera_info)
-                    self.point_cloud_pub.publish(point_cloud)
+                # 使用改进的立体匹配算法计算视差
+                try:
+                    disparity = self.stereo.compute(left_gray, right_gray)
+                    
+                    # 应用中值滤波去除噪点
+                    disparity_filtered = cv2.medianBlur(disparity, 5)
+                    
+                    # 归一化视差图到0-255
+                    disparity_normalized = cv2.normalize(disparity_filtered, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+                    
+                    # 创建伪彩色深度图
+                    depth_colormap = cv2.applyColorMap(disparity_normalized, cv2.COLORMAP_JET)
+                    
+                    # 在深度图上覆盖原图轮廓，增强可视化效果
+                    overlay = left_img.copy()
+                    edges = cv2.Canny(left_img, 100, 200)
+                    edges_colored = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+                    # 将边缘叠加到深度图上
+                    alpha = 0.7
+                    depth_with_edges = cv2.addWeighted(depth_colormap, alpha, edges_colored, 0.3, 0)
+                    
+                    # 发布深度图
+                    depth_msg = self.bridge.cv2_to_imgmsg(depth_with_edges, "bgr8")
+                    depth_msg.header = data.header
+                    self.depth_pub.publish(depth_msg)
+                    
+                    # 生成点云
+                    if self.camera_info is not None:
+                        point_cloud = self.generate_point_cloud(disparity_normalized, left_img, self.camera_info)
+                        self.point_cloud_pub.publish(point_cloud)
+                except Exception as e:
+                    rospy.logerr(f"立体匹配错误: {e}")
+                    # 发布空深度图或错误指示
+                    error_img = np.zeros((height, mid, 3), dtype=np.uint8)
+                    cv2.putText(error_img, "深度估计失败", (30, height//2), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                    depth_msg = self.bridge.cv2_to_imgmsg(error_img, "bgr8")
+                    depth_msg.header = data.header
+                    self.depth_pub.publish(depth_msg)
                 
             else:
                 # 如果不是双目图像，使用MiDaS单目深度估计（如果可用）

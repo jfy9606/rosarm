@@ -15,12 +15,12 @@ class CameraNode:
         
         # 获取参数
         self.device = rospy.get_param('~device', '/dev/video0')
-        self.width = rospy.get_param('~width', 640)
+        self.width = rospy.get_param('~width', 1280)
         self.height = rospy.get_param('~height', 480)
         self.fps = rospy.get_param('~fps', 30)
         self.retry_count = rospy.get_param('~retry_count', 5)
         self.retry_delay = rospy.get_param('~retry_delay', 2.0)
-        self.pixel_format = rospy.get_param('~pixel_format', 'mjpeg')
+        self.pixel_format = rospy.get_param('~pixel_format', 'mjpeg')  # OV4689摄像头使用MJPEG
         
         rospy.loginfo(f"摄像头配置: 设备={self.device}, 分辨率={self.width}x{self.height}, FPS={self.fps}, 像素格式={self.pixel_format}")
         

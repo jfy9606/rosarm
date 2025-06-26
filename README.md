@@ -19,6 +19,36 @@
 - Python 3.8+
 - OpenCV 4.2+
 
+### YOLOv8安装说明
+
+系统使用YOLOv8进行目标检测，按照以下步骤进行安装：
+
+```bash
+# 安装PyTorch和相关依赖
+pip3 install torch torchvision
+
+# 安装Ultralytics包（YOLOv8）
+pip3 install ultralytics
+
+# 验证安装
+python3 -c "from ultralytics import YOLO; print('YOLOv8安装成功')"
+```
+
+如果需要特定版本的模型权重，可以：
+
+```bash
+# 下载模型权重到项目目录
+mkdir -p models
+wget -P models/ https://github.com/ultralytics/assets/releases/download/latest/yolov8n.pt  # nano版本
+wget -P models/ https://github.com/ultralytics/assets/releases/download/latest/yolov8s.pt  # small版本
+```
+
+运行时需要在启动脚本中指定模型路径：
+
+```bash
+./start.sh --yolo --model models/yolov8n.pt
+```
+
 ### 安装依赖
 
 ```bash
@@ -33,7 +63,10 @@ sudo apt-get install qtbase5-dev qt5-default qtchooser qttools5-dev-tools qttool
 sudo apt-get install libopengl0 libglx0 libgl1-mesa-dev
 
 # 安装Python依赖
-pip3 install numpy opencv-python torch ultralytics
+pip3 install numpy opencv-python torch torchvision
+
+# 安装YOLOv8
+pip3 install ultralytics
 
 # 安装消息和功能包依赖
 sudo apt-get install ros-noetic-moveit-msgs ros-noetic-geometry-msgs ros-noetic-sensor-msgs ros-noetic-tf2-ros
@@ -55,8 +88,8 @@ sudo apt-get install ros-noetic-image-transport
 
 ```bash
 # 克隆仓库
-git clone https://github.com/your-username/arm-vision-system.git
-cd arm-vision-system
+git clone https://github.com/jfy9606/rosarm.git
+cd rosarm
 
 # 编译ROS工作空间
 catkin_make
@@ -92,7 +125,14 @@ source devel/setup.bash
 
 ### 摄像头支持
 
+系统支持双目OV4689摄像头，使用MJPEG格式，分辨率1280x480，30FPS。代码已针对此配置进行了优化。
+
 系统自动支持宽幅摄像头，会自动检测图像宽高比，并处理左半部分图像。这对于宽幅图像尤其有用。
+
+摄像头参数可以在以下文件中配置：
+- `launch/demo.launch`
+- `launch/camera_test.launch`
+- `launch/direct_camera.launch`
 
 ### 运行完整系统
 
