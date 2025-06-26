@@ -1802,10 +1802,6 @@ void ArmControlGUI::updateConnectionStatus()
     // 检查相机连接状态
     bool camera_ok = !left_camera_image_.isNull() || !current_camera_image_.isNull();
     
-    // 检查深度相机连接状态
-    // 深度视图已删除
-    bool depth_ok = false;
-    
     // 更新状态栏
     QString status;
     if (ros_ok) {
@@ -1815,15 +1811,9 @@ void ArmControlGUI::updateConnectionStatus()
     }
     
     if (camera_ok) {
-        status += "相机: 已连接 | ";
+        status += "相机: 已连接";
     } else {
-        status += "相机: 未连接 | ";
-    }
-    
-    if (depth_ok) {
-        status += "深度相机: 已连接";
-    } else {
-        status += "深度相机: 未连接";
+        status += "相机: 未连接";
     }
     
     // 设置状态栏文本
