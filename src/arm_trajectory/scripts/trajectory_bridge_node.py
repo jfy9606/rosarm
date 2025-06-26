@@ -273,12 +273,14 @@ class ArmTrajectoryBridge:
         self.optimizers = {}
         for arm_id, config in self.arm_configs.items():
             if use_whale_optimizer:
-                # 使用鲸鱼优化算法
+                # 使用鲸鱼优化算法，但不传递不兼容的参数
                 self.optimizers[arm_id] = WhaleOptimizer(
                     num_whales=30,
                     max_iter=100,
-                    forward_kinematics_func=lambda joints, arm=arm_id: self.forward_kinematics(joints, arm),
-                    joint_limits=config['joint_limits']
+                    lb=[limit[0] for limit in config['joint_limits']],
+                    ub=[limit[1] for limit in config['joint_limits']]
+                    # 注意：WhaleOptimizer不接受forward_kinematics_func参数
+                    # 它使用自己的forward_kinematics_dh函数
                 )
             else:
                 # 使用备选优化方法
@@ -354,11 +356,20 @@ class ArmTrajectoryBridge:
         # If no initial guess, use the default pose
         if initial_joints is None:
             initial_joints = self.arm_configs[arm_id]['default_pose']
+            
+        if use_whale_optimizer:
+            # WhaleOptimizer需要在每次调用前设置target_T
+            optimizer = self.optimizers[arm_id]
+            optimizer.target_T = target_pose
+            
+            # 运行优化器
+            best_position, best_fitness = optimizer.run()
+            fitness_history = optimizer.fitness_history
+        else:
+            # 使用SimpleOptimizer
+            best_position, best_fitness, fitness_history = self.optimizers[arm_id].optimize(target_pose, initial_joints)
         
-        # Run the optimizer
-        best_joints, best_fitness, _ = self.optimizers[arm_id].optimize(target_pose, initial_joints)
-        
-        return best_joints, best_fitness
+        return best_position, best_fitness
     
     def generate_trajectory(self, start_joints, end_joints, execution_time, arm_id, num_points=50):
         """
