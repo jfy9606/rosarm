@@ -412,7 +412,12 @@ void ArmControlGUI::onCameraViewClicked(QPoint pos)
     
     // 调整点击位置到原始图像尺寸
     QLabel* camera_view = ui->cameraView;
-    QSize scaled_size = camera_view->pixmap().size();
+    QSize scaled_size;
+    if (camera_view->pixmap() != nullptr) {
+        scaled_size = camera_view->pixmap()->size();
+    } else {
+        scaled_size = camera_view->size();
+    }
     QSize original_size = current_camera_image_.size();
     
     // 计算缩放比例
@@ -1598,4 +1603,138 @@ void ArmControlGUI::updateDetectionsTableUI()
     // 连接表格选择信号
     connect(ui->detectionsTable, &QTableWidget::cellClicked, 
             this, &ArmControlGUI::onDetectionsTableCellClicked, Qt::UniqueConnection);
+}
+
+// 添加缺失的按钮点击处理函数
+void ArmControlGUI::on_homeButton_clicked()
+{
+    onHomeButtonClicked();
+}
+
+void ArmControlGUI::on_stopButton_clicked()
+{
+    // 停止所有运动
+    std_msgs::String cmd_msg;
+    cmd_msg.data = "stop arm1";
+    arm_command_pub_.publish(cmd_msg);
+    logMessage("停止所有运动");
+}
+
+void ArmControlGUI::on_moveButton_clicked()
+{
+    onMoveToPositionClicked();
+}
+
+void ArmControlGUI::on_gripperOpenButton_clicked()
+{
+    sendGripperCommand(true);
+    logMessage("打开夹持器");
+}
+
+void ArmControlGUI::on_gripperCloseButton_clicked()
+{
+    sendGripperCommand(false);
+    logMessage("关闭夹持器");
+}
+
+void ArmControlGUI::on_vacuumOnButton_clicked()
+{
+    onVacuumOnButtonClicked();
+}
+
+void ArmControlGUI::on_vacuumOffButton_clicked()
+{
+    onVacuumOffButtonClicked();
+}
+
+void ArmControlGUI::on_example1Button_clicked()
+{
+    onDemoAction1Clicked();
+}
+
+void ArmControlGUI::on_example2Button_clicked()
+{
+    onDemoAction2Clicked();
+}
+
+void ArmControlGUI::on_example3Button_clicked()
+{
+    onDemoAction3Clicked();
+}
+
+void ArmControlGUI::updateUI()
+{
+    onUpdateGUI();
+}
+
+void ArmControlGUI::sendGripperCommand(bool open)
+{
+    // 创建夹持器命令消息
+    std_msgs::Bool gripper_cmd;
+    gripper_cmd.data = open;
+    
+    // 发布夹持器命令
+    gripper_cmd_pub_.publish(gripper_cmd);
+    
+    // 更新状态
+    gripper_open_ = open;
+}
+
+// 添加舵机控制函数实现
+void ArmControlGUI::sendServoCommand(int servo_id, int position, int velocity, int acceleration)
+{
+    servo_wrist::SerControl msg;
+    msg.servo_id = servo_id;
+    msg.target_position = position;
+    msg.velocity = velocity;
+    msg.acceleration = acceleration;
+    
+    // 发布舵机控制消息
+    servo_control_pub_.publish(msg);
+    
+    logMessage(QString("发送舵机命令: ID=%1, 位置=%2, 速度=%3").arg(servo_id).arg(position).arg(velocity));
+}
+
+// 添加辅助函数用于映射范围
+int ArmControlGUI::map(int value, int fromLow, int fromHigh, int toLow, int toHigh)
+{
+    return (value - fromLow) * (toHigh - toLow) / (fromHigh - fromLow) + toLow;
+}
+
+// 添加新的回调函数用于处理合并的立体图像
+void ArmControlGUI::stereoMergedCallback(const sensor_msgs::Image::ConstPtr& msg)
+{
+    try {
+        // 将ROS图像转换为OpenCV图像
+        cv_bridge::CvImageConstPtr cv_ptr = cv_bridge::toCvShare(msg, "bgr8");
+        
+        // 转换为QImage
+        QImage image(cv_ptr->image.data, cv_ptr->image.cols, cv_ptr->image.rows, 
+                     cv_ptr->image.step, QImage::Format_RGB888);
+        image = image.rgbSwapped(); // BGR to RGB
+        
+        // 保存图像
+        left_camera_image_ = image; // 使用合并图像作为主图像
+        current_camera_image_ = image; // 同时设置为当前图像
+        
+        // 记录成功接收的图像帧
+        static int frame_count = 0;
+        frame_count++;
+        if (frame_count % 30 == 0) {  // 每30帧记录一次
+            ROS_INFO("成功接收到立体合并图像帧：%d (尺寸: %dx%d)", 
+                   frame_count, image.width(), image.height());
+        }
+        
+        // 更新UI (在主线程中)
+        QMetaObject::invokeMethod(this, "updateCameraViews", Qt::QueuedConnection);
+    }
+    catch (cv_bridge::Exception& e) {
+        ROS_ERROR("cv_bridge exception in stereo merged callback: %s", e.what());
+    }
+}
+
+// 旧版updateCameraView函数实现（已被updateCameraViews替代，但为了兼容保留）
+void ArmControlGUI::updateCameraView()
+{
+    updateCameraViews();
 } 

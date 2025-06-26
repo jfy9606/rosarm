@@ -118,6 +118,10 @@ public:
     explicit ArmControlGUI(ros::NodeHandle& nh, QWidget* parent = nullptr);
     ~ArmControlGUI();
 
+protected:
+    // 添加事件过滤器
+    bool eventFilter(QObject* watched, QEvent* event) override;
+
 private slots:
     // 按钮点击处理
     void on_homeButton_clicked();

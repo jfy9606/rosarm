@@ -49,7 +49,7 @@ catkin_package(
     tf2_ros
     liancheng_socket
     servo_wrist
-  DEPENDS Qt5Core Qt5Gui Qt5Widgets Qt5OpenGL
+  DEPENDS Qt5Core Qt5Gui Qt5Widgets Qt5OpenGL OPENGL
 )
 
 # 包含头文件目录
@@ -61,6 +61,7 @@ include_directories(
   ${Qt5Widgets_INCLUDE_DIRS}
   ${Qt5OpenGL_INCLUDE_DIRS}
   ${CMAKE_CURRENT_BINARY_DIR}
+  ${OPENGL_INCLUDE_DIRS}
 )
 
 # 资源文件

@@ -261,12 +261,24 @@ void Scene3DRenderer::renderObjects()
         if (static_cast<int>(i) == selected_object_) {
             glDisable(GL_LIGHTING);
             glColor3f(1.0f, 1.0f, 0.0f);
-            glutWireSphere(0.12f, 16, 16);
+            
+            // 使用线框渲染
+            glPushAttrib(GL_POLYGON_BIT);
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+            GLUquadricObj *quadric = gluNewQuadric();
+            gluQuadricDrawStyle(quadric, GLU_LINE);
+            gluSphere(quadric, 0.12f, 16, 16);
+            gluDeleteQuadric(quadric);
+            glPopAttrib();
+            
             glEnable(GL_LIGHTING);
         }
         
         // 绘制球体
-        glutSolidSphere(0.1f, 16, 16);
+        GLUquadricObj *quadric = gluNewQuadric();
+        gluQuadricDrawStyle(quadric, GLU_FILL);
+        gluSphere(quadric, 0.1f, 16, 16);
+        gluDeleteQuadric(quadric);
         
         // 恢复矩阵
         glPopMatrix();
@@ -302,7 +314,12 @@ void Scene3DRenderer::renderRobot()
     glPushMatrix();
     glTranslatef(0.0f, -0.05f, 0.0f);
     glRotatef(90.0f, 1.0f, 0.0f, 0.0f);
-    glutSolidCylinder(0.2f, 0.1f, 20, 5);
+    
+    GLUquadricObj *quadric = gluNewQuadric();
+    gluQuadricDrawStyle(quadric, GLU_FILL);
+    gluCylinder(quadric, 0.2f, 0.2f, 0.1f, 20, 5);
+    gluDeleteQuadric(quadric);
+    
     glPopMatrix();
     
     // 第一节臂
@@ -310,14 +327,24 @@ void Scene3DRenderer::renderRobot()
     glPushMatrix();
     glTranslatef(0.0f, 0.0f, 0.0f);
     glRotatef(90.0f, 1.0f, 0.0f, 0.0f);
-    glutSolidCylinder(0.05f, d2, 10, 5);
+    
+    quadric = gluNewQuadric();
+    gluQuadricDrawStyle(quadric, GLU_FILL);
+    gluCylinder(quadric, 0.05f, 0.05f, d2, 10, 5);
+    gluDeleteQuadric(quadric);
+    
     glPopMatrix();
     
     // 肩部关节
     glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, joint_color);
     glPushMatrix();
     glTranslatef(0.0f, d2, 0.0f);
-    glutSolidSphere(0.07f, 10, 10);
+    
+    quadric = gluNewQuadric();
+    gluQuadricDrawStyle(quadric, GLU_FILL);
+    gluSphere(quadric, 0.07f, 10, 10);
+    gluDeleteQuadric(quadric);
+    
     glPopMatrix();
     
     // 第二节臂
@@ -327,14 +354,24 @@ void Scene3DRenderer::renderRobot()
     glRotatef(theta3 * 180.0f / M_PI, 0.0f, 0.0f, 1.0f);
     glPushMatrix();
     glRotatef(90.0f, 0.0f, 1.0f, 0.0f);
-    glutSolidCylinder(0.04f, 0.3f, 10, 5);
+    
+    quadric = gluNewQuadric();
+    gluQuadricDrawStyle(quadric, GLU_FILL);
+    gluCylinder(quadric, 0.04f, 0.04f, 0.3f, 10, 5);
+    gluDeleteQuadric(quadric);
+    
     glPopMatrix();
     
     // 肘部关节
     glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, joint_color);
     glPushMatrix();
     glTranslatef(0.3f, 0.0f, 0.0f);
-    glutSolidSphere(0.06f, 10, 10);
+    
+    quadric = gluNewQuadric();
+    gluQuadricDrawStyle(quadric, GLU_FILL);
+    gluSphere(quadric, 0.06f, 10, 10);
+    gluDeleteQuadric(quadric);
+    
     glPopMatrix();
     
     // 第三节臂
@@ -344,14 +381,24 @@ void Scene3DRenderer::renderRobot()
     glRotatef(theta4 * 180.0f / M_PI, 0.0f, 0.0f, 1.0f);
     glPushMatrix();
     glRotatef(90.0f, 0.0f, 1.0f, 0.0f);
-    glutSolidCylinder(0.03f, 0.25f, 10, 5);
+    
+    quadric = gluNewQuadric();
+    gluQuadricDrawStyle(quadric, GLU_FILL);
+    gluCylinder(quadric, 0.03f, 0.03f, 0.25f, 10, 5);
+    gluDeleteQuadric(quadric);
+    
     glPopMatrix();
     
     // 腕部关节
     glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, joint_color);
     glPushMatrix();
     glTranslatef(0.25f, 0.0f, 0.0f);
-    glutSolidSphere(0.05f, 10, 10);
+    
+    quadric = gluNewQuadric();
+    gluQuadricDrawStyle(quadric, GLU_FILL);
+    gluSphere(quadric, 0.05f, 10, 10);
+    gluDeleteQuadric(quadric);
+    
     glPopMatrix();
     
     // 末端执行器
@@ -361,7 +408,12 @@ void Scene3DRenderer::renderRobot()
     glRotatef(theta5 * 180.0f / M_PI, 0.0f, 0.0f, 1.0f);
     glPushMatrix();
     glRotatef(90.0f, 1.0f, 0.0f, 0.0f);
-    glutSolidCylinder(0.02f, d6, 10, 5);
+    
+    quadric = gluNewQuadric();
+    gluQuadricDrawStyle(quadric, GLU_FILL);
+    gluCylinder(quadric, 0.02f, 0.02f, d6, 10, 5);
+    gluDeleteQuadric(quadric);
+    
     glPopMatrix();
     
     // 末端吸盘
@@ -369,7 +421,12 @@ void Scene3DRenderer::renderRobot()
     glPushMatrix();
     glTranslatef(0.0f, -d6, 0.0f);
     glRotatef(90.0f, 1.0f, 0.0f, 0.0f);
-    glutSolidCylinder(0.04f, 0.02f, 10, 5);
+    
+    quadric = gluNewQuadric();
+    gluQuadricDrawStyle(quadric, GLU_FILL);
+    gluCylinder(quadric, 0.04f, 0.04f, 0.02f, 10, 5);
+    gluDeleteQuadric(quadric);
+    
     glPopMatrix();
     
     glPopMatrix(); // 末端执行器
