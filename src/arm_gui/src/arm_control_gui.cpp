@@ -1078,6 +1078,15 @@ void ArmControlGUI::detectionPosesCallback(const geometry_msgs::PoseArray::Const
     // 处理物体位置数据
     detected_objects_.clear();
     
+    // 没有检测到物体，清空表格并返回
+    if (msg->poses.empty()) {
+        QMetaObject::invokeMethod(this, "updateDetectionsTable", Qt::QueuedConnection);
+        return;
+    }
+    
+    // 启用YOLO检测状态，确保GUI显示检测结果
+    yolo_detection_enabled_ = true;
+    
     // 检查是否有附加信息（通常应该包含类别名称），当前假设这些信息在frames_id中
     bool has_object_ids = false;
     if (!msg->header.frame_id.empty()) {
@@ -1113,6 +1122,10 @@ void ArmControlGUI::detectionPosesCallback(const geometry_msgs::PoseArray::Const
                     // 保存原始位姿
                     obj.pose = msg->poses[i];
                     detected_objects_.push_back(obj);
+                    
+                    // 记录成功添加的物体（仅用于调试）
+                    ROS_DEBUG("添加检测物体到表格: %s [%.2f, %.2f, %.2f]", 
+                             obj.id.c_str(), obj.x, obj.y, obj.z);
                 }
             }
         } catch (const std::exception& e) {
@@ -1146,11 +1159,18 @@ void ArmControlGUI::detectionPosesCallback(const geometry_msgs::PoseArray::Const
             // 保存原始位姿
             obj.pose = msg->poses[i];
             detected_objects_.push_back(obj);
+            
+            // 记录成功添加的物体（仅用于调试）
+            ROS_DEBUG("添加通用物体到表格: %s [%.2f, %.2f, %.2f]", 
+                     obj.id.c_str(), obj.x, obj.y, obj.z);
         }
     }
     
-    // 更新UI
+    // 确保在主线程中更新UI，立即更新表格
     QMetaObject::invokeMethod(this, "updateDetectionsTable", Qt::QueuedConnection);
+    
+    // 记录检测到的物体数量（仅用于调试）
+    ROS_DEBUG("检测到 %zu 个物体，已更新表格", detected_objects_.size());
 }
 
 // GUI更新函数实现
@@ -1672,6 +1692,12 @@ void ArmControlGUI::onYoloDetectionToggled(bool checked)
     // 无论服务是否可用，先将状态保存起来
     yolo_detection_enabled_ = checked;
     
+    // 如果禁用检测，清空物体表格
+    if (!checked) {
+        detected_objects_.clear();
+        updateDetectionsTable();
+    }
+    
     // 检查服务是否可用
     if (!yolo_control_client_.exists()) {
         logMessage("警告: YOLO控制服务不可用，但已记录您的选择");
@@ -1686,6 +1712,12 @@ void ArmControlGUI::onYoloDetectionToggled(bool checked)
     if (yolo_control_client_.call(srv)) {
         if (srv.response.success) {
             logMessage(QString("YOLO检测已%1").arg(checked ? "启用" : "禁用"));
+            
+            // 如果禁用检测，再次确保清空物体表格
+            if (!checked) {
+                detected_objects_.clear();
+                updateDetectionsTable();
+            }
         } else {
             logMessage(QString("无法%1 YOLO检测: %2").arg(
                 checked ? "启用" : "禁用").arg(QString::fromStdString(srv.response.message)));
@@ -1703,6 +1735,7 @@ void ArmControlGUI::onYoloDetectionToggled(bool checked)
     
     // 即使服务调用失败，也立即更新视图，以便在本地显示检测结果
     updateCameraViews();
+    updateDetectionsTable();
 }
 
 // 添加路径规划相关的槽函数
@@ -2161,37 +2194,9 @@ void ArmControlGUI::stereoMergedCallback(const sensor_msgs::Image::ConstPtr& msg
             cv::Rect right_roi(640, 0, 640, 480);  // 右半部分
             
             cv::Mat left_view = camera_image(left_roi);
-            cv::Mat right_view = camera_image(right_roi);
-            
             // 创建合成视图 - 这里简单地使用左视图
-            // 如果需要更复杂的合成（如左右平均），可以在此修改
             single_view = left_view.clone();
             
-            // 可选：在右下角添加小型右视图作为参考
-            cv::Mat small_right_view;
-            cv::resize(right_view, small_right_view, cv::Size(160, 120));  // 缩小右视图
-            
-            // 将小型右视图放在左视图的右下角
-            cv::Rect overlay_roi(single_view.cols - small_right_view.cols - 10, 
-                              single_view.rows - small_right_view.rows - 10,
-                              small_right_view.cols, 
-                              small_right_view.rows);
-                              
-            // 在主视图上创建一个感兴趣区域
-            cv::Mat overlay_area = single_view(overlay_roi);
-            
-            // 添加一个半透明的黑色背景
-            cv::Mat black_background(overlay_area.size(), overlay_area.type(), cv::Scalar(0, 0, 0));
-            cv::addWeighted(overlay_area, 0.5, black_background, 0.5, 0, overlay_area);
-            
-            // 复制小型右视图到主视图
-            small_right_view.copyTo(single_view(overlay_roi));
-            
-            // 添加文本标签
-            cv::putText(single_view, "右视图", 
-                      cv::Point(single_view.cols - small_right_view.cols - 10, 
-                              single_view.rows - small_right_view.rows - 15),
-                      cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 255), 1);
         } else {
             // 其他尺寸的图像，直接使用
             single_view = camera_image;

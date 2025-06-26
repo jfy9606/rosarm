@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import rospy
 import cv2
-import numpy as np
 import os
 import sys
+import time
+import numpy as np
 from sensor_msgs.msg import Image
-from geometry_msgs.msg import PoseArray, Pose, Point, Quaternion
+from geometry_msgs.msg import Pose, PoseArray
 from std_msgs.msg import Bool
 from cv_bridge import CvBridge, CvBridgeError
 
@@ -205,19 +208,30 @@ class YoloDetector:
             # 发布检测到的物体位姿
             self.publish_poses(detections, msg.header)
             
-            # 限制日志输出频率，每5秒一次
+            # 严格限制日志输出频率，每30秒一次和启动时
             current_time = rospy.Time.now()
-            if (current_time - self.last_log_time).to_sec() > 5.0:
+            if not hasattr(self, 'last_log_time') or (current_time - self.last_log_time).to_sec() > 30.0:
                 if len(detections) > 0:
-                    rospy.loginfo(f"检测到 {len(detections)} 个物体")
-                    for i, det in enumerate(detections):
-                        x1, y1, x2, y2, conf, class_id = det
-                        class_name = self.class_names[int(class_id)] if int(class_id) < len(self.class_names) else f"class{int(class_id)}"
-                        rospy.loginfo(f"  物体 {i+1}: {class_name} (置信度: {conf:.2f})")
+                    class_counts = {}
+                    for det in detections:
+                        class_id = int(det[5])
+                        class_name = self.class_names[class_id] if class_id < len(self.class_names) else f"class{class_id}"
+                        if class_name in class_counts:
+                            class_counts[class_name] += 1
+                        else:
+                            class_counts[class_name] = 1
+                    
+                    # 只打印汇总信息，不是每个物体
+                    summary = ", ".join([f"{count} {name}" for name, count in class_counts.items()])
+                    rospy.loginfo(f"检测到: {summary}")
                 self.last_log_time = current_time
                 
         except Exception as e:
-            rospy.logerr(f"处理图像时出错: {str(e)}")
+            # 异常也需要限流，避免刷屏
+            current_time = rospy.Time.now()
+            if not hasattr(self, 'last_error_time') or (current_time - self.last_error_time).to_sec() > 10.0:
+                rospy.logerr(f"处理图像时出错: {str(e)}")
+                self.last_error_time = current_time
     
     def detect_objects(self, image):
         """
@@ -235,7 +249,17 @@ class YoloDetector:
         else:
             # 使用实际的YOLO模型进行检测
             try:
-                results = self.model(image)
+                # 静默检测，不输出任何日志
+                with open(os.devnull, 'w') as f:
+                    # 暂时将stdout重定向到null设备
+                    original_stdout = sys.stdout
+                    sys.stdout = f
+                    
+                    # 执行检测
+                    results = self.model(image, verbose=False)
+                    
+                    # 恢复stdout
+                    sys.stdout = original_stdout
                 
                 # 解析YOLO结果
                 detections = []
@@ -255,7 +279,11 @@ class YoloDetector:
                 
                 return detections
             except Exception as e:
-                rospy.logerr(f"YOLO检测出错: {str(e)}")
+                # 异常也需要限流，避免刷屏
+                current_time = rospy.Time.now()
+                if not hasattr(self, 'last_detect_error_time') or (current_time - self.last_detect_error_time).to_sec() > 10.0:
+                    rospy.logerr(f"YOLO检测出错: {str(e)}")
+                    self.last_detect_error_time = current_time
                 # 出错时回退到模拟模式
                 return self.simulate_detections(image)
     

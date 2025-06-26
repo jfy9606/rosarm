@@ -108,8 +108,23 @@ class VisionArmBridge:
             object_id = f"object_{i}"
             self.detected_objects[object_id] = base_pose
             
-            rospy.loginfo(f"检测到物体 {object_id}，相机坐标: [{camera_position[0]:.2f}, {camera_position[1]:.2f}, {camera_position[2]:.2f}]，"
-                         f"机械臂坐标: [{base_position[0]:.2f}, {base_position[1]:.2f}, {base_position[2]:.2f}]")
+            # 使用对象类型作为ID，如果有的话
+            if hasattr(msg.header, 'frame_id') and ',' in msg.header.frame_id:
+                try:
+                    class_names = msg.header.frame_id.split(',')
+                    if i < len(class_names) and class_names[i].strip():
+                        object_id = class_names[i].strip()
+                        # 更新对象ID
+                        self.detected_objects[object_id] = base_pose
+                except:
+                    pass
+            
+            # 限制日志输出频率 (每2秒最多输出一次)
+            current_time = rospy.Time.now().to_sec()
+            if not hasattr(self, 'last_log_time') or current_time - self.last_log_time > 2.0:
+                # 只输出物体的相机坐标，不输出机械臂坐标
+                rospy.loginfo(f"检测到物体 {object_id}，相机坐标: [{camera_position[0]:.2f}, {camera_position[1]:.2f}, {camera_position[2]:.2f}]")
+                self.last_log_time = current_time
         
         # 可视化检测到的物体
         self.visualize_detected_objects()
