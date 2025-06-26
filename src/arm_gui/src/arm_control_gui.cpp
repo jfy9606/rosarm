@@ -602,12 +602,24 @@ void ArmControlGUI::onJoint1SliderChanged(int value)
 {
     ui->joint1_spin->setValue(value);
     current_joint_values_[0] = value * M_PI / 180.0; // 转换为弧度
-    sendJointCommand(current_joint_values_);
     
+    // 参照示例动作实现，使用底盘电机实现旋转
     // 底座旋转对应舵机ID 1，位置范围映射到舵机范围
     // 增大运动范围，使控制更加明显
     int servo_position = map(value, -180, 180, 400, 2600);
+    
+    // 直接使用电机控制命令而不是舵机命令
+    int motor_pos = map(value, -180, 180, -50, 50); // 映射到电机位置范围
+    sendMotorOrder(1, 11, 0, 0, 0, true, motor_pos, 30);
+    QApplication::processEvents();
+    
+    // 仍然发送舵机命令以保持兼容性
     sendServoCommand(1, servo_position);
+    
+    // 发送关节命令
+    sendJointCommand(current_joint_values_);
+    
+    logMessage(QString("关节1(底座)调整到: %1度").arg(value));
 }
 
 void ArmControlGUI::onJoint2SliderChanged(int value)
@@ -621,24 +633,64 @@ void ArmControlGUI::onJoint3SliderChanged(int value)
 {
     ui->joint3_spin->setValue(value);
     current_joint_values_[2] = value * M_PI / 180.0; // 转换为弧度
-    sendJointCommand(current_joint_values_);
     
+    // 参照示例动作实现，结合电机控制和舵机控制
     // 肩部关节对应舵机ID 2，位置范围映射到舵机范围
     // 增大运动范围，使控制更加明显
     int servo_position = map(value, -90, 90, 400, 2600);
+    
+    // 使用进给电机控制机械臂肩部，参考示例动作2的实现
+    // 根据角度值映射到进给电机位置
+    int motor_pos = map(value, -90, 90, -1500, 1500);
+    
+    // 使用示例动作中的电机控制序列，先准备电机
+    sendMotorOrder(2, 100, 100, 0, 0, false, motor_pos, 10);
+    QApplication::processEvents();
+    ros::Duration(0.1).sleep();
+    
+    // 设置位置模式
+    sendMotorOrder(2, 0, 100, 0, 0, true, motor_pos, 10);
+    QApplication::processEvents();
+    ros::Duration(0.1).sleep();
+    
+    // 执行移动
+    sendMotorOrder(2, 99, 100, 0, 0, false, motor_pos, 10);
+    QApplication::processEvents();
+    
+    // 仍然发送舵机命令以保持兼容性
     sendServoCommand(2, servo_position);
+    
+    // 发送关节命令
+    sendJointCommand(current_joint_values_);
+    
+    logMessage(QString("关节3(肩部)调整到: %1度").arg(value));
 }
 
 void ArmControlGUI::onJoint4SliderChanged(int value)
 {
     ui->joint4_spin->setValue(value);
     current_joint_values_[3] = value * M_PI / 180.0; // 转换为弧度
-    sendJointCommand(current_joint_values_);
     
+    // 参照示例动作实现，结合电机控制和舵机控制
     // 肘部关节对应舵机ID 3，位置范围映射到舵机范围
     // 增大运动范围，使控制更加明显
     int servo_position = map(value, 0, 180, 400, 2600);
+    
+    // 参考示例动作1中的夹持电机控制
+    // 根据角度值映射到夹持电机位置
+    int motor_pos = map(value, 0, 180, -25, 25);
+    
+    // 使用示例动作中的夹持电机控制方式
+    sendMotorOrder(1, 11, 0, 0, 0, true, motor_pos, 30);
+    QApplication::processEvents();
+    
+    // 仍然发送舵机命令以保持兼容性
     sendServoCommand(3, servo_position);
+    
+    // 发送关节命令
+    sendJointCommand(current_joint_values_);
+    
+    logMessage(QString("关节4(肘部)调整到: %1度").arg(value));
 }
 
 void ArmControlGUI::onJoint6SliderChanged(int value)
@@ -690,16 +742,57 @@ void ArmControlGUI::onMoveToPositionClicked()
     double y = ui->pos_y->value();
     double z = ui->pos_z->value();
     
-    // 发送放置命令
-    sendPlaceCommand(x, y, z);
     logMessage(QString("移动到位置 (%1, %2, %3)").arg(x).arg(y).arg(z));
+    
+    // 参照示例动作2实现，使用进给电机控制末端执行器移动
+    // 将xyz坐标转换为电机位置，这里使用z坐标作为进给深度
+    int motor_pos = -static_cast<int>(z * 20); // 将z坐标(mm)映射到电机位置值
+    
+    // 限制电机位置范围
+    motor_pos = std::max(-2500, std::min(motor_pos, 0));
+    
+    // 执行示例动作2中的电机控制序列
+    // 先设置电机速度和模式
+    sendMotorOrder(2, 100, 100, 0, 0, false, motor_pos, 10);
+    QApplication::processEvents();
+    ros::Duration(0.5).sleep();
+    
+    // 设置目标位置
+    sendMotorOrder(2, 0, 100, 0, 0, false, motor_pos, 10);
+    QApplication::processEvents();
+    ros::Duration(0.5).sleep();
+    
+    // 执行移动
+    sendMotorOrder(2, 99, 100, 0, 0, false, motor_pos, 10);
+    QApplication::processEvents();
+    
+    // 同时发送标准的位置命令以保持兼容性
+    sendPlaceCommand(x, y, z);
 }
 
 void ArmControlGUI::onHomeButtonClicked()
 {
-    // 发送回到初始位置命令
-    sendHomeCommand();
     logMessage("移动到初始位置");
+    
+    // 参照示例动作实现，使用进给电机控制回到初始位置
+    // 执行示例动作中的进给电机归零序列
+    sendMotorOrder(2, 100, 200, 0, 0, false, 2000, 10);
+    QApplication::processEvents();
+    ros::Duration(0.5).sleep();
+    
+    sendMotorOrder(2, 0, 200, 0, 0, true, 300, 10);
+    QApplication::processEvents();
+    ros::Duration(0.5).sleep();
+    
+    sendMotorOrder(2, 99, 200, 0, 0, false, 2000, 10);
+    QApplication::processEvents();
+    ros::Duration(1.0).sleep();
+    
+    sendMotorOrder(2, 100, 100, 0, 0, false, 2000, 10);
+    QApplication::processEvents();
+    
+    // 同时发送标准的回到初始位置命令以保持兼容性
+    sendHomeCommand();
 }
 
 // 吸附控制槽实现
@@ -717,14 +810,28 @@ void ArmControlGUI::onVacuumPowerSliderChanged(int value)
 void ArmControlGUI::onVacuumOnButtonClicked()
 {
     vacuum_on_ = true;
+    
+    // 参照示例动作2实现，使用继电器命令控制吸附
+    sendRelayOrder("11");
+    QApplication::processEvents();
+    
+    // 同时发送标准的吸附命令以保持兼容性
     sendVacuumCommand(true, vacuum_power_);
+    
     logMessage(QString("开启吸附，功率: %1%").arg(vacuum_power_));
 }
 
 void ArmControlGUI::onVacuumOffButtonClicked()
 {
     vacuum_on_ = false;
+    
+    // 参照示例动作2实现，使用继电器命令控制吸附
+    sendRelayOrder("00");
+    QApplication::processEvents();
+    
+    // 同时发送标准的吸附命令以保持兼容性
     sendVacuumCommand(false, 0);
+    
     logMessage("关闭吸附");
 }
 
@@ -1765,14 +1872,28 @@ void ArmControlGUI::on_moveButton_clicked()
 
 void ArmControlGUI::on_gripperOpenButton_clicked()
 {
-    sendGripperCommand(true);
     logMessage("打开夹持器");
+    
+    // 参照示例动作1中的夹持电机实现
+    // 打开夹持器对应夹持电机归零
+    sendMotorOrder(1, 11, 0, 0, 0, true, 0, 30);
+    QApplication::processEvents();
+    
+    // 同时发送标准的夹持器命令以保持兼容性
+    sendGripperCommand(true);
 }
 
 void ArmControlGUI::on_gripperCloseButton_clicked()
 {
-    sendGripperCommand(false);
     logMessage("关闭夹持器");
+    
+    // 参照示例动作1中的夹持电机实现
+    // 关闭夹持器对应夹持电机移动到-25位置
+    sendMotorOrder(1, 11, 0, 0, 0, true, -25, 30);
+    QApplication::processEvents();
+    
+    // 同时发送标准的夹持器命令以保持兼容性
+    sendGripperCommand(false);
 }
 
 void ArmControlGUI::on_vacuumOnButton_clicked()
