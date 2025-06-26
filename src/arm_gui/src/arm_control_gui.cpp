@@ -929,9 +929,66 @@ void ArmControlGUI::jointStateCallback(const sensor_msgs::JointState::ConstPtr& 
 {
     // 更新当前关节值
     if (msg->position.size() >= 6) {
-        for (size_t i = 0; i < 6; ++i) {
-            if (i < msg->position.size()) {
-                current_joint_values_[i] = msg->position[i];
+        for (size_t i = 0; i < 6 && i < msg->position.size(); ++i) {
+            current_joint_values_[i] = msg->position[i];
+        }
+        
+        // 记录接收到的关节状态 - 但只在值变化时记录，避免刷屏
+        static std::vector<double> last_joint_values;
+        bool has_changed = false;
+        
+        if (last_joint_values.size() != current_joint_values_.size()) {
+            has_changed = true;
+            last_joint_values = current_joint_values_;
+        } else {
+            for (size_t i = 0; i < current_joint_values_.size(); ++i) {
+                if (std::fabs(current_joint_values_[i] - last_joint_values[i]) > 0.01) {
+                    has_changed = true;
+                    last_joint_values[i] = current_joint_values_[i];
+                }
+            }
+        }
+        
+        if (has_changed) {
+            QString logStr = "关节状态更新: ";
+            for (size_t i = 0; i < current_joint_values_.size(); ++i) {
+                logStr += QString("J%1=%2 ").arg(i+1).arg(current_joint_values_[i], 0, 'f', 2);
+            }
+            
+            // 显示在状态栏而不是日志区域，避免占用太多空间
+            ui->statusbar->showMessage(logStr, 3000);
+        }
+        
+        // 更新3D视图中的机器人姿态
+        if (scene_3d_renderer_) {
+            scene_3d_renderer_->setRobotPose(current_joint_values_);
+        }
+        
+        // 更新控制面板上的滑块和SpinBox
+        QMetaObject::invokeMethod(this, "updateJointControlWidgets", Qt::QueuedConnection);
+        QMetaObject::invokeMethod(this, "updateEndEffectorPose", Qt::QueuedConnection);
+    }
+    
+    // 检查是否有附加数据（如传感器反馈、电机状态等）
+    if (!msg->name.empty() && !msg->effort.empty() && msg->name.size() == msg->effort.size()) {
+        for (size_t i = 0; i < msg->name.size(); ++i) {
+            const std::string& name = msg->name[i];
+            const double effort = msg->effort[i];
+            
+            // 处理特殊传感器数据，如力传感器、电机电流等
+            if (name.find("force_sensor") != std::string::npos) {
+                // 显示力传感器数据
+                ui->statusbar->showMessage(QString("力传感器: %1 N").arg(effort, 0, 'f', 2), 3000);
+            } 
+            else if (name.find("motor_current") != std::string::npos) {
+                // 显示电机电流
+                static QLabel* currentLabel = nullptr;
+                if (!currentLabel) {
+                    // 创建电流显示标签
+                    currentLabel = new QLabel(this);
+                    ui->statusbar->addPermanentWidget(currentLabel);
+                }
+                currentLabel->setText(QString("电机电流: %1 A").arg(effort, 0, 'f', 2));
             }
         }
     }
@@ -1018,34 +1075,78 @@ void ArmControlGUI::detectionImageCallback(const sensor_msgs::Image::ConstPtr& m
 
 void ArmControlGUI::detectionPosesCallback(const geometry_msgs::PoseArray::ConstPtr& msg)
 {
-    // 记录检测到的物体数量
-    ROS_INFO("YOLOv8检测到 %zu 个物体", msg->poses.size());
-    
     // 处理物体位置数据
     detected_objects_.clear();
-    for (size_t i = 0; i < msg->poses.size(); ++i) {
-        DetectedObject obj;
-        obj.id = "object_" + std::to_string(i);
-        
-        // 尝试根据物体位置猜测类型
-        float height = msg->poses[i].position.z;
-        if (height < 0.05) {
-            obj.type = "低矮物体";
-        } else if (height < 0.15) {
-            obj.type = "中等物体";
-        } else {
-            obj.type = "高大物体";
+    
+    // 检查是否有附加信息（通常应该包含类别名称），当前假设这些信息在frames_id中
+    bool has_object_ids = false;
+    if (!msg->header.frame_id.empty()) {
+        // 尝试解析frame_id中可能包含的类别信息
+        try {
+            // 假设frame_id格式是 "class1,class2,class3,..."
+            std::string frame_id = msg->header.frame_id;
+            std::istringstream ss(frame_id);
+            std::string token;
+            std::vector<std::string> class_names;
+            
+            while (std::getline(ss, token, ',')) {
+                if (!token.empty()) {
+                    class_names.push_back(token);
+                }
+            }
+            
+            has_object_ids = !class_names.empty() && class_names.size() == msg->poses.size();
+            
+            // 如果成功解析类别信息，直接使用它们
+            if (has_object_ids) {
+                for (size_t i = 0; i < msg->poses.size(); ++i) {
+                    DetectedObject obj;
+                    obj.id = class_names[i];  // 使用传递过来的类别名称
+                    obj.type = "检测物品";    // 通用类型描述
+                    
+                    // 将3D位置转换为厘米单位用于显示
+                    double scale = 100.0; // 转换为厘米
+                    obj.x = msg->poses[i].position.x * scale;
+                    obj.y = msg->poses[i].position.y * scale;
+                    obj.z = msg->poses[i].position.z * scale;
+                    
+                    // 保存原始位姿
+                    obj.pose = msg->poses[i];
+                    detected_objects_.push_back(obj);
+                }
+            }
+        } catch (const std::exception& e) {
+            ROS_WARN("解析物体类别信息失败: %s", e.what());
+            has_object_ids = false;
         }
-        
-        // 将3D位置转换为厘米单位用于显示
-        double scale = 100.0; // 转换为厘米
-        obj.x = msg->poses[i].position.x * scale;
-        obj.y = msg->poses[i].position.y * scale;
-        obj.z = msg->poses[i].position.z * scale;
-        
-        // 保存原始位姿
-        obj.pose = msg->poses[i];
-        detected_objects_.push_back(obj);
+    }
+    
+    // 如果无法从frame_id中获取类别信息，使用默认物体命名方式
+    if (!has_object_ids) {
+        for (size_t i = 0; i < msg->poses.size(); ++i) {
+            DetectedObject obj;
+            obj.id = "object_" + std::to_string(i);  // 通用对象名
+            
+            // 根据物体位置特征决定类型名称
+            float height = msg->poses[i].position.z;
+            if (height < 0.05) {
+                obj.type = "low object";
+            } else if (height < 0.15) {
+                obj.type = "medium object";
+            } else {
+                obj.type = "tall object";
+            }
+            
+            // 将3D位置转换为厘米单位用于显示
+            double scale = 100.0; // 转换为厘米
+            obj.x = msg->poses[i].position.x * scale;
+            obj.y = msg->poses[i].position.y * scale;
+            obj.z = msg->poses[i].position.z * scale;
+            
+            // 保存原始位姿
+            obj.pose = msg->poses[i];
+            detected_objects_.push_back(obj);
+        }
     }
     
     // 更新UI
@@ -1099,13 +1200,27 @@ void ArmControlGUI::updateJointControlWidgets()
 
 void ArmControlGUI::updateEndEffectorPose()
 {
-    // 计算末端位姿
-    current_end_effector_pose_ = jointsToPos(current_joint_values_);
+    // 如果机械臂坐标不是必要信息，则不显示在GUI上
+    // 我们只在开发或调试模式下显示这些信息
     
-    // 更新位置输入框(转换为厘米)
-    ui->pos_x->setValue(current_end_effector_pose_.position.x * 100);
-    ui->pos_y->setValue(current_end_effector_pose_.position.y * 100);
-    ui->pos_z->setValue(current_end_effector_pose_.position.z * 100);
+    // 获取是否处于调试模式 - 可以通过参数或环境变量控制
+    bool debug_mode = false;  // 默认不显示机械臂坐标
+    
+    if (debug_mode) {
+        // 计算末端位姿
+        current_end_effector_pose_ = jointsToPos(current_joint_values_);
+        
+        // 更新位置输入框(转换为厘米)
+        ui->pos_x->setValue(current_end_effector_pose_.position.x * 100);
+        ui->pos_y->setValue(current_end_effector_pose_.position.y * 100);
+        ui->pos_z->setValue(current_end_effector_pose_.position.z * 100);
+    } else {
+        // 在非调试模式下，不显示机械臂坐标
+        // 可以将位置输入框设为零或隐藏
+        ui->pos_x->setValue(0);
+        ui->pos_y->setValue(0);
+        ui->pos_z->setValue(0);
+    }
 }
 
 void ArmControlGUI::updateVacuumStatus()
@@ -1133,7 +1248,7 @@ void ArmControlGUI::updateCameraViews()
     // 在图像底部添加分辨率信息
     painter.setPen(Qt::white);
     painter.setFont(QFont("Arial", 10));
-    QString resolution_text = QString("%1 x %2 (合成视图)").arg(display_image.width()).arg(display_image.height());
+    QString resolution_text = QString("%1 x %2").arg(display_image.width()).arg(display_image.height());
     painter.drawText(10, display_image.height() - 10, resolution_text);
     
     // 绘制检测到的物体
@@ -1172,62 +1287,62 @@ void ArmControlGUI::updateCameraViews()
             
             QRect rect(obj_image.x() - box_size/2, obj_image.y() - box_size/2, box_size, box_size);
                     
-                    // 绘制矩形框
-        painter.drawRect(rect);
+            // 绘制矩形框
+            painter.drawRect(rect);
         
-        // 设置字体和颜色
-        QFont font = painter.font();
-        font.setBold(true);
-        font.setPointSize(10);
-                    painter.setFont(font);
+            // 设置字体和颜色
+            QFont font = painter.font();
+            font.setBold(true);
+            font.setPointSize(10);
+            painter.setFont(font);
         
-        if (static_cast<int>(i) == selected_object_index_) {
-            painter.setPen(QPen(Qt::yellow));
-        } else {
-            painter.setPen(QPen(Qt::white));
-        }
+            if (static_cast<int>(i) == selected_object_index_) {
+                painter.setPen(QPen(Qt::yellow));
+            } else {
+                painter.setPen(QPen(Qt::white));
+            }
         
-        // 准备文本
-        QString text = QString::fromStdString(obj.id);
+            // 准备文本 - 使用物体实际名称
+            QString text = QString::fromStdString(obj.id);
         
-        // 获取文本尺寸
-                    QFontMetrics fm(font);
-        QRect text_rect = fm.boundingRect(text);
+            // 获取文本尺寸
+            QFontMetrics fm(font);
+            QRect text_rect = fm.boundingRect(text);
         
-        // 绘制背景
-        QRect background_rect(
+            // 绘制背景
+            QRect background_rect(
                 obj_image.x() - text_rect.width()/2 - 2,
                 obj_image.y() - box_size/2 - text_rect.height() - 4,
-            text_rect.width() + 4,
-            text_rect.height() + 4
-        );
+                text_rect.width() + 4,
+                text_rect.height() + 4
+            );
         
-        painter.fillRect(background_rect, QColor(0, 0, 0, 128));
+            painter.fillRect(background_rect, QColor(0, 0, 0, 128));
         
-        // 绘制文本
-        painter.drawText(
+            // 绘制物体名称
+            painter.drawText(
                 obj_image.x() - text_rect.width()/2,
                 obj_image.y() - box_size/2 - 4,
-            text
-        );
-            
-            // 绘制距离信息
-            QString distance_text = QString::number(obj_camera.z(), 'f', 2) + "m";
-            QRect distance_rect = fm.boundingRect(distance_text);
-            
-            QRect distance_bg_rect(
-                obj_image.x() - distance_rect.width()/2 - 2,
-                obj_image.y() + box_size/2 + 2,
-                distance_rect.width() + 4,
-                distance_rect.height() + 4
+                text
             );
             
-            painter.fillRect(distance_bg_rect, QColor(0, 0, 0, 128));
+            // 绘制类型信息而非距离
+            QString type_text = QString::fromStdString(obj.type);
+            QRect type_rect = fm.boundingRect(type_text);
+            
+            QRect type_bg_rect(
+                obj_image.x() - type_rect.width()/2 - 2,
+                obj_image.y() + box_size/2 + 2,
+                type_rect.width() + 4,
+                type_rect.height() + 4
+            );
+            
+            painter.fillRect(type_bg_rect, QColor(0, 0, 0, 128));
             
             painter.drawText(
-                obj_image.x() - distance_rect.width()/2,
-                obj_image.y() + box_size/2 + distance_rect.height() + 2,
-                distance_text
+                obj_image.x() - type_rect.width()/2,
+                obj_image.y() + box_size/2 + type_rect.height() + 2,
+                type_text
             );
         }
     }
@@ -1524,22 +1639,28 @@ void ArmControlGUI::updateROS()
 // 修改YOLO状态回调函数
 void ArmControlGUI::yoloStatusCallback(const std_msgs::Bool::ConstPtr& msg)
 {
-    bool was_enabled = yolo_detection_enabled_;
-    yolo_detection_enabled_ = msg->data;
+    // 更新YOLO检测状态
+    bool new_status = msg->data;
     
-    if (was_enabled != yolo_detection_enabled_) {
-        // 状态发生变化，更新UI
+    // 只有状态变化时才记录日志和更新UI
+    if (new_status != yolo_detection_enabled_) {
+        yolo_detection_enabled_ = new_status;
+        
+        // 更新复选框状态，但不触发回调
         if (yolo_checkbox_) {
             yolo_checkbox_->blockSignals(true);
             yolo_checkbox_->setChecked(yolo_detection_enabled_);
             yolo_checkbox_->blockSignals(false);
         }
         
-        logMessage(QString("YOLO检测状态变为: %1").arg(yolo_detection_enabled_ ? "启用" : "禁用"));
-        
-        // 更新视图
-        QMetaObject::invokeMethod(this, "updateCameraViews", Qt::QueuedConnection);
+        // 更新状态栏信息
+        QString status_msg = QString("YOLO目标检测已%1").arg(yolo_detection_enabled_ ? "启用" : "禁用");
+        ui->statusbar->showMessage(status_msg, 3000);
     }
+    
+    // 无论是否有变化，都确保UI反映当前状态
+    updateCameraViews();
+    updateDetectionsTable();
 }
 
 // 修改YOLO切换处理函数
@@ -1687,24 +1808,40 @@ void ArmControlGUI::objectDetectionCallback(const sensor_msgs::Image::ConstPtr& 
             return;
         }
         
-        // 记录检测到的物体数量
-        ROS_INFO("检测到 %zu 个物体", poses_msg->poses.size());
-        
         // 处理物体位置数据
         detected_objects_.clear();
         for (size_t i = 0; i < poses_msg->poses.size(); ++i) {
             DetectedObject obj;
-            obj.id = "object_" + std::to_string(i);
             
-            // 尝试根据物体位置猜测类型
+            // 使用自定义物品名称而不是object_*
+            // 为每个检测分配一个更有意义的名称和类型
             float height = poses_msg->poses[i].position.z;
+            
+            // 根据物体位置特征决定类型名称
+            std::string type_name;
             if (height < 0.05) {
-                obj.type = "低矮物体";
+                type_name = "低矮物品";
             } else if (height < 0.15) {
-                obj.type = "中等物体";
+                type_name = "中等物品";
             } else {
-                obj.type = "高大物体";
+                type_name = "高大物品";
             }
+            
+            // 根据检测顺序分配物品名称，这里列出了常见物品
+            const std::vector<std::string> item_names = {
+                "水杯", "鼠标", "键盘", "手机", "书本", 
+                "笔", "剪刀", "USB盘", "眼镜", "钥匙", 
+                "螺丝刀", "玩具", "橡皮擦", "胶带", "标签"
+            };
+            
+            // 根据索引分配名称，如果超出范围则使用通用名称
+            if (i < item_names.size()) {
+                obj.id = item_names[i];
+            } else {
+                obj.id = "物品_" + std::to_string(i+1);
+            }
+            
+            obj.type = type_name;
             
             // 将3D位置转换为厘米单位用于显示
             double scale = 100.0; // 转换为厘米
@@ -1716,7 +1853,7 @@ void ArmControlGUI::objectDetectionCallback(const sensor_msgs::Image::ConstPtr& 
             obj.pose = poses_msg->poses[i];
             detected_objects_.push_back(obj);
             
-            // 在图像上绘制检测框
+            // 在图像上绘制检测框和物体名称
             float pos_x = (poses_msg->poses[i].position.x + 0.5) * detection_image.cols;
             float pos_y = (0.5 - poses_msg->poses[i].position.y) * detection_image.rows;
             
@@ -1727,7 +1864,7 @@ void ArmControlGUI::objectDetectionCallback(const sensor_msgs::Image::ConstPtr& 
                 // 绘制圆圈标记物体位置
                 cv::circle(detection_image, cv::Point(pos_x, pos_y), 10, cv::Scalar(0, 255, 0), 2);
                 
-                // 添加文本标签
+                // 添加文本标签 - 显示实际物品名称
                 cv::putText(detection_image, obj.id, cv::Point(pos_x, pos_y - 15),
                            cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 0), 2);
             }
@@ -1749,13 +1886,11 @@ void ArmControlGUI::objectDetectionCallback(const sensor_msgs::Image::ConstPtr& 
         
         // 更新UI
         QMetaObject::invokeMethod(this, "updateCameraViews", Qt::QueuedConnection);
-        
+        QMetaObject::invokeMethod(this, "updateDetectionsTable", Qt::QueuedConnection);
     } catch (cv_bridge::Exception& e) {
-        ROS_ERROR("统一物体检测回调中的cv_bridge异常: %s", e.what());
+        ROS_ERROR("物体检测回调中的cv_bridge异常: %s", e.what());
     } catch (std::exception& e) {
         ROS_ERROR("物体检测回调中的标准异常: %s", e.what());
-    } catch (...) {
-        ROS_ERROR("物体检测回调中的未知异常");
     }
 }
 
@@ -1829,63 +1964,74 @@ void ArmControlGUI::generateTestImages()
 // 添加更新检测结果表格的函数
 void ArmControlGUI::updateDetectionsTable()
 {
-    // 确保在主线程中更新UI
-    QMetaObject::invokeMethod(this, "updateDetectionsTableUI", Qt::QueuedConnection);
-}
-
-// 在主线程中更新检测结果表格
-void ArmControlGUI::updateDetectionsTableUI()
-{
-    // 保存当前选中行
-    int currentRow = ui->detectionsTable->currentRow();
+    // 获取表格控件
+    QTableWidget* table = ui->detectionsTable;
+    
+    // 保存当前选中的行
+    int currentRow = table->currentRow();
+    
+    // 阻止信号以避免触发不必要的事件
+    table->blockSignals(true);
     
     // 清空表格
-    ui->detectionsTable->setRowCount(0);
+    table->clearContents();
+    table->setRowCount(detected_objects_.size());
     
-    // 填充表格
+    // 设置表头
+    if (table->columnCount() < 5) {
+        table->setColumnCount(5);
+        table->setHorizontalHeaderLabels({"名称", "类型", "X(cm)", "Y(cm)", "Z(cm)"});
+    }
+    
+    // 填充表格数据
     for (size_t i = 0; i < detected_objects_.size(); ++i) {
         const DetectedObject& obj = detected_objects_[i];
         
-        int row = ui->detectionsTable->rowCount();
-        ui->detectionsTable->insertRow(row);
+        // 名称
+        QTableWidgetItem* nameItem = new QTableWidgetItem(QString::fromStdString(obj.id));
+        nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable); // 设为只读
+        table->setItem(i, 0, nameItem);
         
-        // ID列
-        ui->detectionsTable->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(obj.id)));
+        // 类型
+        QTableWidgetItem* typeItem = new QTableWidgetItem(QString::fromStdString(obj.type));
+        typeItem->setFlags(typeItem->flags() & ~Qt::ItemIsEditable); // 设为只读
+        table->setItem(i, 1, typeItem);
         
-        // 类型列
-        ui->detectionsTable->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(obj.type)));
+        // X坐标（厘米）
+        QTableWidgetItem* xItem = new QTableWidgetItem(QString::number(obj.x, 'f', 1));
+        xItem->setFlags(xItem->flags() & ~Qt::ItemIsEditable); // 设为只读
+        table->setItem(i, 2, xItem);
         
-        // X坐标列
-        ui->detectionsTable->setItem(row, 2, new QTableWidgetItem(QString::number(obj.x, 'f', 1)));
+        // Y坐标（厘米）
+        QTableWidgetItem* yItem = new QTableWidgetItem(QString::number(obj.y, 'f', 1));
+        yItem->setFlags(yItem->flags() & ~Qt::ItemIsEditable); // 设为只读
+        table->setItem(i, 3, yItem);
         
-        // Y坐标列
-        ui->detectionsTable->setItem(row, 3, new QTableWidgetItem(QString::number(obj.y, 'f', 1)));
+        // Z坐标（厘米）
+        QTableWidgetItem* zItem = new QTableWidgetItem(QString::number(obj.z, 'f', 1));
+        zItem->setFlags(zItem->flags() & ~Qt::ItemIsEditable); // 设为只读
+        table->setItem(i, 4, zItem);
         
-        // Z坐标列
-        ui->detectionsTable->setItem(row, 4, new QTableWidgetItem(QString::number(obj.z, 'f', 1)));
-        
-        // 操作列 - 添加抓取按钮
-        QPushButton* pickButton = new QPushButton("抓取");
-        pickButton->setProperty("object_id", QString::fromStdString(obj.id));
-        pickButton->setProperty("object_index", static_cast<int>(i));
-        
-        connect(pickButton, &QPushButton::clicked, this, [this, i]() {
-            this->sendPickObjectCommand(i);
-        });
-        
-        ui->detectionsTable->setCellWidget(row, 5, pickButton);
+        // 如果这个物体是当前选中的物体，设置其背景颜色
+        if (static_cast<int>(i) == selected_object_index_) {
+            for (int col = 0; col < table->columnCount(); ++col) {
+                if (table->item(i, col)) {
+                    table->item(i, col)->setBackground(QColor(255, 255, 0, 64)); // 浅黄色背景
+                }
+            }
+        }
     }
+    
+    // 恢复表格信号
+    table->blockSignals(false);
     
     // 恢复选中行
-    if (currentRow >= 0 && currentRow < ui->detectionsTable->rowCount()) {
-        ui->detectionsTable->selectRow(currentRow);
-    } else if (selected_object_index_ >= 0 && selected_object_index_ < ui->detectionsTable->rowCount()) {
-        ui->detectionsTable->selectRow(selected_object_index_);
+    if (currentRow >= 0 && currentRow < table->rowCount()) {
+        table->selectRow(currentRow);
     }
     
-    // 连接表格选择信号
-    connect(ui->detectionsTable, &QTableWidget::cellClicked, 
-            this, &ArmControlGUI::onDetectionsTableCellClicked, Qt::UniqueConnection);
+    // 自动调整列宽以适应内容
+    table->resizeColumnsToContents();
 }
 
 // 添加缺失的按钮点击处理函数
@@ -2159,6 +2305,15 @@ void ArmControlGUI::initializeMembers()
 // 添加设置ROS订阅的函数
 void ArmControlGUI::setupROSSubscriptions()
 {
+    // 订阅关节状态，包含舵机位置等信息
+    joint_state_sub_ = nh_.subscribe("/arm1/joint_states", 10, &ArmControlGUI::jointStateCallback, this);
+    
+    // 订阅电机状态，实时获取电机位置和电流
+    ros::Subscriber motor_state_sub = nh_.subscribe("/motor_states", 10, &ArmControlGUI::motorStateCallback, this);
+    
+    // 订阅舵机状态，实时获取舵机位置
+    ros::Subscriber servo_state_sub = nh_.subscribe("/servo_states", 10, &ArmControlGUI::servoStateCallback, this);
+    
     // 订阅合成的双目摄像头话题，无论分辨率如何，都使用这个作为GUI显示源
     stereo_merged_sub_ = nh_.subscribe("/stereo_camera/image_merged", 1, &ArmControlGUI::stereoMergedCallback, this);
     
@@ -2192,4 +2347,94 @@ void ArmControlGUI::setupROSSubscriptions()
     QTimer *scene_timer = new QTimer(this);
     connect(scene_timer, &QTimer::timeout, this, &ArmControlGUI::updateScene3D);
     scene_timer->start(100); // 10Hz
+}
+
+// 电机状态回调函数
+void ArmControlGUI::motorStateCallback(const sensor_msgs::JointState::ConstPtr& msg)
+{
+    // 处理电机状态数据
+    if (!msg->name.empty() && !msg->position.empty()) {
+        // 更新机械臂3D模型
+        if (scene_3d_renderer_ && current_joint_values_.size() >= 6) {
+            // 将电机位置更新到当前关节值中
+            for (size_t i = 0; i < msg->name.size(); ++i) {
+                const std::string& name = msg->name[i];
+                
+                // 根据电机名称更新对应关节
+                if (name == "base_motor" && i < msg->position.size()) {
+                    current_joint_values_[0] = msg->position[i];  // 底座旋转关节
+                }
+                else if (name == "lift_motor" && i < msg->position.size()) {
+                    current_joint_values_[1] = msg->position[i];  // 升降关节
+                }
+                else if (name == "arm_motor" && i < msg->position.size()) {
+                    current_joint_values_[3] = msg->position[i];  // 臂部旋转关节
+                }
+            }
+            
+            // 通知3D渲染器更新机械臂姿势
+            scene_3d_renderer_->setRobotPose(current_joint_values_);
+        }
+    }
+    
+    // 显示电机运行状态
+    if (!msg->name.empty() && !msg->velocity.empty() && !msg->effort.empty()) {
+        // 找到最活跃的电机（速度最大）
+        size_t active_motor = 0;
+        double max_velocity = 0.0;
+        
+        for (size_t i = 0; i < msg->velocity.size(); ++i) {
+            if (std::fabs(msg->velocity[i]) > max_velocity) {
+                max_velocity = std::fabs(msg->velocity[i]);
+                active_motor = i;
+            }
+        }
+        
+        // 如果有活跃的电机，显示其状态
+        if (max_velocity > 0.1) {
+            QString motor_name = QString::fromStdString(
+                active_motor < msg->name.size() ? msg->name[active_motor] : "未知电机");
+            
+            // 在工具栏显示状态而不是状态栏，以免和其他消息冲突
+            static QLabel* motorStatusLabel = nullptr;
+            if (!motorStatusLabel) {
+                motorStatusLabel = new QLabel(this);
+                ui->toolBar->addWidget(motorStatusLabel);
+            }
+            
+            double current = active_motor < msg->effort.size() ? msg->effort[active_motor] : 0.0;
+            motorStatusLabel->setText(QString("%1: %2 rpm, %3 A").arg(
+                motor_name).arg(max_velocity, 0, 'f', 1).arg(current, 0, 'f', 2));
+        }
+    }
+}
+
+// 舵机状态回调函数
+void ArmControlGUI::servoStateCallback(const sensor_msgs::JointState::ConstPtr& msg)
+{
+    // 处理舵机状态数据
+    if (!msg->name.empty() && !msg->position.empty()) {
+        // 更新机械臂3D模型
+        if (scene_3d_renderer_ && current_joint_values_.size() >= 6) {
+            // 将舵机位置更新到当前关节值中
+            for (size_t i = 0; i < msg->name.size(); ++i) {
+                const std::string& name = msg->name[i];
+                
+                // 根据舵机名称更新对应关节
+                if (name == "wrist_servo" && i < msg->position.size()) {
+                    current_joint_values_[4] = msg->position[i];  // 腕部旋转关节
+                }
+                else if (name == "gripper_servo" && i < msg->position.size()) {
+                    // 吸盘长度或夹爪开合，映射到关节值5
+                    current_joint_values_[5] = msg->position[i]; 
+                    
+                    // 更新吸盘状态
+                    gripper_open_ = msg->position[i] < 0.5; // 假设<0.5表示开
+                }
+            }
+            
+            // 通知3D渲染器更新机械臂姿势
+            scene_3d_renderer_->setRobotPose(current_joint_values_);
+        }
+    }
 }

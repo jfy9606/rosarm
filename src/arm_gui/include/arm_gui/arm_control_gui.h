@@ -209,7 +209,7 @@ private slots:
     void updateConnectionStatus();
 
     // 添加新的槽函数
-    void updateDetectionsTableUI();
+    void updateDetectionsTable();
 
     // 3D视图相关槽
     void on3DViewObjectSelected(int index);
@@ -335,8 +335,9 @@ private:
     // 辅助函数
     int map(int value, int fromLow, int fromHigh, int toLow, int toHigh);
 
-    // 添加新的辅助函数
-    void updateDetectionsTable();
+    // 新增回调函数处理电机和舵机状态
+    void motorStateCallback(const sensor_msgs::JointState::ConstPtr& msg);
+    void servoStateCallback(const sensor_msgs::JointState::ConstPtr& msg);
 
     // 3D渲染器
     Scene3DRenderer* scene_3d_renderer_;

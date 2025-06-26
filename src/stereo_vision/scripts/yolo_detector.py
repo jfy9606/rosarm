@@ -57,6 +57,23 @@ class YoloDetector:
         # 打印Python路径以便调试
         rospy.loginfo(f"Python路径: {sys.path}")
         
+        # 上次日志记录时间
+        self.last_log_time = rospy.Time.now()
+        
+        # COCO数据集的80个类别名称
+        self.class_names = [
+            'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat',
+            'traffic light', 'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog',
+            'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe', 'backpack', 'umbrella',
+            'handbag', 'tie', 'suitcase', 'frisbee', 'skis', 'snowboard', 'sports ball', 'kite',
+            'baseball bat', 'baseball glove', 'skateboard', 'surfboard', 'tennis racket', 'bottle',
+            'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple', 'sandwich',
+            'orange', 'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 'chair', 'couch',
+            'potted plant', 'bed', 'dining table', 'toilet', 'tv', 'laptop', 'mouse', 'remote',
+            'keyboard', 'cell phone', 'microwave', 'oven', 'toaster', 'sink', 'refrigerator', 'book',
+            'clock', 'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush'
+        ]
+        
         if self.simulation_mode:
             # 使用模拟模式
             rospy.loginfo("使用模拟检测模式")
@@ -121,6 +138,16 @@ class YoloDetector:
                         rospy.loginfo(f"未找到本地模型文件，将尝试下载: {self.model_name}")
                 
                 self.model = YOLO(model_path)  # 加载实际的模型
+                
+                # 获取模型的类别列表
+                try:
+                    # 如果模型有自己的类别列表，则使用它
+                    if hasattr(self.model, 'names') and self.model.names:
+                        self.class_names = [name for _, name in self.model.names.items()]
+                        rospy.loginfo(f"从模型加载类别名称: {len(self.class_names)} 个类别")
+                except Exception as e:
+                    rospy.logwarn(f"无法获取模型类别名称，使用默认COCO类别: {e}")
+                
                 self.model_loaded = True
                 rospy.loginfo(f"成功加载YOLO模型: {self.model_name}")
             except Exception as e:
@@ -178,6 +205,17 @@ class YoloDetector:
             # 发布检测到的物体位姿
             self.publish_poses(detections, msg.header)
             
+            # 限制日志输出频率，每5秒一次
+            current_time = rospy.Time.now()
+            if (current_time - self.last_log_time).to_sec() > 5.0:
+                if len(detections) > 0:
+                    rospy.loginfo(f"检测到 {len(detections)} 个物体")
+                    for i, det in enumerate(detections):
+                        x1, y1, x2, y2, conf, class_id = det
+                        class_name = self.class_names[int(class_id)] if int(class_id) < len(self.class_names) else f"class{int(class_id)}"
+                        rospy.loginfo(f"  物体 {i+1}: {class_name} (置信度: {conf:.2f})")
+                self.last_log_time = current_time
+                
         except Exception as e:
             rospy.logerr(f"处理图像时出错: {str(e)}")
     
@@ -237,6 +275,9 @@ class YoloDetector:
         # 模拟检测到的物体
         detections = []
         
+        # 模拟常见的COCO对象
+        common_objects = [39, 41, 64, 73, 67, 62, 0]  # 瓶子、杯子、鼠标、笔记本、手机等
+        
         # 模拟检测到的物体1（在图像左侧）
         if np.random.random() > 0.3:  # 70%的概率检测到
             x1 = int(width * 0.1)
@@ -244,7 +285,7 @@ class YoloDetector:
             x2 = int(width * 0.3)
             y2 = int(height * 0.6)
             conf = np.random.uniform(0.6, 0.9)
-            class_id = 0  # 假设是"物体"类
+            class_id = np.random.choice(common_objects)  # 随机选择常见物体
             detections.append([x1, y1, x2, y2, conf, class_id])
         
         # 模拟检测到的物体2（在图像右侧）
@@ -254,7 +295,7 @@ class YoloDetector:
             x2 = int(width * 0.8)
             y2 = int(height * 0.7)
             conf = np.random.uniform(0.5, 0.8)
-            class_id = 1  # 假设是"另一种物体"类
+            class_id = np.random.choice(common_objects)  # 随机选择常见物体
             detections.append([x1, y1, x2, y2, conf, class_id])
         
         return detections
@@ -272,11 +313,24 @@ class YoloDetector:
         """
         result_image = image.copy()
         
-        # 类别名称（示例）
-        class_names = ["物体", "另一种物体"]
-        
         # 为不同类别设置不同颜色
-        colors = [(0, 255, 0), (0, 0, 255)]
+        colors = [
+            (0, 255, 0),    # 绿色
+            (0, 0, 255),    # 红色
+            (255, 0, 0),    # 蓝色
+            (255, 255, 0),  # 青色
+            (0, 255, 255),  # 黄色
+            (255, 0, 255),  # 紫色
+            (128, 0, 0),    # 深蓝色
+            (0, 128, 0),    # 深绿色
+            (0, 0, 128),    # 深红色
+            (128, 128, 0),  # 橄榄色
+            (128, 0, 128),  # 紫色
+            (0, 128, 128),  # 青绿色
+            (192, 192, 192),# 银色
+            (128, 128, 128),# 灰色
+            (64, 64, 64)    # 深灰色
+        ]
         
         for det in detections:
             x1, y1, x2, y2, conf, class_id = det
@@ -285,15 +339,20 @@ class YoloDetector:
             x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
             
             # 获取类别名称和颜色
-            class_name = class_names[int(class_id)] if int(class_id) < len(class_names) else f"类别{int(class_id)}"
+            class_name = self.class_names[int(class_id)] if int(class_id) < len(self.class_names) else f"class{int(class_id)}"
             color = colors[int(class_id) % len(colors)]
             
             # 绘制边界框
             cv2.rectangle(result_image, (x1, y1), (x2, y2), color, 2)
             
+            # 绘制半透明背景
+            overlay = result_image.copy()
+            cv2.rectangle(overlay, (x1, y1 - 30), (x1 + len(class_name) * 11 + 70, y1), color, -1)
+            cv2.addWeighted(overlay, 0.7, result_image, 0.3, 0, result_image)
+            
             # 绘制类别名称和置信度
             label = f"{class_name} {conf:.2f}"
-            cv2.putText(result_image, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+            cv2.putText(result_image, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
         
         return result_image
     
@@ -307,6 +366,9 @@ class YoloDetector:
         """
         pose_array = PoseArray()
         pose_array.header = header
+        
+        # 收集类别名称，添加到frame_id中
+        class_names = []
         
         for det in detections:
             x1, y1, x2, y2, conf, class_id = det
@@ -347,6 +409,14 @@ class YoloDetector:
             pose.orientation.w = 1.0
             
             pose_array.poses.append(pose)
+            
+            # 获取类别名称并添加到列表
+            class_name = self.class_names[int(class_id)] if int(class_id) < len(self.class_names) else f"class{int(class_id)}"
+            class_names.append(class_name)
+        
+        # 将类别名称添加到frame_id
+        if class_names:
+            pose_array.header.frame_id = ','.join(class_names)
         
         # 发布位姿数组
         self.poses_pub.publish(pose_array)
