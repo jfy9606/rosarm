@@ -500,13 +500,6 @@
              <item>
                <layout class="QHBoxLayout" name="horizontalLayout_12">
                  <item>
-                   <widget class="QCheckBox" name="yolo_checkbox">
-                     <property name="text">
-                       <string>启用YOLO检测</string>
-                     </property>
-                   </widget>
-                 </item>
-                 <item>
                    <widget class="QLabel" name="placementAreaLabel">
                      <property name="text">
                        <string>选择放置区:</string>

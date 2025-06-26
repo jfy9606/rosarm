@@ -36,6 +36,11 @@
 #include <servo_wrist/SerControl.h>
 #include <std_srvs/SetBool.h>
 
+// 添加消息过滤器头文件
+#include <message_filters/subscriber.h>
+#include <message_filters/synchronizer.h>
+#include <message_filters/sync_policies/approximate_time.h>
+
 namespace Ui {
 class ArmControlMainWindow;
 }
@@ -244,11 +249,14 @@ private:
     ros::Publisher servo_control_pub_;
     ros::Publisher vacuum_power_pub_;
     
+    // 消息过滤器同步器
+    typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, geometry_msgs::PoseArray> MySyncPolicy;
+    message_filters::Synchronizer<MySyncPolicy>* object_detection_sync_;
+    
     // 图像显示相关
     QImage left_camera_image_;
-    QImage detection_image_;
-    QPixmap camera_pixmap_;
     QImage current_camera_image_;
+    QPixmap camera_pixmap_;
     
     // 机械臂状态
     std::vector<double> current_joint_positions_;
@@ -298,6 +306,8 @@ private:
     void initializeJointControlConnections();
     void initializeROS();
     void initializeOpenGL();
+    void initializeMembers();
+    void setupROSSubscriptions();
     
     // 更新函数 - 移除重复声明，因为已在private slots中声明
     void updateJointControlWidgets();
