@@ -29,6 +29,9 @@
 #include <QPixmap>
 #include <QPainter>
 
+#include <Eigen/Dense>
+#include <tf2/transformations.h>
+
 ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     : QMainWindow(parent)
     , ui(new Ui::ArmControlMainWindow)
@@ -313,22 +316,16 @@ void ArmControlGUI::initializeOpenGL()
 // 设置相机参数
 void ArmControlGUI::setupCameraParameters()
 {
-    // 相机内参矩阵
-    // 假设焦距fx=fy=500，主点cx=640, cy=240
-    camera_intrinsic_.setToIdentity();
-    camera_intrinsic_(0, 0) = 500.0f; // fx
-    camera_intrinsic_(1, 1) = 500.0f; // fy
-    camera_intrinsic_(0, 2) = 640.0f; // cx
-    camera_intrinsic_(1, 2) = 240.0f; // cy
-    camera_intrinsic_(2, 2) = 1.0f;
-    camera_intrinsic_(3, 3) = 1.0f;
+    // 相机内参矩阵（fx, 0, cx; 0, fy, cy; 0, 0, 1）
+    camera_intrinsic_ = Eigen::Matrix3d::Identity();
+    camera_intrinsic_(0, 0) = 525.0; // fx
+    camera_intrinsic_(1, 1) = 525.0; // fy
+    camera_intrinsic_(0, 2) = 320.0; // cx
+    camera_intrinsic_(1, 2) = 240.0; // cy
     
-    // 相机外参矩阵 (初始为单位矩阵)
+    // 初始化相机外参（世界坐标系到相机坐标系的变换）
+    // 这里我们不再使用固定变换，而是会动态更新为末端执行器的位置
     camera_extrinsic_.setToIdentity();
-    
-    // 设置摄像头在机械臂末端的变换
-    // 假设摄像头位于末端往下10cm处
-    camera_extrinsic_.translate(0.0f, 0.0f, -0.1f);
 }
 
 // 更新3D场景
@@ -353,11 +350,38 @@ void ArmControlGUI::updateSceneObjects()
 {
     scene_objects_.clear();
     
-    // 将检测到的物体添加到场景中
+    // 如果机械臂关节值为空，使用默认值
+    if (current_joint_values_.empty() || current_joint_values_.size() < 6) {
+        return;
+    }
+    
+    // 计算末端执行器的位置和姿态
+    geometry_msgs::Pose end_effector_pose = jointsToPos(current_joint_values_);
+    
+    // 更新相机外参矩阵，使其跟随末端执行器
+    updateCameraTransform(end_effector_pose);
+    
+    // 将检测到的物体添加到场景中，但考虑从相机视角进行变换
     for (const DetectedObject& obj : detected_objects_) {
-        // 创建物体在3D场景中的位置和颜色
-        QVector3D position(obj.x / 100.0f, obj.y / 100.0f, obj.z / 100.0f);
+        // 创建物体在相机坐标系中的位置和颜色
+        QVector3D position_camera(obj.x / 100.0f, obj.y / 100.0f, obj.z / 100.0f);
+        
+        // 转换到世界坐标系，考虑相机在机械臂末端的位置
+        QVector4D position_world = camera_extrinsic_.inverted() * QVector4D(position_camera, 1.0f);
+        QVector3D position(position_world.x(), position_world.y(), position_world.z());
+        
+        // 根据物体类型设置不同颜色
         QColor color(255, 0, 0); // 默认红色
+        if (!obj.type.empty()) {
+            // 根据物体类型设置不同颜色
+            if (obj.type == "cube" || obj.type.find("cube") != std::string::npos) {
+                color = QColor(0, 0, 255); // 蓝色
+            } else if (obj.type == "cylinder" || obj.type.find("cylinder") != std::string::npos) {
+                color = QColor(0, 255, 0); // 绿色
+            } else if (obj.type == "sphere" || obj.type.find("sphere") != std::string::npos) {
+                color = QColor(255, 255, 0); // 黄色
+            }
+        }
         
         scene_objects_.push_back(std::make_pair(position, color));
     }
@@ -366,18 +390,60 @@ void ArmControlGUI::updateSceneObjects()
     scene_3d_renderer_->updateObjects(scene_objects_);
 }
 
+// 新增函数：更新相机变换矩阵
+void ArmControlGUI::updateCameraTransform(const geometry_msgs::Pose& end_effector_pose)
+{
+    // 创建从世界坐标系到末端执行器的变换矩阵
+    QMatrix4x4 world_to_end_effector;
+    
+    // 设置平移部分
+    world_to_end_effector.setColumn(3, QVector4D(
+        end_effector_pose.position.x,
+        end_effector_pose.position.y,
+        end_effector_pose.position.z,
+        1.0f
+    ));
+    
+    // 从四元数设置旋转部分
+    tf2::Quaternion q(
+        end_effector_pose.orientation.x,
+        end_effector_pose.orientation.y,
+        end_effector_pose.orientation.z,
+        end_effector_pose.orientation.w
+    );
+    tf2::Matrix3x3 rot_mat(q);
+    
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            world_to_end_effector(i, j) = rot_mat[i][j];
+        }
+    }
+    
+    // 相机在末端执行器上的偏移（吸盘位置，向下看）
+    QMatrix4x4 end_effector_to_camera;
+    end_effector_to_camera.setToIdentity();
+    // 假设相机安装在末端吸盘上，朝向下方
+    // 旋转90度使相机朝下
+    end_effector_to_camera.rotate(90, 1, 0, 0);
+    // 平移到吸盘位置
+    end_effector_to_camera.translate(0, 0, 0.05); // 5cm偏移
+    
+    // 最终的相机外参矩阵 = 世界到末端 * 末端到相机
+    camera_extrinsic_ = world_to_end_effector * end_effector_to_camera;
+}
+
 // 从图像点获取3D位置
 QVector3D ArmControlGUI::imagePointTo3D(const QPoint& image_point, float depth)
 {
     // 将图像坐标转换为归一化坐标
-    float x = (image_point.x() - camera_intrinsic_(0, 2)) / camera_intrinsic_(0, 0);
-    float y = (image_point.y() - camera_intrinsic_(1, 2)) / camera_intrinsic_(1, 1);
+    double x = (image_point.x() - camera_intrinsic_(0, 2)) / camera_intrinsic_(0, 0);
+    double y = (image_point.y() - camera_intrinsic_(1, 2)) / camera_intrinsic_(1, 1);
     
     // 计算3D点在相机坐标系中的位置
     QVector3D point_camera(x * depth, y * depth, depth);
     
-    // 转换到世界坐标系
-    QVector4D point_world = camera_extrinsic_ * QVector4D(point_camera, 1.0f);
+    // 转换到世界坐标系，考虑相机在机械臂末端的位置
+    QVector4D point_world = camera_extrinsic_.inverted() * QVector4D(point_camera, 1.0f);
     
     return QVector3D(point_world.x(), point_world.y(), point_world.z());
 }
@@ -385,12 +451,18 @@ QVector3D ArmControlGUI::imagePointTo3D(const QPoint& image_point, float depth)
 // 从3D位置计算图像点
 QPoint ArmControlGUI::point3DToImage(const QVector3D& point_3d)
 {
-    // 转换到相机坐标系
-    QVector4D point_camera = camera_extrinsic_.inverted() * QVector4D(point_3d, 1.0f);
+    // 转换到相机坐标系，考虑相机在机械臂末端的位置
+    QVector4D point_world(point_3d.x(), point_3d.y(), point_3d.z(), 1.0f);
+    QVector4D point_camera = camera_extrinsic_ * point_world;
+    
+    // 忽略深度太小的点（在相机后面）
+    if (point_camera.z() <= 0.01f) {
+        return QPoint(-1, -1); // 无效点
+    }
     
     // 计算图像坐标
-    float x = (point_camera.x() / point_camera.z()) * camera_intrinsic_(0, 0) + camera_intrinsic_(0, 2);
-    float y = (point_camera.y() / point_camera.z()) * camera_intrinsic_(1, 1) + camera_intrinsic_(1, 2);
+    double x = (point_camera.x() / point_camera.z()) * camera_intrinsic_(0, 0) + camera_intrinsic_(0, 2);
+    double y = (point_camera.y() / point_camera.z()) * camera_intrinsic_(1, 1) + camera_intrinsic_(1, 2);
     
     return QPoint(static_cast<int>(x), static_cast<int>(y));
 }
@@ -428,16 +500,26 @@ void ArmControlGUI::onCameraViewClicked(QPoint pos)
     int x = static_cast<int>(pos.x() * x_ratio);
     int y = static_cast<int>(pos.y() * y_ratio);
     
-    // 查找最近的物体
+    // 查找最近的物体 - 使用屏幕空间距离
     int closest_object = -1;
     double min_distance = 100.0; // 阈值，单位：像素
     
     for (size_t i = 0; i < detected_objects_.size(); ++i) {
         const DetectedObject& obj = detected_objects_[i];
         
+        // 使用物体在相机坐标系中的原始位置
+        QVector3D obj_camera(obj.x / 100.0f, obj.y / 100.0f, obj.z / 100.0f);
+        
+        // 检查深度是否有效
+        if (obj_camera.z() <= 0.0f) {
+            continue; // 忽略无效深度的物体
+        }
+        
         // 将3D位置投影到图像平面
-        QVector3D obj_3d(obj.x / 100.0f, obj.y / 100.0f, obj.z / 100.0f);
-        QPoint obj_image = point3DToImage(obj_3d);
+        QPoint obj_image = QPoint(
+            static_cast<int>(obj_camera.x() / obj_camera.z() * camera_intrinsic_(0, 0) + camera_intrinsic_(0, 2)),
+            static_cast<int>(obj_camera.y() / obj_camera.z() * camera_intrinsic_(1, 1) + camera_intrinsic_(1, 2))
+        );
         
         // 计算距离
         double distance = std::sqrt(std::pow(x - obj_image.x(), 2) + std::pow(y - obj_image.y(), 2));
@@ -815,13 +897,22 @@ void ArmControlGUI::detectionPosesCallback(const geometry_msgs::PoseArray::Const
     // 清空之前的检测结果
     detected_objects_.clear();
     
+    // 如果没有检测到物体，直接返回
+    if (msg->poses.empty()) {
+        // 更新UI (在主线程中)
+        QMetaObject::invokeMethod(this, "updateDetectionsTableUI", Qt::QueuedConnection);
+        QMetaObject::invokeMethod(this, "updateScene3D", Qt::QueuedConnection);
+        return;
+    }
+    
     // 处理新的检测结果
     for (size_t i = 0; i < msg->poses.size(); ++i) {
         DetectedObject obj;
         obj.id = "object_" + std::to_string(i + 1);
-        obj.type = "未知";
+        obj.type = "未知"; // 默认类型
         
         // 提取3D位置信息（单位：厘米）
+        // 注意：这里的位置是在相机坐标系中的，不需要转换
         obj.x = msg->poses[i].position.x * 100.0;
         obj.y = msg->poses[i].position.y * 100.0;
         obj.z = msg->poses[i].position.z * 100.0;
@@ -838,6 +929,9 @@ void ArmControlGUI::detectionPosesCallback(const geometry_msgs::PoseArray::Const
     
     // 也更新3D场景
     QMetaObject::invokeMethod(this, "updateScene3D", Qt::QueuedConnection);
+    
+    // 记录信息
+    logMessage(QString("已检测到 %1 个物体").arg(detected_objects_.size()));
 }
 
 // GUI更新函数实现
@@ -923,9 +1017,21 @@ void ArmControlGUI::updateCameraViews()
         for (size_t i = 0; i < detected_objects_.size(); ++i) {
             const DetectedObject& obj = detected_objects_[i];
             
+            // 使用物体在相机坐标系中的原始位置
+            QVector3D obj_camera(obj.x / 100.0f, obj.y / 100.0f, obj.z / 100.0f);
+            
             // 将3D位置投影到图像平面
-            QVector3D obj_3d(obj.x / 100.0f, obj.y / 100.0f, obj.z / 100.0f);
-            QPoint obj_image = point3DToImage(obj_3d);
+            QPoint obj_image = QPoint(
+                static_cast<int>(obj_camera.x() / obj_camera.z() * camera_intrinsic_(0, 0) + camera_intrinsic_(0, 2)),
+                static_cast<int>(obj_camera.y() / obj_camera.z() * camera_intrinsic_(1, 1) + camera_intrinsic_(1, 2))
+            );
+            
+            // 确保点在图像范围内
+            if (obj_image.x() < 0 || obj_image.x() >= display_image.width() ||
+                obj_image.y() < 0 || obj_image.y() >= display_image.height() ||
+                obj_camera.z() <= 0.0f) {
+                continue; // 不在视野内的物体不显示
+            }
             
             // 设置画笔颜色和宽度
             if (static_cast<int>(i) == selected_object_index_) {
@@ -935,7 +1041,11 @@ void ArmControlGUI::updateCameraViews()
             }
             
             // 计算矩形大小（基于物体距离）
-            int box_size = 40;
+            // 距离越远，框越小
+            float distance_factor = 0.5f / obj_camera.z();
+            int box_size = static_cast<int>(40 * distance_factor);
+            box_size = std::max(20, std::min(80, box_size)); // 限制大小范围
+            
             QRect rect(obj_image.x() - box_size/2, obj_image.y() - box_size/2, box_size, box_size);
             
             // 绘制矩形框
@@ -976,19 +1086,30 @@ void ArmControlGUI::updateCameraViews()
                 obj_image.y() - box_size/2 - 4,
                 text
             );
+            
+            // 绘制距离信息
+            QString distance_text = QString::number(obj_camera.z(), 'f', 2) + "m";
+            QRect distance_rect = fm.boundingRect(distance_text);
+            
+            QRect distance_bg_rect(
+                obj_image.x() - distance_rect.width()/2 - 2,
+                obj_image.y() + box_size/2 + 2,
+                distance_rect.width() + 4,
+                distance_rect.height() + 4
+            );
+            
+            painter.fillRect(distance_bg_rect, QColor(0, 0, 0, 128));
+            
+            painter.drawText(
+                obj_image.x() - distance_rect.width()/2,
+                obj_image.y() + box_size/2 + distance_rect.height() + 2,
+                distance_text
+            );
         }
     }
     
-    // 结束绘制
-    painter.end();
-    
-    // 显示图像
-    QPixmap pixmap = QPixmap::fromImage(display_image);
-    ui->cameraView->setPixmap(pixmap);
-    
-    // 更新视图中显示的图像尺寸标签
-    QString image_info = QString("图像尺寸: %1 x %2").arg(display_image.width()).arg(display_image.height());
-    ui->cameraView->setToolTip(image_info);
+    // 更新相机视图
+    ui->cameraView->setPixmap(QPixmap::fromImage(display_image));
 }
 
 // 操作函数实现
@@ -1494,7 +1615,7 @@ void ArmControlGUI::updateConnectionStatus()
 // 添加测试图像生成函数
 void ArmControlGUI::generateTestImages()
 {
-    // 生成相机测试图像
+    // 生成相机测试图像 - 仅用于初始显示，直到真实相机连接
     QImage testCamera(640, 480, QImage::Format_RGB888);
     testCamera.fill(Qt::black);
     
@@ -1502,45 +1623,15 @@ void ArmControlGUI::generateTestImages()
     painterCamera.setPen(QPen(Qt::white, 2));
     painterCamera.setFont(QFont("Arial", 14, QFont::Bold));
     
-    painterCamera.drawText(50, 100, "测试相机图像");
-    painterCamera.drawText(50, 150, "等待摄像头连接...");
-    
-    // 绘制一些图形以便识别
-    painterCamera.setPen(QPen(Qt::red, 3));
-    painterCamera.drawEllipse(320, 240, 100, 100);
-    painterCamera.setPen(QPen(Qt::green, 3));
-    painterCamera.drawRect(220, 140, 200, 200);
+    painterCamera.drawText(50, 100, "等待相机连接");
+    painterCamera.drawText(50, 150, "请确保相机已连接");
+    painterCamera.drawText(50, 200, "并启用YOLO目标检测");
     
     // 保存测试图像
     left_camera_image_ = testCamera;
+    current_camera_image_ = testCamera;
     
-    // 删除深度图测试图像生成
-    // remove: // 生成深度图测试图像
-    // remove: QImage testDepth(640, 480, QImage::Format_RGB888);
-    // remove: testDepth.fill(Qt::black);
-    // remove: 
-    // remove: QPainter painterDepth(&testDepth);
-    // remove: painterDepth.setPen(QPen(Qt::white, 2));
-    // remove: painterDepth.setFont(QFont("Arial", 14, QFont::Bold));
-    // remove: 
-    // remove: painterDepth.drawText(50, 100, "测试深度图像");
-    // remove: painterDepth.drawText(50, 150, "等待深度图数据...");
-    // remove: 
-    // remove: // 创建彩色梯度作为深度图示例
-    // remove: for (int y = 0; y < 480; y += 2) {
-    // remove:     for (int x = 0; x < 640; x += 2) {
-    // remove:         int r = qMin(255, x * 255 / 640);
-    // remove:         int g = qMin(255, y * 255 / 480);
-    // remove:         int b = qMin(255, (x + y) * 255 / (640 + 480));
-    // remove:         testDepth.setPixelColor(x, y, QColor(r, g, b));
-    // remove:         testDepth.setPixelColor(x+1, y, QColor(r, g, b));
-    // remove:         testDepth.setPixelColor(x, y+1, QColor(r, g, b));
-    // remove:         testDepth.setPixelColor(x+1, y+1, QColor(r, g, b));
-    // remove:     }
-    // remove: }
-    // remove: 
-    // remove: // 保存测试图像
-    // remove: depth_image_ = testDepth;
+    // 不再生成测试物体，只使用摄像头检测到的真实物体
 }
 
 // 添加更新检测结果表格的函数

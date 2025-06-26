@@ -20,6 +20,7 @@
 #include <QComboBox>
 #include <QMatrix4x4>
 #include <QVector3D>
+#include <Eigen/Dense>
 
 #include <ros/ros.h>
 #include <std_msgs/String.h>
@@ -336,15 +337,15 @@ private:
     // 选中的物体索引
     int selected_object_index_;
     
-    // 相机内参和外参
-    QMatrix4x4 camera_intrinsic_;
+    // 相机参数
+    Eigen::Matrix3d camera_intrinsic_;
     QMatrix4x4 camera_extrinsic_;
     
-    // 从摄像头图像点获取3D位置
+    // 3D坐标转换相关
     QVector3D imagePointTo3D(const QPoint& image_point, float depth = 1.0);
-    
-    // 从3D位置计算摄像头图像点
     QPoint point3DToImage(const QVector3D& point_3d);
+    float getDepthAtPoint(const QPoint& image_point);
+    void updateCameraTransform(const geometry_msgs::Pose& end_effector_pose);
     
     // 渲染3D场景
     void render3DScene();
@@ -354,9 +355,6 @@ private:
     
     // 设置摄像头参数
     void setupCameraParameters();
-    
-    // 从深度图获取深度值
-    float getDepthAtPoint(const QPoint& image_point);
     
     // 发送物体拾取命令
     void sendPickObjectCommand(int object_index);
