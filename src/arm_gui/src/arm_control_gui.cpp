@@ -417,9 +417,9 @@ void ArmControlGUI::updateCameraTransform(const geometry_msgs::Pose& end_effecto
     float xy = q.x() * q.y();
     float xz = q.x() * q.z();
     float yz = q.y() * q.z();
-    float wx = q.w() * q.x();
-    float wy = q.w() * q.y();
-    float wz = q.w() * q.z();
+    float wx = q.scalar() * q.x();
+    float wy = q.scalar() * q.y();
+    float wz = q.scalar() * q.z();
     
     // 填充旋转矩阵
     rot_mat(0, 0) = 1.0f - 2.0f * (y2 + z2);
