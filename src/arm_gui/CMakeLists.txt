@@ -94,6 +94,8 @@ target_link_libraries(${PROJECT_NAME}
   Qt5::Widgets
   Qt5::OpenGL
   ${OPENGL_LIBRARIES}
+  GL
+  GLU
 )
 
 # 可执行文件

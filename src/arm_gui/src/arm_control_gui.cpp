@@ -317,7 +317,7 @@ void ArmControlGUI::initializeOpenGL()
 void ArmControlGUI::setupCameraParameters()
 {
     // 相机内参矩阵（fx, 0, cx; 0, fy, cy; 0, 0, 1）
-    camera_intrinsic_ = Eigen::Matrix3d::Identity();
+    camera_intrinsic_.setToIdentity();
     camera_intrinsic_(0, 0) = 525.0; // fx
     camera_intrinsic_(1, 1) = 525.0; // fy
     camera_intrinsic_(0, 2) = 320.0; // cx

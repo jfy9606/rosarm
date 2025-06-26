@@ -19,8 +19,8 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QMatrix4x4>
+#include <QMatrix3x3>
 #include <QVector3D>
-#include <Eigen/Dense>
 
 #include <ros/ros.h>
 #include <std_msgs/String.h>
@@ -338,7 +338,7 @@ private:
     int selected_object_index_;
     
     // 相机参数
-    Eigen::Matrix3d camera_intrinsic_;
+    QMatrix3x3 camera_intrinsic_;
     QMatrix4x4 camera_extrinsic_;
     
     // 3D坐标转换相关
@@ -358,6 +358,8 @@ private:
     
     // 发送物体拾取命令
     void sendPickObjectCommand(int object_index);
+
+    bool enable_3d_rendering_;
 };
 
 #endif // ARM_CONTROL_GUI_H 

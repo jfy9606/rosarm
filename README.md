@@ -10,6 +10,18 @@
 2. **图像处理** - 使用OpenCV和YOLO进行图像处理和目标检测
 3. **机械臂控制** - 基于ROS的机械臂控制界面和轨迹规划
 
+## 系统特性
+
+### 末端执行器摄像头
+
+系统支持在机械臂末端执行器（吸盘）上安装摄像头，提供移动视角。系统特性包括：
+
+1. **移动视角** - 摄像头跟随机械臂移动，提供末端执行器视角的物体检测
+2. **坐标系转换** - 自动在摄像头坐标系和世界坐标系之间进行转换
+3. **动态显示** - 3D场景中物体位置会根据摄像头位置自动更新
+
+这一特性使系统能够从吸取物体的视角检测和处理物体，提高了抓取精度。
+
 ## 安装指南
 
 ### 前提条件
@@ -58,6 +70,9 @@ sudo apt-get install ros-noetic-image-view ros-noetic-tf2-ros ros-noetic-cv-brid
 
 # 安装Qt5依赖
 sudo apt-get install qtbase5-dev qt5-default qtchooser qttools5-dev-tools qttools5-dev libqt5core5a libqt5gui5 libqt5widgets5 libqt5opengl5 ros-noetic-rqt* ros-noetic-qt-gui* -y
+
+# 安装Qt5 OpenGL开发库（用于QMatrix3x3和QMatrix4x4支持）
+sudo apt-get install libqt5opengl5-dev -y
 
 # 安装其他系统依赖
 sudo apt-get install libopengl0 libglx0 libgl1-mesa-dev
