@@ -1,6 +1,107 @@
-# 机械臂视觉控制系统
+# ROS 机械臂控制系统
 
-这是一个基于ROS的机械臂控制系统，使用摄像头进行视觉感知、目标检测和路径规划。
+本项目是一个基于ROS的机械臂控制系统，包含立体视觉、轨迹规划和机械臂控制功能。
+
+## 环境配置指南
+
+### 1. 安装必要的Python库
+
+系统依赖以下Python库：
+
+```bash
+# 安装ultralytics用于YOLOv8目标检测
+pip3 install ultralytics
+```
+
+### 2. 验证安装
+
+执行以下命令验证环境配置是否正确：
+
+```bash
+# 验证ultralytics安装
+python3 -c "import ultralytics; print(f'Ultralytics版本: {ultralytics.__version__}')"
+
+# 验证WhaleOptimizer模块
+python3 -c "import sys; sys.path.append('$(pwd)/src/arm_trajectory/scripts'); import whales_optimizer; print('WhaleOptimizer导入成功')"
+```
+
+### 3. Docker容器环境特殊配置
+
+如果在Docker容器中运行，可能需要额外的权限：
+
+```bash
+# 如果需要超级用户权限
+sudo -i
+```
+
+## 运行系统
+
+在配置好环境后，使用以下命令启动系统：
+
+```bash
+# 启动ROS核心
+roscore &
+
+# 启动机械臂控制节点
+roslaunch arm_control arm_bringup.launch
+
+# 在新终端中启动立体视觉节点
+roslaunch stereo_vision stereo_arm_control.launch
+
+# 在新终端中启动轨迹规划节点
+roslaunch arm_trajectory trajectory_planning.launch
+```
+
+## 故障排除
+
+### 导入错误
+
+如果遇到模块导入错误：
+
+1. 检查PYTHONPATH环境变量是否正确设置：
+   ```bash
+   echo $PYTHONPATH
+   ```
+
+2. 确认ultralytics是否安装成功：
+   ```bash
+   pip3 list | grep ultralytics
+   ```
+
+3. 检查WhaleOptimizer文件是否存在于正确位置：
+   ```bash
+   ls -l $(pwd)/src/arm_trajectory/scripts/whales_optimizer.py
+   ls -l /home/test/rosarm/devel/.private/arm_trajectory/lib/arm_trajectory/whales_optimizer.py
+   ```
+
+如果仍然无法导入模块，可以尝试使用绝对导入路径：
+
+```python
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+```
+
+### 机械臂未响应
+
+如果机械臂未响应命令：
+
+1. 检查ROS节点是否在运行：
+   ```bash
+   rosnode list
+   ```
+
+2. 检查主题是否正确发布：
+   ```bash
+   rostopic list
+   rostopic echo /arm1/trajectory_command
+   ```
+
+3. 检查硬件连接和串口权限：
+   ```bash
+   ls -l /dev/ttyUSB*
+   sudo chmod a+rw /dev/ttyUSB*
+   ```
 
 ## 系统组件
 

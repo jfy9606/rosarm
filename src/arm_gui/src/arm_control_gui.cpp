@@ -1138,13 +1138,13 @@ void ArmControlGUI::updateCameraViews()
     
     // 绘制检测到的物体
     if (yolo_detection_enabled_ && !detected_objects_.empty()) {
-        for (size_t i = 0; i < detected_objects_.size(); ++i) {
-            const DetectedObject& obj = detected_objects_[i];
+    for (size_t i = 0; i < detected_objects_.size(); ++i) {
+        const DetectedObject& obj = detected_objects_[i];
             
             // 使用物体在相机坐标系中的原始位置
             QVector3D obj_camera(obj.x / 100.0f, obj.y / 100.0f, obj.z / 100.0f);
-            
-            // 将3D位置投影到图像平面
+        
+        // 将3D位置投影到图像平面
             QPoint obj_image = QPoint(
                 static_cast<int>(obj_camera.x() / obj_camera.z() * camera_intrinsic_(0, 0) + camera_intrinsic_(0, 2)),
                 static_cast<int>(obj_camera.y() / obj_camera.z() * camera_intrinsic_(1, 1) + camera_intrinsic_(1, 2))
@@ -1156,60 +1156,60 @@ void ArmControlGUI::updateCameraViews()
                 obj_camera.z() <= 0.0f) {
                 continue; // 不在视野内的物体不显示
             }
-            
-            // 设置画笔颜色和宽度
-            if (static_cast<int>(i) == selected_object_index_) {
-                painter.setPen(QPen(Qt::yellow, 3));
-            } else {
-                painter.setPen(QPen(Qt::red, 2));
-            }
-            
-            // 计算矩形大小（基于物体距离）
+        
+        // 设置画笔颜色和宽度
+        if (static_cast<int>(i) == selected_object_index_) {
+            painter.setPen(QPen(Qt::yellow, 3));
+        } else {
+            painter.setPen(QPen(Qt::red, 2));
+        }
+        
+        // 计算矩形大小（基于物体距离）
             // 距离越远，框越小
             float distance_factor = 0.5f / obj_camera.z();
             int box_size = static_cast<int>(40 * distance_factor);
             box_size = std::max(20, std::min(80, box_size)); // 限制大小范围
             
             QRect rect(obj_image.x() - box_size/2, obj_image.y() - box_size/2, box_size, box_size);
-            
-            // 绘制矩形框
-            painter.drawRect(rect);
-            
-            // 设置字体和颜色
-            QFont font = painter.font();
-            font.setBold(true);
-            font.setPointSize(10);
-            painter.setFont(font);
-            
-            if (static_cast<int>(i) == selected_object_index_) {
-                painter.setPen(QPen(Qt::yellow));
-            } else {
-                painter.setPen(QPen(Qt::white));
-            }
-            
-            // 准备文本
-            QString text = QString::fromStdString(obj.id);
-            
-            // 获取文本尺寸
-            QFontMetrics fm(font);
-            QRect text_rect = fm.boundingRect(text);
-            
-            // 绘制背景
-            QRect background_rect(
+                    
+                    // 绘制矩形框
+        painter.drawRect(rect);
+        
+        // 设置字体和颜色
+        QFont font = painter.font();
+        font.setBold(true);
+        font.setPointSize(10);
+                    painter.setFont(font);
+        
+        if (static_cast<int>(i) == selected_object_index_) {
+            painter.setPen(QPen(Qt::yellow));
+        } else {
+            painter.setPen(QPen(Qt::white));
+        }
+        
+        // 准备文本
+        QString text = QString::fromStdString(obj.id);
+        
+        // 获取文本尺寸
+                    QFontMetrics fm(font);
+        QRect text_rect = fm.boundingRect(text);
+        
+        // 绘制背景
+        QRect background_rect(
                 obj_image.x() - text_rect.width()/2 - 2,
                 obj_image.y() - box_size/2 - text_rect.height() - 4,
-                text_rect.width() + 4,
-                text_rect.height() + 4
-            );
-            
-            painter.fillRect(background_rect, QColor(0, 0, 0, 128));
-            
-            // 绘制文本
-            painter.drawText(
+            text_rect.width() + 4,
+            text_rect.height() + 4
+        );
+        
+        painter.fillRect(background_rect, QColor(0, 0, 0, 128));
+        
+        // 绘制文本
+        painter.drawText(
                 obj_image.x() - text_rect.width()/2,
                 obj_image.y() - box_size/2 - 4,
-                text
-            );
+            text
+        );
             
             // 绘制距离信息
             QString distance_text = QString::number(obj_camera.z(), 'f', 2) + "m";
@@ -1675,7 +1675,7 @@ void ArmControlGUI::onVisualizeWorkspaceClicked()
 
 // 新增统一的物体检测回调函数，处理YOLO格式的检测结果
 void ArmControlGUI::objectDetectionCallback(const sensor_msgs::Image::ConstPtr& img_msg, 
-                                        const geometry_msgs::PoseArray::ConstPtr& poses_msg)
+                                         const geometry_msgs::PoseArray::ConstPtr& poses_msg)
 {
     try {
         // 处理检测图像

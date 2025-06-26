@@ -9,10 +9,31 @@ from geometry_msgs.msg import PoseArray, Pose, Point, Quaternion
 from std_msgs.msg import Bool
 from cv_bridge import CvBridge, CvBridgeError
 
-# 添加系统Python路径以找到ultralytics
-sys.path.append('/usr/local/lib/python3.8/dist-packages')
-sys.path.append('/usr/lib/python3/dist-packages')
-sys.path.append('/home/www/.local/lib/python3.8/site-packages')
+# 通过环境变量获取Python路径
+# 获取PYTHONPATH环境变量并将其添加到sys.path
+if 'PYTHONPATH' in os.environ:
+    env_paths = os.environ['PYTHONPATH'].split(':')
+    for path in env_paths:
+        if path and path not in sys.path and os.path.exists(path):
+            sys.path.append(path)
+            rospy.loginfo(f"从PYTHONPATH添加路径: {path}")
+
+# 获取Python可执行文件的site-packages路径
+try:
+    import site
+    site_packages = site.getsitepackages()
+    for path in site_packages:
+        if path not in sys.path and os.path.exists(path):
+            sys.path.append(path)
+            rospy.loginfo(f"添加site-packages路径: {path}")
+except Exception as e:
+    rospy.logwarn(f"获取site-packages路径失败: {e}")
+
+# 添加用户site-packages路径
+user_site = site.getusersitepackages() if hasattr(site, 'getusersitepackages') else None
+if user_site and user_site not in sys.path and os.path.exists(user_site):
+    sys.path.append(user_site)
+    rospy.loginfo(f"添加用户site-packages路径: {user_site}")
 
 class YoloDetector:
     """YOLO目标检测器，用于检测图像中的物体"""
@@ -23,7 +44,7 @@ class YoloDetector:
         
         # 获取参数
         self.enabled = rospy.get_param('~enabled', False)
-        self.model_name = rospy.get_param('~model', 'yolov8n.pt')
+        self.model_name = rospy.get_param('~model', 'yolov8s.pt')
         self.conf_threshold = rospy.get_param('~conf', 0.25)
         self.simulation_mode = rospy.get_param('~simulation_mode', False)  # 添加模拟模式参数，默认为False
         
@@ -33,6 +54,9 @@ class YoloDetector:
         # 初始化YOLO模型
         self.model_loaded = False
         
+        # 打印Python路径以便调试
+        rospy.loginfo(f"Python路径: {sys.path}")
+        
         if self.simulation_mode:
             # 使用模拟模式
             rospy.loginfo("使用模拟检测模式")
@@ -40,38 +64,65 @@ class YoloDetector:
         else:
             # 尝试加载实际的YOLO模型
             try:
-                # 打印Python路径以便调试
-                rospy.loginfo(f"Python路径: {sys.path}")
-                
+                # 尝试导入ultralytics
                 try:
-                    # 尝试直接导入ultralytics
+                    import ultralytics
+                    rospy.loginfo(f"成功导入ultralytics，版本: {ultralytics.__version__}")
                     from ultralytics import YOLO
-                    rospy.loginfo(f"正在加载YOLO模型: {self.model_name}")
-                    
-                    # 确保模型文件存在或可下载
-                    model_path = self.model_name
-                    if not os.path.exists(model_path) and not model_path.startswith(('http://', 'https://')):
-                        # 尝试在几个常见位置查找模型
-                        possible_paths = [
-                            os.path.join(os.path.dirname(__file__), self.model_name),
-                            os.path.join(os.path.expanduser('~'), self.model_name),
-                            os.path.join('/tmp', self.model_name)
-                        ]
-                        
-                        for path in possible_paths:
-                            if os.path.exists(path):
-                                model_path = path
-                                break
-                    
-                    self.model = YOLO(model_path)  # 加载实际的模型
-                    self.model_loaded = True
-                    rospy.loginfo(f"成功加载YOLO模型: {self.model_name}")
                 except ImportError as e:
                     rospy.logwarn(f"无法导入Ultralytics库: {str(e)}")
                     rospy.logwarn("请安装YOLOv8: pip install ultralytics")
-                    rospy.logwarn("切换到模拟检测模式")
-                    self.simulation_mode = True
-                    self.model_loaded = True
+                    
+                    # 尝试自动安装
+                    try:
+                        rospy.loginfo("尝试自动安装ultralytics...")
+                        import subprocess
+                        subprocess.check_call([sys.executable, "-m", "pip", "install", "ultralytics"])
+                        rospy.loginfo("ultralytics安装成功，尝试重新导入...")
+                        import ultralytics
+                        from ultralytics import YOLO
+                        rospy.loginfo(f"成功导入ultralytics，版本: {ultralytics.__version__}")
+                    except Exception as install_error:
+                        rospy.logerr(f"无法安装ultralytics: {str(install_error)}")
+                        rospy.logwarn("切换到模拟检测模式")
+                        self.simulation_mode = True
+                        self.model_loaded = True
+                        return
+                
+                # 加载模型
+                rospy.loginfo(f"正在加载YOLO模型: {self.model_name}")
+                
+                # 确保模型文件存在或可下载
+                model_path = self.model_name
+                if not os.path.exists(model_path) and not model_path.startswith(('http://', 'https://')):
+                    # 尝试在几个常见位置查找模型
+                    possible_paths = [
+                        os.path.join(os.path.dirname(__file__), self.model_name),
+                        os.path.join(os.path.expanduser('~'), self.model_name),
+                        os.path.join('/tmp', self.model_name)
+                    ]
+                    
+                    # 尝试在ultralytics包的资源目录中查找
+                    try:
+                        import ultralytics
+                        ultralytics_path = os.path.dirname(ultralytics.__file__)
+                        assets_path = os.path.join(ultralytics_path, 'assets', self.model_name)
+                        possible_paths.append(assets_path)
+                    except:
+                        pass
+                    
+                    for path in possible_paths:
+                        if os.path.exists(path):
+                            model_path = path
+                            rospy.loginfo(f"找到模型文件: {path}")
+                            break
+                    
+                    if not os.path.exists(model_path):
+                        rospy.loginfo(f"未找到本地模型文件，将尝试下载: {self.model_name}")
+                
+                self.model = YOLO(model_path)  # 加载实际的模型
+                self.model_loaded = True
+                rospy.loginfo(f"成功加载YOLO模型: {self.model_name}")
             except Exception as e:
                 rospy.logerr(f"加载YOLO模型失败: {str(e)}")
                 rospy.logwarn("切换到模拟检测模式")
