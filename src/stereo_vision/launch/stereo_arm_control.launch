@@ -14,7 +14,7 @@
     <node pkg="video_stream_opencv" type="video_stream" name="stereo_camera_stream" output="screen">
       <param name="camera_name" value="stereo_camera" />
       <param name="video_stream_provider" value="$(arg stereo_cam_device)" />
-      <param name="set_camera_fps" value="30" />
+      <param name="set_camera_fps" value="30" />  <!-- 摄像头最高只支持30FPS -->
       <param name="width" value="1280" />
       <param name="height" value="480" /> 
       <param name="frame_id" value="camera_link" />

@@ -323,6 +323,10 @@ void ArmControlGUI::setupCameraParameters()
     // 初始化相机外参（世界坐标系到相机坐标系的变换）
     // 这里我们不再使用固定变换，而是会动态更新为末端执行器的位置
     camera_extrinsic_.setToIdentity();
+    
+    // 设置相机帧率为30FPS（摄像头最高支持30FPS，不支持60FPS）
+    ros::NodeHandle nh_private("~");
+    nh_private.setParam("/camera/frame_rate", 30);
 }
 
 // 更新3D场景
@@ -601,7 +605,8 @@ void ArmControlGUI::onJoint1SliderChanged(int value)
     sendJointCommand(current_joint_values_);
     
     // 底座旋转对应舵机ID 1，位置范围映射到舵机范围
-    int servo_position = map(value, -180, 180, 500, 2500);
+    // 增大运动范围，使控制更加明显
+    int servo_position = map(value, -180, 180, 400, 2600);
     sendServoCommand(1, servo_position);
 }
 
@@ -619,7 +624,8 @@ void ArmControlGUI::onJoint3SliderChanged(int value)
     sendJointCommand(current_joint_values_);
     
     // 肩部关节对应舵机ID 2，位置范围映射到舵机范围
-    int servo_position = map(value, -90, 90, 500, 2500);
+    // 增大运动范围，使控制更加明显
+    int servo_position = map(value, -90, 90, 400, 2600);
     sendServoCommand(2, servo_position);
 }
 
@@ -630,7 +636,8 @@ void ArmControlGUI::onJoint4SliderChanged(int value)
     sendJointCommand(current_joint_values_);
     
     // 肘部关节对应舵机ID 3，位置范围映射到舵机范围
-    int servo_position = map(value, 0, 180, 500, 2500);
+    // 增大运动范围，使控制更加明显
+    int servo_position = map(value, 0, 180, 400, 2600);
     sendServoCommand(3, servo_position);
 }
 
@@ -1128,8 +1135,24 @@ void ArmControlGUI::updateCameraViews()
         }
     }
     
-    // 更新相机视图
-    ui->cameraView->setPixmap(QPixmap::fromImage(display_image));
+    // 更新相机视图，缩小以适配显示区域
+    QPixmap pixmap = QPixmap::fromImage(display_image);
+    
+    // 获取相机视图控件的尺寸
+    QSize viewSize = ui->cameraView->size();
+    
+    // 计算合适的缩放比例，保持图像比例不变
+    float scaleFactor = qMin(
+        static_cast<float>(viewSize.width()) / pixmap.width(),
+        static_cast<float>(viewSize.height()) / pixmap.height()
+    ) * 0.9; // 再缩小10%以确保完全显示
+    
+    // 缩放图像
+    QSize scaledSize(pixmap.width() * scaleFactor, pixmap.height() * scaleFactor);
+    pixmap = pixmap.scaled(scaledSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    
+    // 设置显示
+    ui->cameraView->setPixmap(pixmap);
 }
 
 // 操作函数实现
@@ -1154,6 +1177,10 @@ void ArmControlGUI::sendVacuumCommand(bool on, int power)
     // 创建功率设置消息
     std_msgs::Float64 power_cmd;
     power_cmd.data = power / 100.0; // 转换为0-1范围
+    
+    // 增大功率值，使控制效果更明显
+    power_cmd.data = power_cmd.data * 1.5; // 增加50%的功率值
+    if (power_cmd.data > 1.0) power_cmd.data = 1.0; // 确保不超过最大值
     
     // 发布吸附命令
     vacuum_command_pub_.publish(vacuum_cmd);
