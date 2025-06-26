@@ -78,9 +78,6 @@ ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     ros::Subscriber yolo_detection_sub = nh_.subscribe("/yolo_detection/image", 1, &ArmControlGUI::detectionImageCallback, this);
     detection_poses_sub_ = nh_.subscribe("/yolo_detection/poses", 1, &ArmControlGUI::detectionPosesCallback, this);
     
-    // 深度图像订阅
-    depth_image_sub_ = nh_.subscribe("/stereo_camera/depth", 1, &ArmControlGUI::depthImageCallback, this);
-    
     // YOLO状态订阅
     yolo_status_sub_ = nh_.subscribe("/yolo/status", 1, &ArmControlGUI::yoloStatusCallback, this);
     
@@ -114,7 +111,6 @@ ArmControlGUI::~ArmControlGUI()
     
     // 关闭ROS订阅
     stereo_merged_sub_.shutdown();
-    depth_image_sub_.shutdown();
     detection_image_sub_.shutdown();
     yolo_status_sub_.shutdown();
     
@@ -141,10 +137,7 @@ void ArmControlGUI::initializeGUI()
     connect(ui->vacuumOnButton, &QPushButton::clicked, this, &ArmControlGUI::onVacuumOnButtonClicked);
     connect(ui->vacuumOffButton, &QPushButton::clicked, this, &ArmControlGUI::onVacuumOffButtonClicked);
     
-    // 连接任务控制按钮
-    connect(ui->pickButton, &QPushButton::clicked, this, &ArmControlGUI::onPickButtonClicked);
-    connect(ui->placeButton, &QPushButton::clicked, this, &ArmControlGUI::onPlaceButtonClicked);
-    connect(ui->sequenceButton, &QPushButton::clicked, this, &ArmControlGUI::onSequenceButtonClicked);
+    // 路径规划按钮连接在路径规划控制组中
     
     // 创建并连接示例动作按钮
     QGroupBox* demoGroup = new QGroupBox("示例动作");
@@ -540,27 +533,7 @@ void ArmControlGUI::leftCameraCallback(const sensor_msgs::Image::ConstPtr& msg)
     }
 }
 
-void ArmControlGUI::rightCameraCallback(const sensor_msgs::Image::ConstPtr& msg)
-{
-    try {
-        // 将ROS图像转换为OpenCV图像
-        cv_bridge::CvImageConstPtr cv_ptr = cv_bridge::toCvShare(msg, "bgr8");
-        
-        // 转换为QImage
-        QImage image(cv_ptr->image.data, cv_ptr->image.cols, cv_ptr->image.rows, 
-                     cv_ptr->image.step, QImage::Format_RGB888);
-        image = image.rgbSwapped(); // BGR to RGB
-        
-        // 保存图像
-        right_camera_image_ = image;
-        
-        // 更新UI (在主线程中)
-        QMetaObject::invokeMethod(this, "updateCameraView", Qt::QueuedConnection);
-    }
-    catch (cv_bridge::Exception& e) {
-        ROS_ERROR("cv_bridge exception: %s", e.what());
-    }
-}
+// rightCameraCallback函数已删除
 
 void ArmControlGUI::detectionImageCallback(const sensor_msgs::Image::ConstPtr& msg)
 {
@@ -589,44 +562,6 @@ void ArmControlGUI::detectionImageCallback(const sensor_msgs::Image::ConstPtr& m
     }
     catch (cv_bridge::Exception& e) {
         ROS_ERROR("cv_bridge exception in detection image callback: %s", e.what());
-    }
-}
-
-void ArmControlGUI::depthImageCallback(const sensor_msgs::Image::ConstPtr& msg)
-{
-    try {
-        // 将ROS图像转换为OpenCV图像
-        cv_bridge::CvImageConstPtr cv_ptr = cv_bridge::toCvShare(msg, "mono16");
-        
-        // 转换为彩色深度图
-        cv::Mat normalized;
-        cv::normalize(cv_ptr->image, normalized, 0, 255, cv::NORM_MINMAX, CV_8UC1);
-        
-        // 应用彩色映射
-        cv::Mat colorized;
-        cv::applyColorMap(normalized, colorized, cv::COLORMAP_JET);
-        
-        // 转换为QImage
-        QImage image(colorized.data, colorized.cols, colorized.rows, 
-                     colorized.step, QImage::Format_RGB888);
-        image = image.rgbSwapped(); // BGR to RGB
-        
-        // 保存图像
-        depth_image_ = image;
-        
-        // 记录成功接收的帧
-        static int frame_count = 0;
-        frame_count++;
-        if (frame_count % 30 == 0) {  // 每30帧记录一次
-            ROS_INFO("成功接收到深度图像帧：%d (尺寸: %dx%d)", 
-                    frame_count, image.width(), image.height());
-        }
-        
-        // 更新UI (在主线程中)
-        QMetaObject::invokeMethod(this, "updateDepthView", Qt::QueuedConnection);
-    }
-    catch (cv_bridge::Exception& e) {
-        ROS_ERROR("cv_bridge exception in depth image callback: %s", e.what());
     }
 }
 
@@ -731,174 +666,131 @@ void ArmControlGUI::updateVacuumStatus()
 
 void ArmControlGUI::updateCameraViews()
 {
-    try {
-        // 获取基础摄像头图像
-        QImage base_image;
-        
-        // 优先使用左相机/立体摄像头图像
-        if (!left_camera_image_.isNull()) {
-            base_image = left_camera_image_;
-        }
-        // 其次使用当前缓存图像
-        else if (!current_camera_image_.isNull()) {
-            base_image = current_camera_image_;
-        }
-        
-        if (!base_image.isNull()) {
-            // 创建一个绘制工作的副本
-            QImage display_image = base_image.copy();
-            
-            // 如果启用了YOLO检测且有检测结果，在基础图像上绘制检测框和标签
-            if (yolo_detection_enabled_ && !detected_objects_.empty()) {
-                // 创建绘图对象
-                QPainter painter(&display_image);
-                
-                // 设置检测框绘制样式
-                painter.setPen(QPen(Qt::green, 3));
-                
-                // 遍历检测到的物体
-                for (const DetectedObject& obj : detected_objects_) {
-                    // 计算图像坐标 (假设物体位置是在3D世界坐标系中，需要转换)
-                    // 这里简化处理，使用对象表中的x,y作为图像像素坐标
-                    int box_x = obj.x; // 需要调整适合显示范围
-                    int box_y = obj.y; // 需要调整适合显示范围
-                    
-                    // 防止坐标超出图像范围
-                    if (box_x < 0) box_x = 0;
-                    if (box_y < 0) box_y = 0;
-                    if (box_x >= display_image.width()) box_x = display_image.width() - 100;
-                    if (box_y >= display_image.height()) box_y = display_image.height() - 100;
-                    
-                    // 绘制矩形框
-                    int box_width = 100; // 示例宽度，应根据实际检测结果调整
-                    int box_height = 100; // 示例高度，应根据实际检测结果调整
-                    painter.drawRect(box_x, box_y, box_width, box_height);
-                    
-                    // 绘制标签背景
-                    QString label = QString::fromStdString(obj.type) + " #" + QString::fromStdString(obj.id);
-                    QFont font("Arial", 12, QFont::Bold);
-                    painter.setFont(font);
-                    QFontMetrics fm(font);
-                    int text_width = fm.horizontalAdvance(label) + 10;
-                    int text_height = fm.height() + 5;
-                    
-                    // 绘制标签背景
-                    painter.fillRect(QRect(box_x, box_y - text_height, text_width, text_height), QColor(0, 150, 0, 180));
-                    
-                    // 绘制标签文字
-                    painter.setPen(Qt::white);
-                    painter.drawText(box_x + 5, box_y - 5, label);
-                    
-                    // 重置笔刷用于下一次矩形绘制
-                    painter.setPen(QPen(Qt::green, 3));
-                }
-                
-                painter.end();
-            }
-            
-            // 按比例缩放图像，保持原始宽高比
-            QPixmap scaled_pixmap = QPixmap::fromImage(display_image).scaled(
-                ui->cameraView->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
-            
-            // 创建一个背景图像，用于居中显示
-            QPixmap background(ui->cameraView->size());
-            background.fill(Qt::black);
-            
-            // 计算居中位置
-            int x = (ui->cameraView->size().width() - scaled_pixmap.width()) / 2;
-            int y = (ui->cameraView->size().height() - scaled_pixmap.height()) / 2;
-            
-            // 在背景上绘制缩放后的图像
-            QPainter painter(&background);
-            painter.drawPixmap(x, y, scaled_pixmap);
-            
-            // 添加状态信息
-            painter.setPen(Qt::white);
-            painter.setFont(QFont("Arial", 10));
-            painter.drawText(10, 20, QString("图像尺寸: %1x%2").arg(display_image.width()).arg(display_image.height()));
-            painter.drawText(10, 40, QString("YOLO: %1").arg(yolo_detection_enabled_ ? "启用" : "禁用"));
-            painter.drawText(10, 60, QString("检测到物体: %1 个").arg(detected_objects_.size()));
-            painter.end();
-            
-            // 设置到标签
-            ui->cameraView->setPixmap(background);
-            camera_pixmap_ = background;  // 保存当前显示的图像
-        } else {
-            // 摄像头图像为空，显示提示信息
-            if (ui->cameraView->pixmap() == nullptr || ui->cameraView->pixmap()->isNull()) {
-                QPixmap emptyPix(ui->cameraView->width(), ui->cameraView->height());
-                emptyPix.fill(Qt::black);
-                
-                // 添加提示文字
-                QPainter painter(&emptyPix);
-                painter.setPen(Qt::white);
-                painter.setFont(QFont("Arial", 14, QFont::Bold));
-                painter.drawText(emptyPix.rect(), Qt::AlignCenter, "等待摄像头数据...\n\n请确认:\n1.摄像头已连接\n2.话题已正确发布");
-                painter.end();
-                
-                ui->cameraView->setPixmap(emptyPix);
-                ROS_WARN_THROTTLE(5, "等待摄像头数据...");
-            }
-        }
-        
-        // 更新深度视图
-        updateDepthView();
-        
-    } catch (std::exception &e) {
-        ROS_ERROR("Error in updateCameraViews: %s", e.what());
-    }
+    updateCameraView();
 }
 
-void ArmControlGUI::updateDepthView()
+void ArmControlGUI::updateCameraView()
 {
     try {
-        // 如果有深度图像，显示它
-        if (!depth_image_.isNull()) {
-            // 获取标签的大小
-            QSize labelSize = ui->depthView->size();
-            
-            // 按比例缩放图像，保持原始宽高比
-            QPixmap scaled_pixmap = QPixmap::fromImage(depth_image_).scaled(
-                labelSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-            
-            // 创建一个背景图像，用于居中显示
-            QPixmap background(labelSize);
-            background.fill(Qt::black);
-            
-            // 计算居中位置
-            int x = (labelSize.width() - scaled_pixmap.width()) / 2;
-            int y = (labelSize.height() - scaled_pixmap.height()) / 2;
-            
-            // 在背景上绘制缩放后的图像
-            QPainter painter(&background);
-            painter.drawPixmap(x, y, scaled_pixmap);
-            
-            // 添加深度图信息
-            painter.setPen(Qt::white);
-            painter.setFont(QFont("Arial", 10));
-            painter.drawText(10, 20, "深度图视图");
-            painter.end();
-            
-            // 设置到标签
-            ui->depthView->setPixmap(background);
+        // 获取相机视图的大小
+        QSize labelSize = ui->cameraView->size();
+        
+        // 获取基础图像
+        QImage base_image;
+        if (!current_camera_image_.isNull()) {
+            base_image = current_camera_image_;
+        } else if (!left_camera_image_.isNull()) {
+            base_image = left_camera_image_;
         } else {
-            // 深度图像为空，显示提示信息
-            if (ui->depthView->pixmap() == nullptr || ui->depthView->pixmap()->isNull()) {
-                QPixmap emptyPix(ui->depthView->width(), ui->depthView->height());
-                emptyPix.fill(Qt::black);
-                
-                // 添加提示文字
-                QPainter painter(&emptyPix);
-                painter.setPen(Qt::white);
-                painter.setFont(QFont("Arial", 14, QFont::Bold));
-                painter.drawText(emptyPix.rect(), Qt::AlignCenter, "等待深度数据...\n\n请启用深度相机");
-                painter.end();
-                
-                ui->depthView->setPixmap(emptyPix);
-            }
+            // 如果没有图像，显示空白
+            ui->cameraView->setText("等待摄像头图像...");
+            return;
         }
-    } catch (std::exception &e) {
-        ROS_ERROR("Error in updateDepthView: %s", e.what());
+        
+        // 创建可绘制的图像副本
+        QImage drawable_image = base_image.copy();
+        
+        // 如果启用了YOLO检测且有检测结果，在基础图像上绘制检测框和标签
+        if (yolo_detection_enabled_ && !detected_objects_.empty()) {
+            QPainter painter(&drawable_image);
+            painter.setRenderHint(QPainter::Antialiasing);
+            
+            // 设置字体
+            QFont font = painter.font();
+            font.setPointSize(14);
+            font.setBold(true);
+            painter.setFont(font);
+            
+            // 遍历所有检测到的物体
+            for (const DetectedObject& obj : detected_objects_) {
+                // 计算边界框 (这里假设x,y是物体中心坐标)
+                int box_width = 80;  // 根据实际情况调整
+                int box_height = 80;
+                int x1 = obj.x - box_width/2;
+                int y1 = obj.y - box_height/2;
+                int x2 = obj.x + box_width/2;
+                int y2 = obj.y + box_height/2;
+                
+                // 确保边界框在图像范围内
+                x1 = qMax(0, x1);
+                y1 = qMax(0, y1);
+                x2 = qMin(drawable_image.width() - 1, x2);
+                y2 = qMin(drawable_image.height() - 1, y2);
+                
+                // 设置绘制颜色和宽度
+                QPen pen(Qt::red);
+                pen.setWidth(3);
+                painter.setPen(pen);
+                
+                // 绘制边界框
+                painter.drawRect(x1, y1, x2 - x1, y2 - y1);
+                
+                // 绘制物体标签背景
+                QFontMetrics fm(font);
+                QString label = QString("%1 (%.1fcm)").arg(QString::fromStdString(obj.type)).arg(obj.z);
+                QRect textRect = fm.boundingRect(label);
+                QRect bgRect(x1, y1 - 25, textRect.width() + 10, 25);
+                painter.fillRect(bgRect, QColor(0, 0, 0, 180)); // 半透明黑色背景
+                
+                // 绘制物体标签
+                painter.setPen(Qt::white);
+                painter.drawText(x1 + 5, y1 - 5, label);
+                
+                // 绘制距离信息
+                QString distInfo = QString("距离: %.1fcm").arg(obj.z);
+                painter.drawText(x1 + 5, y2 + 20, distInfo);
+            }
+            
+            // 绘制状态信息
+            painter.setPen(Qt::green);
+            painter.drawText(10, 30, QString("YOLO: 启用"));
+            painter.drawText(10, 60, QString("检测到物体: %1 个").arg(detected_objects_.size()));
+        } else {
+            // 绘制YOLO状态信息
+            QPainter painter(&drawable_image);
+            painter.setRenderHint(QPainter::Antialiasing);
+            
+            QFont font = painter.font();
+            font.setPointSize(12);
+            painter.setFont(font);
+            
+            painter.setPen(Qt::red);
+            painter.drawText(10, 30, QString("YOLO: %1").arg(yolo_detection_enabled_ ? "启用（等待检测结果）" : "禁用"));
+        }
+        
+        // 缩放图像以适应标签大小，保持纵横比
+        QPixmap scaled_pixmap = QPixmap::fromImage(drawable_image).scaled(
+            ui->cameraView->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        
+        // 创建背景
+        QPixmap background(ui->cameraView->size());
+        background.fill(Qt::black);
+        
+        // 将图像放在中间
+        int x = (ui->cameraView->size().width() - scaled_pixmap.width()) / 2;
+        int y = (ui->cameraView->size().height() - scaled_pixmap.height()) / 2;
+        
+        QPainter painter(&background);
+        painter.drawPixmap(x, y, scaled_pixmap);
+        
+        // 设置图像
+        ui->cameraView->setPixmap(background);
+        
+        // 如果图像为空，显示错误信息
+        if (ui->cameraView->pixmap() == nullptr || ui->cameraView->pixmap()->isNull()) {
+            QPixmap emptyPix(ui->cameraView->width(), ui->cameraView->height());
+            emptyPix.fill(Qt::black);
+            
+            QPainter painter(&emptyPix);
+            painter.setPen(Qt::white);
+            painter.setFont(QFont("Arial", 14));
+            painter.drawText(emptyPix.rect(), Qt::AlignCenter, "摄像头未连接或未启动");
+            
+            ui->cameraView->setPixmap(emptyPix);
+        }
+    }
+    catch (std::exception& e) {
+        ROS_ERROR("Error in updateCameraView: %s", e.what());
     }
 }
 
@@ -1162,19 +1054,7 @@ void ArmControlGUI::updateROS()
     }
 }
 
-void ArmControlGUI::updateCameraView()
-{
-    // 这个函数被leftCameraCallback等回调函数调用，用于更新相机视图
-    // 记录日志
-    QString status = "更新相机视图 - 图像状态: ";
-    status += (left_camera_image_.isNull() ? QString("左相机为空") : QString("左相机有数据"));
-    status += ", ";
-    status += (current_camera_image_.isNull() ? QString("当前图像为空") : QString("当前图像有数据"));
-    logMessage(status);
-    
-    // 调用updateCameraViews更新所有视图
-    updateCameraViews();
-}
+// 原来的updateCameraView函数已删除，实现已合并到主要的updateCameraView函数中
 
 // 添加缺失的按钮点击处理函数
 void ArmControlGUI::on_homeButton_clicked()
@@ -1519,7 +1399,8 @@ void ArmControlGUI::updateConnectionStatus()
     bool camera_ok = !left_camera_image_.isNull() || !current_camera_image_.isNull();
     
     // 检查深度相机连接状态
-    bool depth_ok = !depth_image_.isNull();
+    // 深度视图已删除
+    bool depth_ok = false;
     
     // 更新状态栏
     QString status;
@@ -1548,41 +1429,51 @@ void ArmControlGUI::updateConnectionStatus()
 // 添加测试图像生成函数
 void ArmControlGUI::generateTestImages()
 {
-    // 创建测试相机图像
+    // 生成相机测试图像
     QImage testCamera(640, 480, QImage::Format_RGB888);
-    testCamera.fill(Qt::blue);  // 蓝色背景
+    testCamera.fill(Qt::black);
     
-    // 在图像上绘制一些测试图形
-    QPainter painter(&testCamera);
-    painter.setPen(QPen(Qt::white, 3));
-    painter.drawText(50, 50, "测试相机图像 - 无需ROS连接");
-    painter.drawRect(100, 100, 200, 150);
-    painter.drawEllipse(400, 300, 100, 100);
-    painter.end();
+    QPainter painterCamera(&testCamera);
+    painterCamera.setPen(QPen(Qt::white, 2));
+    painterCamera.setFont(QFont("Arial", 14, QFont::Bold));
     
-    // 创建测试深度图像
-    QImage testDepth(640, 480, QImage::Format_RGB888);
-    testDepth.fill(Qt::black);  // 黑色背景
+    painterCamera.drawText(50, 100, "测试相机图像");
+    painterCamera.drawText(50, 150, "等待摄像头连接...");
     
-    // 在深度图上绘制渐变色
-    QPainter depthPainter(&testDepth);
-    QLinearGradient gradient(0, 0, testDepth.width(), testDepth.height());
-    gradient.setColorAt(0, Qt::blue);
-    gradient.setColorAt(0.5, Qt::green);
-    gradient.setColorAt(1, Qt::red);
-    depthPainter.fillRect(0, 0, testDepth.width(), testDepth.height(), gradient);
-    depthPainter.setPen(Qt::white);
-    depthPainter.drawText(50, 50, "测试深度图像 - 无需ROS连接");
-    depthPainter.end();
+    // 绘制一些图形以便识别
+    painterCamera.setPen(QPen(Qt::red, 3));
+    painterCamera.drawEllipse(320, 240, 100, 100);
+    painterCamera.setPen(QPen(Qt::green, 3));
+    painterCamera.drawRect(220, 140, 200, 200);
     
     // 保存测试图像
     left_camera_image_ = testCamera;
-    current_camera_image_ = testCamera;
-    depth_image_ = testDepth;
     
-    // 记录日志
-    logMessage("已生成测试图像，无需ROS连接即可显示");
-    
-    // 立即更新视图
-    updateCameraViews();
+    // 删除深度图测试图像生成
+    // remove: // 生成深度图测试图像
+    // remove: QImage testDepth(640, 480, QImage::Format_RGB888);
+    // remove: testDepth.fill(Qt::black);
+    // remove: 
+    // remove: QPainter painterDepth(&testDepth);
+    // remove: painterDepth.setPen(QPen(Qt::white, 2));
+    // remove: painterDepth.setFont(QFont("Arial", 14, QFont::Bold));
+    // remove: 
+    // remove: painterDepth.drawText(50, 100, "测试深度图像");
+    // remove: painterDepth.drawText(50, 150, "等待深度图数据...");
+    // remove: 
+    // remove: // 创建彩色梯度作为深度图示例
+    // remove: for (int y = 0; y < 480; y += 2) {
+    // remove:     for (int x = 0; x < 640; x += 2) {
+    // remove:         int r = qMin(255, x * 255 / 640);
+    // remove:         int g = qMin(255, y * 255 / 480);
+    // remove:         int b = qMin(255, (x + y) * 255 / (640 + 480));
+    // remove:         testDepth.setPixelColor(x, y, QColor(r, g, b));
+    // remove:         testDepth.setPixelColor(x+1, y, QColor(r, g, b));
+    // remove:         testDepth.setPixelColor(x, y+1, QColor(r, g, b));
+    // remove:         testDepth.setPixelColor(x+1, y+1, QColor(r, g, b));
+    // remove:     }
+    // remove: }
+    // remove: 
+    // remove: // 保存测试图像
+    // remove: depth_image_ = testDepth;
 } 

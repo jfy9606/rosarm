@@ -124,7 +124,6 @@ private slots:
     void updateJointInfo();
     void updateEndEffectorPose();
     void updateCameraViews();
-    void updateDepthView();
     void updateConnectionStatus();
 
 private:
@@ -140,10 +139,7 @@ private:
     ros::Publisher gripper_cmd_pub_;
     ros::Publisher vacuum_cmd_pub_;
     ros::Subscriber joint_state_sub_;
-    ros::Subscriber left_camera_sub_;
-    ros::Subscriber right_camera_sub_;
     ros::Subscriber stereo_merged_sub_;
-    ros::Subscriber depth_image_sub_;
     ros::Subscriber detection_image_sub_;
     ros::Subscriber detection_poses_sub_;
     ros::Subscriber yolo_status_sub_;
@@ -161,8 +157,6 @@ private:
     
     // 图像显示相关
     QImage left_camera_image_;
-    QImage right_camera_image_;
-    QImage depth_image_;
     QImage detection_image_;
     QPixmap camera_pixmap_;
     QImage current_camera_image_;
@@ -190,8 +184,6 @@ private:
     // 回调函数
     void jointStateCallback(const sensor_msgs::JointState::ConstPtr& msg);
     void leftCameraCallback(const sensor_msgs::Image::ConstPtr& msg);
-    void rightCameraCallback(const sensor_msgs::Image::ConstPtr& msg);
-    void depthImageCallback(const sensor_msgs::Image::ConstPtr& msg);
     void detectionImageCallback(const sensor_msgs::Image::ConstPtr& msg);
     void detectionPosesCallback(const geometry_msgs::PoseArray::ConstPtr& msg);
     void cameraCallback(const sensor_msgs::Image::ConstPtr& msg);

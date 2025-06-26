@@ -376,40 +376,6 @@
          </widget>
         </item>
         <item>
-         <widget class="QGroupBox" name="taskGroup">
-          <property name="title">
-           <string>任务控制</string>
-          </property>
-          <layout class="QVBoxLayout" name="verticalLayout_5">
-           <item>
-            <layout class="QHBoxLayout" name="horizontalLayout_11">
-             <item>
-              <widget class="QPushButton" name="pickButton">
-               <property name="text">
-                <string>抓取物体</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QPushButton" name="placeButton">
-               <property name="text">
-                <string>放置物体</string>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </item>
-           <item>
-            <widget class="QPushButton" name="sequenceButton">
-             <property name="text">
-              <string>执行预设任务序列</string>
-             </property>
-            </widget>
-           </item>
-          </layout>
-         </widget>
-        </item>
-        <item>
          <widget class="QTextEdit" name="logTextEdit">
           <property name="readOnly">
            <bool>true</bool>
@@ -430,46 +396,6 @@
        </property>
        <layout class="QVBoxLayout" name="verticalLayout_9">
         <item>
-         <widget class="QGroupBox" name="groupBoxDepthView">
-          <property name="title">
-           <string>深度视图</string>
-          </property>
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
-            <horstretch>0</horstretch>
-            <verstretch>1</verstretch>
-           </sizepolicy>
-          </property>
-          <layout class="QVBoxLayout" name="verticalLayout_6">
-            <item>
-              <widget class="QLabel" name="depthView">
-                <property name="sizePolicy">
-                  <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-                    <horstretch>0</horstretch>
-                    <verstretch>0</verstretch>
-                  </sizepolicy>
-                </property>
-                <property name="minimumSize">
-                  <size>
-                    <width>640</width>
-                    <height>240</height>
-                  </size>
-                </property>
-                <property name="frameShape">
-                  <enum>QFrame::Box</enum>
-                </property>
-                <property name="text">
-                  <string>深度视图</string>
-                </property>
-                <property name="alignment">
-                  <set>Qt::AlignCenter</set>
-                </property>
-              </widget>
-            </item>
-          </layout>
-         </widget>
-        </item>
-        <item>
          <widget class="QGroupBox" name="groupBoxCameraView">
           <property name="title">
             <string>摄像头视图</string>
@@ -477,7 +403,7 @@
           <property name="sizePolicy">
             <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
               <horstretch>0</horstretch>
-              <verstretch>1</verstretch>
+              <verstretch>2</verstretch>
             </sizepolicy>
           </property>
           <layout class="QVBoxLayout" name="verticalLayout_7">
@@ -492,7 +418,7 @@
                 <property name="minimumSize">
                   <size>
                     <width>640</width>
-                    <height>240</height>
+                    <height>400</height>
                   </size>
                 </property>
                 <property name="frameShape">
@@ -505,6 +431,75 @@
                   <set>Qt::AlignCenter</set>
                 </property>
               </widget>
+            </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QGroupBox" name="pathPlanningGroup">
+          <property name="title">
+           <string>路径规划控制</string>
+          </property>
+          <property name="sizePolicy">
+            <sizepolicy hsizetype="Preferred" vsizetype="Minimum">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+            </sizepolicy>
+          </property>
+          <layout class="QVBoxLayout" name="verticalLayout_8">
+            <item>
+              <layout class="QHBoxLayout" name="horizontalLayout_12">
+                <item>
+                  <widget class="QCheckBox" name="yolo_checkbox">
+                    <property name="text">
+                      <string>启用YOLO检测</string>
+                    </property>
+                  </widget>
+                </item>
+                <item>
+                  <widget class="QLabel" name="placementAreaLabel">
+                    <property name="text">
+                      <string>选择放置区:</string>
+                    </property>
+                  </widget>
+                </item>
+                <item>
+                  <widget class="QComboBox" name="placement_area_combo">
+                  </widget>
+                </item>
+              </layout>
+            </item>
+            <item>
+              <layout class="QHBoxLayout" name="horizontalLayout_13">
+                <item>
+                  <widget class="QPushButton" name="scanObjectsButton">
+                    <property name="text">
+                      <string>扫描物体</string>
+                    </property>
+                  </widget>
+                </item>
+                <item>
+                  <widget class="QPushButton" name="planPathButton">
+                    <property name="text">
+                      <string>规划路径</string>
+                    </property>
+                  </widget>
+                </item>
+                <item>
+                  <widget class="QPushButton" name="executePathButton">
+                    <property name="text">
+                      <string>执行路径</string>
+                    </property>
+                  </widget>
+                </item>
+                <item>
+                  <widget class="QPushButton" name="visualizeWorkspaceButton">
+                    <property name="text">
+                      <string>可视化工作空间</string>
+                    </property>
+                  </widget>
+                </item>
+              </layout>
             </item>
           </layout>
          </widget>
