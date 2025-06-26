@@ -182,14 +182,13 @@ show_menu() {
     echo -e "${GREEN}机械臂视觉控制系统启动菜单${NC}"
     echo -e "${BLUE}=====================================${NC}"
     echo -e "${YELLOW}1. 启动完整系统${NC}"
-    echo -e "${YELLOW}2. 启动系统 (YOLO初始状态: 启用)${NC}"
-    echo -e "${YELLOW}3. 测试摄像头${NC}"
-    echo -e "${YELLOW}4. 直接模式 (不使用ROS)${NC}"
-    echo -e "${YELLOW}5. 测试路径规划${NC}"
-    echo -e "${YELLOW}6. 配置参数${NC}"
+    echo -e "${YELLOW}2. 测试摄像头${NC}"
+    echo -e "${YELLOW}3. 直接模式 (不使用ROS)${NC}"
+    echo -e "${YELLOW}4. 测试路径规划${NC}"
+    echo -e "${YELLOW}5. 配置参数${NC}"
     echo -e "${YELLOW}0. 退出${NC}"
     echo -e "${BLUE}=====================================${NC}"
-    echo -e "${CYAN}注意: 在系统运行后，可以通过GUI控制面板随时开关YOLO检测功能${NC}"
+    echo -e "${CYAN}注意: 可以通过GUI控制面板随时开关YOLO检测功能${NC}"
     echo -e "${BLUE}=====================================${NC}"
     echo -ne "${GREEN}请选择: ${NC}"
     read -r choice
@@ -197,29 +196,25 @@ show_menu() {
     case $choice in
         1)
             echo -e "${GREEN}启动完整系统...${NC}"
-            YOLO_ENABLED=false
-            launch_system
-            ;;
-        2)
-            echo -e "${GREEN}启动系统 (YOLO初始状态: 启用)...${NC}"
+            # 设置YOLO初始状态为启用，通过GUI可以控制开关
             YOLO_ENABLED=true
             launch_system
             ;;
-        3)
+        2)
             echo -e "${GREEN}测试摄像头...${NC}"
             TEST_MODE=true
             launch_system
             ;;
-        4)
+        3)
             echo -e "${GREEN}直接模式...${NC}"
             DIRECT_MODE=true
             launch_system
             ;;
-        5)
+        4)
             echo -e "${GREEN}测试路径规划...${NC}"
             launch_path_planning
             ;;
-        6)
+        5)
             configure_params
             ;;
         0)

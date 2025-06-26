@@ -205,6 +205,12 @@ void ArmControlGUI::initializeGUI()
     connect(demoButton1, &QPushButton::clicked, this, &ArmControlGUI::onDemoAction1Clicked);
     connect(demoButton2, &QPushButton::clicked, this, &ArmControlGUI::onDemoAction2Clicked);
     connect(demoButton3, &QPushButton::clicked, this, &ArmControlGUI::onDemoAction3Clicked);
+    
+    // 连接检测表格的单元格点击事件
+    if (ui->detectionsTable) {
+        connect(ui->detectionsTable, &QTableWidget::cellClicked, 
+                this, &ArmControlGUI::onDetectionsTableCellClicked);
+    }
 }
 
 void ArmControlGUI::initializeJointControlConnections()
@@ -587,6 +593,9 @@ void ArmControlGUI::detectionPosesCallback(const geometry_msgs::PoseArray::Const
         obj.pose = msg->poses[i];
         detected_objects_.push_back(obj);
     }
+    
+    // 更新检测结果表格
+    updateDetectionsTable();
     
     // 检测结果更新后，立即更新视图
     QMetaObject::invokeMethod(this, "updateCameraViews", Qt::QueuedConnection);
@@ -1476,4 +1485,85 @@ void ArmControlGUI::generateTestImages()
     // remove: 
     // remove: // 保存测试图像
     // remove: depth_image_ = testDepth;
+}
+
+// 添加更新检测结果表格的函数
+void ArmControlGUI::updateDetectionsTable()
+{
+    // 确保在主线程中更新UI
+    QMetaObject::invokeMethod(this, "updateDetectionsTableUI", Qt::QueuedConnection);
+}
+
+// 在主线程中更新检测结果表格
+void ArmControlGUI::updateDetectionsTableUI()
+{
+    if (!ui->detectionsTable) {
+        return;  // 表格不存在，可能是旧版UI
+    }
+    
+    // 阻止表格信号以避免触发不必要的回调
+    ui->detectionsTable->blockSignals(true);
+    
+    // 清空表格
+    ui->detectionsTable->setRowCount(0);
+    
+    // 设置表格列数
+    ui->detectionsTable->setColumnCount(6);
+    
+    // 设置表头
+    QStringList headers;
+    headers << "ID" << "类型" << "X" << "Y" << "Z" << "操作";
+    ui->detectionsTable->setHorizontalHeaderLabels(headers);
+    
+    // 填充检测结果
+    for (size_t i = 0; i < detected_objects_.size(); ++i) {
+        const DetectedObject& obj = detected_objects_[i];
+        
+        // 添加新行
+        int row = ui->detectionsTable->rowCount();
+        ui->detectionsTable->insertRow(row);
+        
+        // 设置ID
+        QTableWidgetItem* idItem = new QTableWidgetItem(QString::fromStdString(obj.id));
+        ui->detectionsTable->setItem(row, 0, idItem);
+        
+        // 设置类型
+        QTableWidgetItem* typeItem = new QTableWidgetItem(QString::fromStdString(obj.type));
+        ui->detectionsTable->setItem(row, 1, typeItem);
+        
+        // 设置X坐标
+        QTableWidgetItem* xItem = new QTableWidgetItem(QString::number(obj.pose.position.x * 100, 'f', 1));
+        ui->detectionsTable->setItem(row, 2, xItem);
+        
+        // 设置Y坐标
+        QTableWidgetItem* yItem = new QTableWidgetItem(QString::number(obj.pose.position.y * 100, 'f', 1));
+        ui->detectionsTable->setItem(row, 3, yItem);
+        
+        // 设置Z坐标
+        QTableWidgetItem* zItem = new QTableWidgetItem(QString::number(obj.pose.position.z * 100, 'f', 1));
+        ui->detectionsTable->setItem(row, 4, zItem);
+        
+        // 添加操作按钮
+        QPushButton* pickButton = new QPushButton("抓取");
+        pickButton->setProperty("object_id", QString::fromStdString(obj.id));
+        connect(pickButton, &QPushButton::clicked, this, [this, id=obj.id]() {
+            this->sendPickCommand(id);
+        });
+        ui->detectionsTable->setCellWidget(row, 5, pickButton);
+    }
+    
+    // 调整列宽以适应内容
+    ui->detectionsTable->resizeColumnsToContents();
+    
+    // 恢复表格信号
+    ui->detectionsTable->blockSignals(false);
+    
+    // 如果没有检测结果，显示提示信息
+    if (detected_objects_.empty()) {
+        ui->detectionsTable->setRowCount(1);
+        QTableWidgetItem* noDataItem = new QTableWidgetItem("无检测结果");
+        noDataItem->setTextAlignment(Qt::AlignCenter);
+        ui->detectionsTable->setSpan(0, 0, 1, 6);
+        ui->detectionsTable->setItem(0, 0, noDataItem);
+    }
 } 

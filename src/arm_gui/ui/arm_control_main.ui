@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>1200</width>
-    <height>800</height>
+    <height>700</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -417,8 +417,14 @@
                 </property>
                 <property name="minimumSize">
                   <size>
-                    <width>640</width>
-                    <height>400</height>
+                    <width>480</width>
+                    <height>240</height>
+                  </size>
+                </property>
+                <property name="maximumSize">
+                  <size>
+                    <width>16777215</width>
+                    <height>320</height>
                   </size>
                 </property>
                 <property name="frameShape">
@@ -470,29 +476,29 @@
               </layout>
             </item>
             <item>
-              <layout class="QHBoxLayout" name="horizontalLayout_13">
-                <item>
+              <layout class="QGridLayout" name="gridLayout">
+                <item row="0" column="0">
                   <widget class="QPushButton" name="scanObjectsButton">
                     <property name="text">
                       <string>扫描物体</string>
                     </property>
                   </widget>
                 </item>
-                <item>
+                <item row="0" column="1">
                   <widget class="QPushButton" name="planPathButton">
                     <property name="text">
                       <string>规划路径</string>
                     </property>
                   </widget>
                 </item>
-                <item>
+                <item row="1" column="0">
                   <widget class="QPushButton" name="executePathButton">
                     <property name="text">
                       <string>执行路径</string>
                     </property>
                   </widget>
                 </item>
-                <item>
+                <item row="1" column="1">
                   <widget class="QPushButton" name="visualizeWorkspaceButton">
                     <property name="text">
                       <string>可视化工作空间</string>
@@ -501,6 +507,73 @@
                 </item>
               </layout>
             </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QGroupBox" name="detectionResultsGroup">
+          <property name="title">
+           <string>检测结果</string>
+          </property>
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Preferred" vsizetype="Minimum">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+          <layout class="QVBoxLayout" name="verticalLayout_10">
+           <item>
+            <widget class="QTableWidget" name="detectionsTable">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Expanding" vsizetype="Minimum">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="minimumSize">
+              <size>
+               <width>0</width>
+               <height>100</height>
+              </size>
+             </property>
+             <property name="maximumSize">
+              <size>
+               <width>16777215</width>
+               <height>120</height>
+              </size>
+             </property>
+             <column>
+              <property name="text">
+               <string>ID</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>类型</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>X</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>Y</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>Z</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>操作</string>
+              </property>
+             </column>
+            </widget>
+           </item>
           </layout>
          </widget>
         </item>

@@ -126,6 +126,9 @@ private slots:
     void updateCameraViews();
     void updateConnectionStatus();
 
+    // 添加新的槽函数
+    void updateDetectionsTableUI();
+
 private:
     // UI相关
     Ui::ArmControlMainWindow* ui;
@@ -235,6 +238,9 @@ private:
     
     // 辅助函数
     int map(int value, int fromLow, int fromHigh, int toLow, int toHigh);
+
+    // 添加新的辅助函数
+    void updateDetectionsTable();
 };
 
 #endif // ARM_CONTROL_GUI_H 
