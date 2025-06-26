@@ -1133,7 +1133,7 @@ void ArmControlGUI::updateCameraViews()
     // 在图像底部添加分辨率信息
     painter.setPen(Qt::white);
     painter.setFont(QFont("Arial", 10));
-    QString resolution_text = QString("%1 x %2").arg(display_image.width()).arg(display_image.height());
+    QString resolution_text = QString("%1 x %2 (合成视图)").arg(display_image.width()).arg(display_image.height());
     painter.drawText(10, display_image.height() - 10, resolution_text);
     
     // 绘制检测到的物体
@@ -2016,28 +2016,74 @@ void ArmControlGUI::stereoMergedCallback(const sensor_msgs::Image::ConstPtr& msg
         cv_bridge::CvImageConstPtr cv_ptr = cv_bridge::toCvShare(msg, "bgr8");
         cv::Mat camera_image = cv_ptr->image.clone();
         
+        // 处理双目图像 - 1280*480的图像分为左右两部分
+        cv::Mat single_view;
+        
+        if (camera_image.cols == 1280 && camera_image.rows == 480) {
+            // 这是一个双目图像，提取左图像作为主视图
+            cv::Rect left_roi(0, 0, 640, 480);  // 左半部分
+            cv::Rect right_roi(640, 0, 640, 480);  // 右半部分
+            
+            cv::Mat left_view = camera_image(left_roi);
+            cv::Mat right_view = camera_image(right_roi);
+            
+            // 创建合成视图 - 这里简单地使用左视图
+            // 如果需要更复杂的合成（如左右平均），可以在此修改
+            single_view = left_view.clone();
+            
+            // 可选：在右下角添加小型右视图作为参考
+            cv::Mat small_right_view;
+            cv::resize(right_view, small_right_view, cv::Size(160, 120));  // 缩小右视图
+            
+            // 将小型右视图放在左视图的右下角
+            cv::Rect overlay_roi(single_view.cols - small_right_view.cols - 10, 
+                              single_view.rows - small_right_view.rows - 10,
+                              small_right_view.cols, 
+                              small_right_view.rows);
+                              
+            // 在主视图上创建一个感兴趣区域
+            cv::Mat overlay_area = single_view(overlay_roi);
+            
+            // 添加一个半透明的黑色背景
+            cv::Mat black_background(overlay_area.size(), overlay_area.type(), cv::Scalar(0, 0, 0));
+            cv::addWeighted(overlay_area, 0.5, black_background, 0.5, 0, overlay_area);
+            
+            // 复制小型右视图到主视图
+            small_right_view.copyTo(single_view(overlay_roi));
+            
+            // 添加文本标签
+            cv::putText(single_view, "右视图", 
+                      cv::Point(single_view.cols - small_right_view.cols - 10, 
+                              single_view.rows - small_right_view.rows - 15),
+                      cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 255), 1);
+        } else {
+            // 其他尺寸的图像，直接使用
+            single_view = camera_image;
+        }
+        
         // 记录成功接收的图像帧
         static int frame_count = 0;
         frame_count++;
         
         if (frame_count % 30 == 0) {  // 每30帧记录一次
-            ROS_INFO("成功接收到立体合并图像帧：%d (尺寸: %dx%d)", 
-                   frame_count, camera_image.cols, camera_image.rows);
+            ROS_INFO("成功接收到立体合并图像：帧 %d (尺寸: %dx%d → 合成: %dx%d)", 
+                   frame_count, camera_image.cols, camera_image.rows, 
+                   single_view.cols, single_view.rows);
         }
         
         // 转换为QImage，注意格式转换
         QImage image;
-        if (camera_image.channels() == 3) {
+        if (single_view.channels() == 3) {
             // BGR转RGB
-            cv::cvtColor(camera_image, camera_image, cv::COLOR_BGR2RGB);
-            image = QImage(camera_image.data, camera_image.cols, camera_image.rows,
-                          camera_image.step, QImage::Format_RGB888);
-        } else if (camera_image.channels() == 1) {
+            cv::cvtColor(single_view, single_view, cv::COLOR_BGR2RGB);
+            image = QImage(single_view.data, single_view.cols, single_view.rows,
+                          single_view.step, QImage::Format_RGB888);
+        } else if (single_view.channels() == 1) {
             // 灰度图
-            image = QImage(camera_image.data, camera_image.cols, camera_image.rows,
-                          camera_image.step, QImage::Format_Grayscale8);
+            image = QImage(single_view.data, single_view.cols, single_view.rows,
+                          single_view.step, QImage::Format_Grayscale8);
         } else {
-            ROS_WARN("不支持的图像格式: %d通道", camera_image.channels());
+            ROS_WARN("不支持的图像格式: %d通道", single_view.channels());
             return;
         }
         
