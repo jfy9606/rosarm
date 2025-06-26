@@ -49,56 +49,25 @@ class DepthEstimator:
     def init_stereo_matcher(self):
         """初始化OpenCV立体匹配算法"""
         try:
-            # 针对OV4689双目摄像头优化的参数
-            # 创建StereoBM对象
-            # numDisparities必须是16的倍数，表示最大视差值
-            # blockSize是匹配块大小，必须是奇数
-            window_size = 7  # 匹配块大小
-            min_disp = 0
-            num_disp = 160  # 增大视差范围以适应不同深度
-            
-            # 使用SGBM匹配器，针对OV4689摄像头优化参数
+            # 基于示例代码优化的SGBM参数
+            # 参照examples/cam/#final.py中的设置
+            blockSize = 8
+            img_channels = 3
             self.stereo = cv2.StereoSGBM_create(
-                minDisparity=min_disp,
-                numDisparities=num_disp,
-                blockSize=window_size,
-                P1=8 * 3 * window_size**2,  # 控制视差平滑度
-                P2=32 * 3 * window_size**2,  # 越大越平滑
-                disp12MaxDiff=1,
-                uniquenessRatio=5,  # 降低独特性比率以获取更多匹配点
-                speckleWindowSize=200,  # 增大斑点窗口
-                speckleRange=2,  # 降低斑点范围以减少噪点
-                preFilterCap=63,  # 预处理滤波器上限
-                mode=cv2.STEREO_SGBM_MODE_SGBM_3WAY  # 使用全范围模式
-            )
-            
-            # 创建WLS滤波器进一步优化视差图
-            try:
-                self.wls_filter = cv2.ximgproc.createDisparityWLSFilter(self.stereo)
-                self.wls_filter.setLambda(8000)
-                self.wls_filter.setSigmaColor(1.5)
-                
-                # 右视图匹配器（用于WLS滤波）
-                self.stereo_right = cv2.StereoSGBM_create(
-                    minDisparity=-num_disp,
-                    numDisparities=num_disp,
-                    blockSize=window_size,
-                    P1=8 * 3 * window_size**2,
-                    P2=32 * 3 * window_size**2,
-                    disp12MaxDiff=1,
-                    uniquenessRatio=5,
-                    speckleWindowSize=200,
-                    speckleRange=2,
-                    preFilterCap=63,
-                    mode=cv2.STEREO_SGBM_MODE_SGBM_3WAY
-                )
-                self.use_wls_filter = True
-                rospy.loginfo("已启用WLS滤波器来优化视差图")
-            except (AttributeError, ImportError):
-                self.use_wls_filter = False
-                rospy.loginfo("WLS滤波器不可用，将使用原始视差图")
+                minDisparity=1,
+                numDisparities=64,
+                blockSize=blockSize,
+                P1=8 * img_channels * blockSize * blockSize,
+                P2=32 * img_channels * blockSize * blockSize,
+                disp12MaxDiff=-1,
+                preFilterCap=140,
+                uniquenessRatio=1,
+                speckleWindowSize=100,
+                speckleRange=100,
+                mode=cv2.STEREO_SGBM_MODE_HH)
             
             rospy.loginfo("已初始化优化的OpenCV立体匹配算法(SGBM)")
+            self.use_wls_filter = False  # 示例没有使用WLS
         except Exception as e:
             rospy.logerr(f"无法初始化OpenCV立体匹配: {e}")
             # 尝试使用更简单的StereoBM

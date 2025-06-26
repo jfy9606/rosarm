@@ -213,6 +213,9 @@ private slots:
     // 摄像头图像鼠标事件处理
     void onCameraViewClicked(QPoint pos);
 
+    // 更新GUI显示的关节值
+    void updateGUIJointValues();
+
 private:
     // UI相关
     Ui::ArmControlMainWindow* ui;
@@ -239,6 +242,7 @@ private:
     ros::Publisher motor_order_pub_;
     ros::Publisher relay_order_pub_;
     ros::Publisher servo_control_pub_;
+    ros::Publisher vacuum_power_pub_;
     
     // 图像显示相关
     QImage left_camera_image_;
@@ -356,6 +360,10 @@ private:
     void sendPickObjectCommand(int object_index);
 
     bool enable_3d_rendering_;
+
+    // DH参数 和 关节限制 (基于examples/path/main.m)
+    std::vector<std::tuple<int, double, double, double, double>> dh_params_; // [type, d, theta, a, alpha]
+    std::vector<std::pair<double, double>> joint_limits_;
 };
 
 #endif // ARM_CONTROL_GUI_H 

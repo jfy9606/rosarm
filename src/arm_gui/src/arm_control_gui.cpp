@@ -180,7 +180,18 @@ void ArmControlGUI::initializeGUI()
     connect(ui->vacuumOnButton, &QPushButton::clicked, this, &ArmControlGUI::onVacuumOnButtonClicked);
     connect(ui->vacuumOffButton, &QPushButton::clicked, this, &ArmControlGUI::onVacuumOffButtonClicked);
     
-    // 路径规划按钮连接在路径规划控制组中
+    // 连接UI文件中定义的路径规划控件
+    connect(ui->scanObjectsButton, &QPushButton::clicked, this, &ArmControlGUI::onScanObjectsClicked);
+    connect(ui->planPathButton, &QPushButton::clicked, this, &ArmControlGUI::onPlanPathClicked);
+    connect(ui->executePathButton, &QPushButton::clicked, this, &ArmControlGUI::onExecutePathClicked);
+    connect(ui->visualizeWorkspaceButton, &QPushButton::clicked, this, &ArmControlGUI::onVisualizeWorkspaceClicked);
+    
+    // 保存placement_area_combo_指针，以便在路径规划中使用
+    placement_area_combo_ = ui->placement_area_combo;
+    placement_area_combo_->clear();
+    placement_area_combo_->addItem("区域1", "area_1");
+    placement_area_combo_->addItem("区域2", "area_2");
+    placement_area_combo_->addItem("区域3", "area_3");
     
     // 创建并连接示例动作按钮
     QGroupBox* demoGroup = new QGroupBox("示例动作");
@@ -202,43 +213,12 @@ void ArmControlGUI::initializeGUI()
     connect(yolo_checkbox_, &QCheckBox::toggled, this, &ArmControlGUI::onYoloDetectionToggled);
     visionLayout->addWidget(yolo_checkbox_);
     
-    // 添加路径规划控制
-    QGroupBox* pathPlanningGroup = new QGroupBox("路径规划");
-    QVBoxLayout* pathPlanningLayout = new QVBoxLayout(pathPlanningGroup);
-    
-    // 添加选择放置区的下拉框
-    QHBoxLayout* placementAreaLayout = new QHBoxLayout();
-    QLabel* placementAreaLabel = new QLabel("选择放置区:");
-    placement_area_combo_ = new QComboBox();
-    placement_area_combo_->addItem("区域1", "area_1");
-    placement_area_combo_->addItem("区域2", "area_2");
-    placement_area_combo_->addItem("区域3", "area_3");
-    placementAreaLayout->addWidget(placementAreaLabel);
-    placementAreaLayout->addWidget(placement_area_combo_);
-    pathPlanningLayout->addLayout(placementAreaLayout);
-    
-    // 添加路径规划按钮
-    QPushButton* scanObjectsButton = new QPushButton("扫描物体");
-    QPushButton* planPathButton = new QPushButton("规划路径");
-    QPushButton* executePathButton = new QPushButton("执行路径");
-    QPushButton* visualizeWorkspaceButton = new QPushButton("可视化工作空间");
-    
-    connect(scanObjectsButton, &QPushButton::clicked, this, &ArmControlGUI::onScanObjectsClicked);
-    connect(planPathButton, &QPushButton::clicked, this, &ArmControlGUI::onPlanPathClicked);
-    connect(executePathButton, &QPushButton::clicked, this, &ArmControlGUI::onExecutePathClicked);
-    connect(visualizeWorkspaceButton, &QPushButton::clicked, this, &ArmControlGUI::onVisualizeWorkspaceClicked);
-    
-    pathPlanningLayout->addWidget(scanObjectsButton);
-    pathPlanningLayout->addWidget(planPathButton);
-    pathPlanningLayout->addWidget(executePathButton);
-    pathPlanningLayout->addWidget(visualizeWorkspaceButton);
-    
-    // 将示例动作组添加到controlWidget的布局中
+    // 将示例动作组和视觉控制组添加到controlWidget的布局中
     QVBoxLayout* controlLayout = qobject_cast<QVBoxLayout*>(ui->controlWidget->layout());
     if (controlLayout) {
         controlLayout->addWidget(demoGroup);
         controlLayout->addWidget(visionGroup);  // 添加视觉控制组
-        controlLayout->addWidget(pathPlanningGroup); // 添加路径规划控制组
+        // 注意：不再创建和添加新的路径规划控件，使用UI中已有的
     } else {
         // 如果没有布局，打印错误信息
         logMessage("错误: 无法获取控制部件布局");
@@ -279,29 +259,45 @@ void ArmControlGUI::initializeJointControlConnections()
 
 void ArmControlGUI::initializeROS()
 {
-    // 订阅关节状态
-    joint_state_sub_ = nh_.subscribe("/joint_states", 10, &ArmControlGUI::jointStateCallback, this);
+    // 设置DH参数 (基于examples/path/main.m)
+    // a1 = 13, a2 = 13, a3 = 25, d2 = [0, 43], d5 = [5, 15]
+    dh_params_.resize(6);
+    // [type, d, theta, a, alpha]
+    // type: 0=revolute, 1=prismatic
+    dh_params_[0] = std::make_tuple(0, 0.0, 0.0, 13.0, M_PI/2);  // 第一关节 (旋转)
+    dh_params_[1] = std::make_tuple(1, 0.0, M_PI/4, 0.0, 0.0);   // 第二关节 (伸缩)
+    dh_params_[2] = std::make_tuple(0, 13.0, 0.0, 0.0, M_PI/2);  // 第三关节 (旋转)
+    dh_params_[3] = std::make_tuple(0, 0.0, 0.0, 25.0, M_PI/2);  // 第四关节 (旋转)
+    dh_params_[4] = std::make_tuple(0, 0.0, M_PI/2, 0.0, M_PI/2); // 第五关节 (固定)
+    dh_params_[5] = std::make_tuple(1, 5.0, M_PI/2, 0.0, 0.0);   // 第六关节 (伸缩)
     
-    // 发布关节命令
-    joint_command_pub_ = nh_.advertise<sensor_msgs::JointState>("/arm1/joint_command", 10);
+    // 关节限制，确保与examples中一致
+    joint_limits_.resize(6);
+    joint_limits_[0] = std::make_pair(-M_PI, M_PI);       // theta1 (rad)
+    joint_limits_[1] = std::make_pair(0.0, 43.0);         // d2 (cm)
+    joint_limits_[2] = std::make_pair(-M_PI/2, M_PI/2);   // theta3 (rad)
+    joint_limits_[3] = std::make_pair(0.0, M_PI);         // theta4 (rad)
+    joint_limits_[4] = std::make_pair(M_PI/2, M_PI/2);    // theta5 (rad, fixed)
+    joint_limits_[5] = std::make_pair(5.0, 15.0);         // d6 (cm)
+
+    // 初始化订阅者和发布者
+    joint_state_sub_ = nh_.subscribe("/arm1/joint_states", 1, &ArmControlGUI::jointStateCallback, this);
     
-    // 发布吸附命令
-    vacuum_command_pub_ = nh_.advertise<std_msgs::Bool>("/arm1/vacuum_command", 10);
+    joint_command_pub_ = nh_.advertise<sensor_msgs::JointState>("/arm1/joint_command", 1);
+    arm_command_pub_ = nh_.advertise<std_msgs::String>("/arm_command", 1);
+    vacuum_command_pub_ = nh_.advertise<std_msgs::Bool>("/arm1/vacuum_command", 1);
+    vacuum_power_pub_ = nh_.advertise<std_msgs::Float64>("/arm1/vacuum_power", 1);
+    gripper_cmd_pub_ = nh_.advertise<std_msgs::Bool>("/arm1/gripper_command", 1);
+    servo_control_pub_ = nh_.advertise<servo_wrist::SerControl>("/arm1/servo_control", 1);
+    motor_order_pub_ = nh_.advertise<liancheng_socket::MotorOrder>("/motor_orders", 1);
+    relay_order_pub_ = nh_.advertise<std_msgs::String>("/relay_orders", 1);
     
-    // 发布机械臂命令
-    arm_command_pub_ = nh_.advertise<std_msgs::String>("/arm_command", 10);
+    // 更新GUI以显示初始关节值
+    updateGUIJointValues();
     
-    // 发布电机控制命令
-    motor_order_pub_ = nh_.advertise<liancheng_socket::MotorOrder>("Controller_motor_order", 5);
-    
-    // 发布继电器控制命令
-    relay_order_pub_ = nh_.advertise<std_msgs::String>("RelayOrder", 5);
-    
-    // 发布夹持器命令
-    gripper_cmd_pub_ = nh_.advertise<std_msgs::Bool>("/arm1/gripper_command", 10);
-    
-    // 发布舵机控制命令
-    servo_control_pub_ = nh_.advertise<servo_wrist::SerControl>("/servo_control_topic", 10);
+    // 记录初始化完成信息
+    ROS_INFO("ROS接口初始化完成");
+    logMessage("ROS接口初始化完成");
 }
 
 void ArmControlGUI::initializeOpenGL()
@@ -1596,31 +1592,48 @@ void ArmControlGUI::onScanObjectsClicked()
     
     // 确保YOLO检测已启用
     if (!yolo_detection_enabled_) {
-        logMessage("启用YOLO检测以扫描物体");
+        logMessage("自动启用YOLO检测以扫描物体");
         if (yolo_checkbox_) {
             yolo_checkbox_->setChecked(true);
         }
+        
+        // 等待YOLO服务启动
+        QApplication::processEvents();
+        ros::Duration(0.5).sleep();
     }
     
     // 发送扫描命令
     std_msgs::String cmd_msg;
     cmd_msg.data = "scan";
     arm_command_pub_.publish(cmd_msg);
+    
+    // 更新界面元素
+    ui->statusbar->showMessage("正在扫描物体...", 2000);
 }
 
 void ArmControlGUI::onPlanPathClicked()
 {
     logMessage("开始规划路径...");
     
-    // 由于检测表格已被移除，我们直接使用第一个检测到的物体（如果有的话）
+    // 检查是否有检测到的物体
     if (detected_objects_.empty()) {
-        logMessage("没有检测到物体，无法规划路径");
+        logMessage("没有检测到物体，请先扫描物体");
+        ui->statusbar->showMessage("错误: 没有检测到物体，请先扫描物体", 3000);
         return;
     }
     
-    // 使用第一个检测到的物体
-    const DetectedObject& obj = detected_objects_[0];
-    QString object_id = QString::fromStdString(obj.id);
+    // 获取当前选中的物体（如果有在表格中选中）
+    int selected_row = ui->detectionsTable->currentRow();
+    const DetectedObject* selected_obj = nullptr;
+    
+    // 如果有选中的行，使用该行对应的物体，否则使用第一个物体
+    if (selected_row >= 0 && selected_row < static_cast<int>(detected_objects_.size())) {
+        selected_obj = &detected_objects_[selected_row];
+    } else {
+        selected_obj = &detected_objects_[0];
+    }
+    
+    QString object_id = QString::fromStdString(selected_obj->id);
     
     // 获取选中的放置区
     QString placement_area = placement_area_combo_->currentData().toString();
@@ -1631,6 +1644,7 @@ void ArmControlGUI::onPlanPathClicked()
     arm_command_pub_.publish(cmd_msg);
     
     logMessage(QString("已规划从物体 %1 到放置区 %2 的路径").arg(object_id).arg(placement_area));
+    ui->statusbar->showMessage(QString("已规划路径: 物体 %1 → 放置区 %2").arg(object_id).arg(placement_area), 3000);
 }
 
 void ArmControlGUI::onExecutePathClicked()
@@ -1641,6 +1655,9 @@ void ArmControlGUI::onExecutePathClicked()
     std_msgs::String cmd_msg;
     cmd_msg.data = "execute";
     arm_command_pub_.publish(cmd_msg);
+    
+    // 更新状态栏
+    ui->statusbar->showMessage("正在执行路径规划动作...", 3000);
 }
 
 void ArmControlGUI::onVisualizeWorkspaceClicked()
@@ -1651,6 +1668,9 @@ void ArmControlGUI::onVisualizeWorkspaceClicked()
     std_msgs::String cmd_msg;
     cmd_msg.data = "visualize_workspace";
     arm_command_pub_.publish(cmd_msg);
+    
+    // 更新状态栏
+    ui->statusbar->showMessage("正在可视化工作空间...", 3000);
 }
 
 // 新增统一的物体检测回调函数，处理YOLO格式的检测结果
@@ -1996,4 +2016,30 @@ void ArmControlGUI::stereoMergedCallback(const sensor_msgs::Image::ConstPtr& msg
 void ArmControlGUI::updateCameraView()
 {
     updateCameraViews();
-} 
+}
+
+// 添加updateGUIJointValues函数实现
+void ArmControlGUI::updateGUIJointValues()
+{
+    // 首次初始化默认关节值
+    if (current_joint_values_.empty() || current_joint_values_.size() < 6) {
+        current_joint_values_ = std::vector<double>{0, 0, 0, 0, M_PI/2, 5};
+    }
+    
+    // 更新滑块和数值显示 
+    ui->joint1_slider->setValue(static_cast<int>(current_joint_values_[0] * 180.0 / M_PI)); // 转换为度数
+    ui->joint1_spin->setValue(current_joint_values_[0] * 180.0 / M_PI);
+    
+    ui->joint2_slider->setValue(static_cast<int>(current_joint_values_[1]));
+    ui->joint2_spin->setValue(current_joint_values_[1]);
+    
+    ui->joint3_slider->setValue(static_cast<int>(current_joint_values_[2] * 180.0 / M_PI));
+    ui->joint3_spin->setValue(current_joint_values_[2] * 180.0 / M_PI);
+    
+    ui->joint4_slider->setValue(static_cast<int>(current_joint_values_[3] * 180.0 / M_PI));
+    ui->joint4_spin->setValue(current_joint_values_[3] * 180.0 / M_PI);
+    
+    // 关节5是固定的
+    ui->joint6_slider->setValue(static_cast<int>(current_joint_values_[5]));
+    ui->joint6_spin->setValue(current_joint_values_[5]);
+}
