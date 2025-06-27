@@ -1,4 +1,27 @@
 <launch>
+    <!-- 启动电机控制和舵机控制节点 -->
+    <arg name="serial_port" default="/dev/ttyUSB0" doc="电机控制串口" />
+    <arg name="servo_port" default="/dev/ttyUSB1" doc="舵机控制串口" />
+    
+    <!-- 电机控制节点 -->
+    <node name="talker" pkg="liancheng_socket" type="talk_test" output="screen">
+    </node>
+    
+    <!-- 串口通信节点 - 电机控制 -->
+    <node name="serial" pkg="liancheng_socket" type="liancheng_serial" output="screen">
+        <param name="port" value="$(arg serial_port)" />
+        <param name="baud_rate" value="115200" />
+    </node>
+    
+    <!-- 舵机控制节点 -->
+    <node name="servo" pkg="servo_wrist" type="wrist_ctrl" args="$(arg servo_port)" output="screen">
+        <!-- 舵机串口参数 -->
+    </node>
+    
+    <!-- 继电器控制节点 -->
+    <node name="relay" pkg="relay" type="listener" output="screen">
+    </node>
+
     <!-- 启动YOLO检测节点 -->
     <node name="yolo_detector_visual_servo" pkg="stereo_vision" type="yolo_detector.py" output="screen">
         <param name="model" value="yolov8n.pt" />

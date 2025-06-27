@@ -557,8 +557,8 @@ void ArmControlGUI::onJoint1SliderChanged(int value)
     // 底座旋转电机控制 - 映射到800-2200范围以提供更大的有效控制区间
     int motor_pos = map(value, -180, 180, 800, 2200);
     
-    // 发送电机控制命令
-    sendMotorOrder(1, 11, 0, 0, 0, true, motor_pos, 30);
+    // 发送电机控制命令，设置速度为100（非零速度）
+    sendMotorOrder(1, 11, 100, 0, 0, true, motor_pos, 30);
     
     // 等待命令执行完成
     QApplication::processEvents();
@@ -586,8 +586,8 @@ void ArmControlGUI::onJoint2SliderChanged(int value)
     // 关节2电机控制 - 映射到800-2200范围以提供更大的有效控制区间
     int motor_pos = map(value, 0, 50, 800, 2200);
     
-    // 发送电机控制命令
-    sendMotorOrder(1, 12, 0, 0, 0, true, motor_pos, 30);
+    // 发送电机控制命令，设置速度为100
+    sendMotorOrder(1, 12, 100, 0, 0, true, motor_pos, 30);
     
     // 等待命令执行完成
     QApplication::processEvents();
@@ -615,16 +615,16 @@ void ArmControlGUI::onJoint3SliderChanged(int value)
     // 肩部关节电机控制 - 映射到800-2200范围以提供更大的有效控制区间
     int motor_pos = map(value, -90, 90, 800, 2200);
     
-    // 使用示例动作中的电机控制序列，先准备电机
-    sendMotorOrder(2, 100, 100, 0, 0, false, motor_pos, 10);
+    // 使用示例动作中的电机控制序列，先准备电机，设置速度为200
+    sendMotorOrder(2, 100, 200, 0, 0, false, motor_pos, 10);
     QApplication::processEvents();
     
-    // 设置位置模式
-    sendMotorOrder(2, 0, 100, 0, 0, true, motor_pos, 10);
+    // 设置位置模式，保持速度为200
+    sendMotorOrder(2, 0, 200, 0, 0, true, motor_pos, 10);
     QApplication::processEvents();
     
-    // 执行移动
-    sendMotorOrder(2, 99, 100, 0, 0, false, motor_pos, 10);
+    // 执行移动，保持速度为200
+    sendMotorOrder(2, 99, 200, 0, 0, false, motor_pos, 10);
     QApplication::processEvents();
     
     // 记录日志
@@ -650,8 +650,8 @@ void ArmControlGUI::onJoint4SliderChanged(int value)
     // 肘部关节电机控制 - 映射到800-2200范围以提供更大的有效控制区间
     int motor_pos = map(value, 0, 180, 800, 2200);
     
-    // 使用示例动作中的夹持电机控制方式
-    sendMotorOrder(1, 13, 0, 0, 0, true, motor_pos, 30);
+    // 使用示例动作中的夹持电机控制方式，设置速度为100
+    sendMotorOrder(1, 13, 100, 0, 0, true, motor_pos, 30);
     QApplication::processEvents();
     
     // 记录日志
@@ -677,8 +677,8 @@ void ArmControlGUI::onJoint6SliderChanged(int value)
     // 末端伸缩电机控制 - 映射到800-2200范围以提供更大的有效控制区间
     int motor_pos = map(value, 5, 15, 800, 2200);
     
-    // 发送电机控制命令
-    sendMotorOrder(1, 14, 0, 0, 0, true, motor_pos, 30);
+    // 发送电机控制命令，设置速度为100
+    sendMotorOrder(1, 14, 100, 0, 0, true, motor_pos, 30);
     QApplication::processEvents();
     
     // 记录日志
@@ -704,8 +704,8 @@ void ArmControlGUI::onJoint1SpinChanged(double value)
     // 底座旋转电机控制 - 映射到800-2200范围以提供更大的有效控制区间
     int motor_pos = map(static_cast<int>(value), -180, 180, 800, 2200);
     
-    // 发送电机控制命令
-    sendMotorOrder(1, 11, 0, 0, 0, true, motor_pos, 30);
+    // 发送电机控制命令，设置速度为100
+    sendMotorOrder(1, 11, 100, 0, 0, true, motor_pos, 30);
     QApplication::processEvents();
     
     // 记录日志
@@ -731,8 +731,8 @@ void ArmControlGUI::onJoint2SpinChanged(double value)
     // 关节2电机控制 - 映射到800-2200范围以提供更大的有效控制区间
     int motor_pos = map(static_cast<int>(value), 0, 50, 800, 2200);
     
-    // 发送电机控制命令
-    sendMotorOrder(1, 12, 0, 0, 0, true, motor_pos, 30);
+    // 发送电机控制命令，设置速度为100
+    sendMotorOrder(1, 12, 100, 0, 0, true, motor_pos, 30);
     QApplication::processEvents();
     
     // 记录日志
@@ -758,14 +758,14 @@ void ArmControlGUI::onJoint3SpinChanged(double value)
     // 肩部关节电机控制 - 映射到800-2200范围以提供更大的有效控制区间
     int motor_pos = map(static_cast<int>(value), -90, 90, 800, 2200);
     
-    // 使用示例动作中的电机控制序列
-    sendMotorOrder(2, 100, 100, 0, 0, false, motor_pos, 10);
+    // 使用示例动作中的电机控制序列，设置速度为200
+    sendMotorOrder(2, 100, 200, 0, 0, false, motor_pos, 10);
     QApplication::processEvents();
     
-    sendMotorOrder(2, 0, 100, 0, 0, true, motor_pos, 10);
+    sendMotorOrder(2, 0, 200, 0, 0, true, motor_pos, 10);
     QApplication::processEvents();
     
-    sendMotorOrder(2, 99, 100, 0, 0, false, motor_pos, 10);
+    sendMotorOrder(2, 99, 200, 0, 0, false, motor_pos, 10);
     QApplication::processEvents();
     
     // 记录日志
@@ -792,7 +792,7 @@ void ArmControlGUI::onJoint4SpinChanged(double value)
     int motor_pos = map(static_cast<int>(value), 0, 180, 800, 2200);
     
     // 使用示例动作中的夹持电机控制方式
-    sendMotorOrder(1, 13, 0, 0, 0, true, motor_pos, 30);
+    sendMotorOrder(1, 13, 100, 0, 0, true, motor_pos, 30);
     QApplication::processEvents();
     
     // 记录日志
@@ -819,7 +819,7 @@ void ArmControlGUI::onJoint6SpinChanged(double value)
     int motor_pos = map(static_cast<int>(value), 5, 15, 800, 2200);
     
     // 发送电机控制命令
-    sendMotorOrder(1, 14, 0, 0, 0, true, motor_pos, 30);
+    sendMotorOrder(1, 14, 100, 0, 0, true, motor_pos, 30);
     QApplication::processEvents();
     
     // 记录日志
@@ -1426,8 +1426,9 @@ void ArmControlGUI::sendVacuumCommand(bool on, int power)
     power_cmd.data = power_cmd.data * 1.5; // 增加50%的功率值
     if (power_cmd.data > 1.0) power_cmd.data = 1.0; // 确保不超过最大值
     
-    // 发布吸附命令
-    vacuum_command_pub_.publish(vacuum_cmd);
+    // 发布吸附命令和功率设置
+    vacuum_cmd_pub_.publish(vacuum_cmd);
+    vacuum_power_pub_.publish(power_cmd);
     
     // 更新状态
     vacuum_on_ = on;
@@ -1457,30 +1458,30 @@ void ArmControlGUI::sendPickCommand(const std::string& object_id)
             
             logMessage(QString("物体位置: X=%1, Y=%2, Z=%3").arg(x).arg(y).arg(z));
             
-            // 映射到电机范围(1000-2000)
-            int motor_x = map(static_cast<int>(x), -50, 50, 1000, 2000);  // 底座旋转
-            int motor_z = map(static_cast<int>(z), 0, 50, 1000, 2000);    // 竖直高度
-            int motor_y = map(static_cast<int>(y), 0, 50, 1000, 2000);    // 前后伸缩
+            // 映射到电机范围(800-2200)
+            int motor_x = map(static_cast<int>(x), -50, 50, 800, 2200);  // 底座旋转
+            int motor_z = map(static_cast<int>(z), 0, 50, 800, 2200);    // 竖直高度
+            int motor_y = map(static_cast<int>(y), 0, 50, 800, 2200);    // 前后伸缩
             
             // 1. 先控制底座旋转到目标位置
             logMessage("步骤1: 旋转底座到目标位置");
-            sendMotorOrder(1, 11, 0, 0, 0, true, motor_x, 30);
+            sendMotorOrder(1, 11, 100, 0, 0, true, motor_x, 30);
             QApplication::processEvents();
             
             // 2. 控制肩部电机调整高度
             logMessage("步骤2: 调整机械臂高度");
-            sendMotorOrder(2, 100, 100, 0, 0, false, motor_z, 10);
+            sendMotorOrder(2, 100, 200, 0, 0, false, motor_z, 10);
             QApplication::processEvents();
             
-            sendMotorOrder(2, 0, 100, 0, 0, true, motor_z, 10);
+            sendMotorOrder(2, 0, 200, 0, 0, true, motor_z, 10);
             QApplication::processEvents();
             
-            sendMotorOrder(2, 99, 100, 0, 0, false, motor_z, 10);
+            sendMotorOrder(2, 99, 200, 0, 0, false, motor_z, 10);
             QApplication::processEvents();
             
             // 3. 控制伸缩到目标位置
             logMessage("步骤3: 伸展机械臂到目标位置");
-            sendMotorOrder(1, 12, 0, 0, 0, true, motor_y, 30);
+            sendMotorOrder(1, 12, 100, 0, 0, true, motor_y, 30);
             QApplication::processEvents();
             
             // 4. 打开吸盘
@@ -1490,14 +1491,14 @@ void ArmControlGUI::sendPickCommand(const std::string& object_id)
             
             // 5. 抬升物体 (提高Z轴高度)
             logMessage("步骤5: 抬升物体");
-            int lift_pos = map(10, 0, 50, 1000, 2000);  // 固定高度10cm
-            sendMotorOrder(2, 100, 100, 0, 0, false, lift_pos, 10);
+            int lift_pos = map(10, 0, 50, 800, 2200);  // 固定高度10cm
+            sendMotorOrder(2, 100, 200, 0, 0, false, lift_pos, 10);
             QApplication::processEvents();
             
-            sendMotorOrder(2, 0, 100, 0, 0, true, lift_pos, 10);
+            sendMotorOrder(2, 0, 200, 0, 0, true, lift_pos, 10);
             QApplication::processEvents();
             
-            sendMotorOrder(2, 99, 100, 0, 0, false, lift_pos, 10);
+            sendMotorOrder(2, 99, 200, 0, 0, false, lift_pos, 10);
             QApplication::processEvents();
             
             break;
