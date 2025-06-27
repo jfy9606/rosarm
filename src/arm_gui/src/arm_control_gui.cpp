@@ -197,9 +197,7 @@ void ArmControlGUI::initializeGUI()
     QGroupBox* visionGroup = new QGroupBox("视觉检测");
     QVBoxLayout* visionLayout = new QVBoxLayout(visionGroup);
     
-    yolo_checkbox_ = new QCheckBox("启用YOLO目标检测");
-    connect(yolo_checkbox_, &QCheckBox::toggled, this, &ArmControlGUI::onYoloDetectionToggled);
-    visionLayout->addWidget(yolo_checkbox_);
+    // YOLO检测开关已移除
     
     QLabel* infoLabel = new QLabel("使用机械臂末端摄像头进行检测");
     infoLabel->setWordWrap(true);
@@ -252,10 +250,7 @@ void ArmControlGUI::initializeGUI()
     rightLayout->addLayout(detectionLayout);
 
     // 初始化YOLO检测开关复选框
-    yolo_checkbox_ = new QCheckBox("启用YOLO检测", this);
-    ui->toolBar->addWidget(yolo_checkbox_);
-    connect(yolo_checkbox_, &QCheckBox::toggled, this, &ArmControlGUI::onYoloDetectionToggled);
-    yolo_checkbox_->setChecked(true);
+    // YOLO检测开关已移除
 
     // 初始化放置区域下拉框
     placement_area_combo_ = new QComboBox(this);
@@ -795,6 +790,36 @@ void ArmControlGUI::onMoveToPositionClicked()
     target_pose.orientation.z = 0.0;
     target_pose.orientation.w = 1.0;
     
+    // 在发送ROS命令前，先使用电机控制进行简单的位置移动
+    // 这使得操控效果更加明显
+    
+    // 1. 计算底座旋转角度 (围绕Z轴)
+    double theta1 = atan2(y, x); // 弧度
+    int base_angle = static_cast<int>(theta1 * 180.0 / M_PI); // 度
+    
+    // 2. 计算肩部角度 (根据高度)
+    double distance_xy = sqrt(x*x + y*y);
+    double theta3 = atan2(z - 20.0, distance_xy); // 假设基础高度为20cm
+    int shoulder_angle = static_cast<int>(theta3 * 180.0 / M_PI);
+    
+    // 3. 限制在有效范围内
+    base_angle = std::max(-180, std::min(base_angle, 180));
+    shoulder_angle = std::max(-90, std::min(shoulder_angle, 90));
+    
+    // 4. 控制底座电机
+    int motor_pos_base = map(base_angle, -180, 180, -50, 50);
+    sendMotorOrder(1, 11, 0, 0, 0, true, motor_pos_base, 30);
+    QApplication::processEvents();
+    
+    // 5. 控制肩部进给电机
+    int motor_pos_shoulder = map(shoulder_angle, -90, 90, -1500, 1500);
+    sendMotorOrder(2, 100, 100, 0, 0, false, motor_pos_shoulder, 10);
+    QApplication::processEvents();
+    sendMotorOrder(2, 0, 100, 0, 0, true, motor_pos_shoulder, 10);
+    QApplication::processEvents();
+    sendMotorOrder(2, 99, 100, 0, 0, false, motor_pos_shoulder, 10);
+    QApplication::processEvents();
+    
     // 发布目标位置消息
     std_msgs::String cmd_msg;
     cmd_msg.data = "move_to " + std::to_string(x/100.0) + " " + 
@@ -1056,12 +1081,6 @@ void ArmControlGUI::detectionImageCallback(const sensor_msgs::Image::ConstPtr& m
         ROS_INFO("收到检测图像: 尺寸=%dx%d, 通道=%d", 
                 detection_image.cols, detection_image.rows, detection_image.channels());
         
-        // 如果YOLO检测未启用，则不处理图像
-        if (!yolo_detection_enabled_) {
-            ROS_INFO("YOLO检测未启用，忽略检测图像");
-            return;
-        }
-        
         // 转换为QImage
         QImage image;
         if (detection_image.channels() == 3) {
@@ -1073,7 +1092,7 @@ void ArmControlGUI::detectionImageCallback(const sensor_msgs::Image::ConstPtr& m
                           detection_image.step, QImage::Format_Grayscale8);
         }
         
-        // 保存YOLOv8检测结果图像
+        // 保存检测结果图像
         current_camera_image_ = image.copy();
         
         // 在图像上添加检测物体的标记
@@ -1112,21 +1131,18 @@ void ArmControlGUI::detectionImageCallback(const sensor_msgs::Image::ConstPtr& m
         static int frame_count = 0;
         frame_count++;
         if (frame_count % 30 == 0) {  // 每30帧记录一次
-            ROS_INFO("已接收YOLOv8检测图像: 帧 %d, 尺寸 %dx%d", 
+            ROS_INFO("已接收检测图像: 帧 %d, 尺寸 %dx%d", 
                     frame_count, image.width(), image.height());
         }
     } catch (cv_bridge::Exception& e) {
-        ROS_ERROR("YOLOv8检测图像回调中的cv_bridge异常: %s", e.what());
+        ROS_ERROR("检测图像回调中的cv_bridge异常: %s", e.what());
     } catch (std::exception& e) {
-        ROS_ERROR("YOLOv8检测图像回调中的标准异常: %s", e.what());
+        ROS_ERROR("检测图像回调中的标准异常: %s", e.what());
     }
 }
 
 void ArmControlGUI::detectionPosesCallback(const geometry_msgs::PoseArray::ConstPtr& msg)
 {
-    // 处理物体位置数据
-    detected_objects_.clear();
-    
     // 记录收到消息的信息
     ROS_INFO("收到检测位姿消息: %zu 个物体, frame_id=%s", 
             msg->poses.size(), msg->header.frame_id.c_str());
@@ -1138,8 +1154,8 @@ void ArmControlGUI::detectionPosesCallback(const geometry_msgs::PoseArray::Const
         return;
     }
     
-    // 启用YOLO检测状态，确保GUI显示检测结果
-    yolo_detection_enabled_ = true;
+    // 清空之前的检测结果
+    detected_objects_.clear();
     
     // 检查是否有附加信息（通常应该包含类别名称），当前假设这些信息在frames_id中
     bool has_object_ids = false;
@@ -1340,7 +1356,7 @@ void ArmControlGUI::updateCameraViews()
         painter.drawEllipse(imgPos, 15, 15);
         
         // 添加标签
-        painter.setFont(QFont("Arial", 10));
+        painter.setFont(QFont("Arial", 10, QFont::Bold));
         painter.drawText(imgPos.x() + 20, imgPos.y() + 5, 
                        QString("%1: %2").arg(detected_objects_[i].id.c_str())
                                        .arg(detected_objects_[i].type.c_str()));
@@ -1348,6 +1364,9 @@ void ArmControlGUI::updateCameraViews()
     
     // 设置图像到相机视图
     ui->cameraView->setPixmap(QPixmap::fromImage(displayImage));
+    
+    // 立即处理事件，避免UI卡顿和闪烁
+    QApplication::processEvents();
     
     // 如果有检测标签和视图，更新它们
     QLabel* detectionStatusLabel = ui->centralwidget->findChild<QLabel*>("detectionStatusLabel");
@@ -1377,6 +1396,43 @@ void ArmControlGUI::sendJointCommand(const std::vector<double>& joint_values)
     
     // 发布关节命令
     joint_command_pub_.publish(joint_cmd);
+    
+    // 计算末端执行器位置（简化版本，实际应使用完整的正向运动学）
+    // 这样可以在日志中显示关节控制对应的笛卡尔空间位置
+    double x = 0.0, y = 0.0, z = 0.0;
+    
+    // 简化的位置计算
+    double theta1 = joint_values[0]; // 底座旋转角度
+    double d2 = joint_values[1];     // 伸缩关节长度
+    double theta3 = joint_values[2]; // 肩部关节角度
+    double theta4 = joint_values[3]; // 肘部关节角度
+    double d6 = joint_values[5];     // 末端伸缩长度
+    
+    // 非常简化的正向运动学计算
+    double arm_length = 30.0 + d2;      // 基础长度 + 伸缩值
+    double reach_distance = arm_length * cos(theta3) * cos(theta4); // 水平伸展距离
+    
+    x = reach_distance * cos(theta1);   // X 坐标
+    y = reach_distance * sin(theta1);   // Y 坐标
+    z = 20.0 + arm_length * sin(theta3); // Z 坐标，假设基础高度为20cm
+    
+    // 转换为厘米
+    x *= 100.0;
+    y *= 100.0;
+    z *= 100.0;
+    
+    // 仅在值明显变化时更新日志（避免刷屏）
+    static double last_x = 0.0, last_y = 0.0, last_z = 0.0;
+    if (fabs(x - last_x) > 1.0 || fabs(y - last_y) > 1.0 || fabs(z - last_z) > 1.0) {
+        logMessage(QString("关节控制：末端位置约为 X=%1, Y=%2, Z=%3 cm").arg(
+            QString::number(x, 'f', 1)).arg(
+            QString::number(y, 'f', 1)).arg(
+            QString::number(z, 'f', 1)));
+        
+        last_x = x;
+        last_y = y;
+        last_z = z;
+    }
 }
 
 void ArmControlGUI::sendVacuumCommand(bool on, int power)
@@ -1403,9 +1459,45 @@ void ArmControlGUI::sendVacuumCommand(bool on, int power)
 
 void ArmControlGUI::sendPickCommand(const std::string& object_id)
 {
-    std_msgs::String cmd_msg;
-    cmd_msg.data = "pick arm1 " + object_id;
-    arm_command_pub_.publish(cmd_msg);
+    // 在实际拾取物体前，首先查找该物体是否在检测列表中
+    bool found = false;
+    DetectedObject target_obj;
+    
+    for (const auto& obj : detected_objects_) {
+        if (obj.id == object_id) {
+            target_obj = obj;
+            found = true;
+            break;
+        }
+    }
+    
+    // 如果找到了物体，使用统一的坐标系和尺度
+    if (found) {
+        // 创建统一的命令，确保与其他控制模式使用相同的单位和尺度
+        std_msgs::String cmd_msg;
+        
+        // 从物体位置和朝向构建命令，统一使用米为单位
+        // 确保与三维坐标控制使用相同的尺度
+        double x = target_obj.x / 100.0; // 从cm转换为m
+        double y = target_obj.y / 100.0;
+        double z = target_obj.z / 100.0;
+        
+        cmd_msg.data = "pick arm1 " + object_id + " " + 
+                       std::to_string(x) + " " + 
+                       std::to_string(y) + " " + 
+                       std::to_string(z);
+        arm_command_pub_.publish(cmd_msg);
+        
+        logMessage(QString("拾取物体: %1，坐标: (%2, %3, %4)米").arg(
+            QString::fromStdString(object_id)).arg(x).arg(y).arg(z));
+    }
+    else {
+        // 如果没有找到物体，使用基本命令
+        std_msgs::String cmd_msg;
+        cmd_msg.data = "pick arm1 " + object_id;
+        arm_command_pub_.publish(cmd_msg);
+        logMessage(QString("拾取未知物体: %1").arg(QString::fromStdString(object_id)));
+    }
 }
 
 void ArmControlGUI::sendPlaceCommand(double x, double y, double z)
@@ -1512,111 +1604,33 @@ void ArmControlGUI::sendRelayOrder(const std::string& command)
     logMessage(QString("发送继电器命令: %1").arg(command.c_str()));
 }
 
-// 修改YOLO状态回调函数
+// 修改为简单的状态回调函数
 void ArmControlGUI::yoloStatusCallback(const std_msgs::Bool::ConstPtr& msg)
 {
-    // 更新YOLO检测状态
-    bool new_status = msg->data;
+    // 更新状态栏信息
+    QString status_msg = "检测系统已连接";
+    ui->statusbar->showMessage(status_msg, 3000);
     
-    // 只有状态变化时才记录日志和更新UI
-    if (new_status != yolo_detection_enabled_) {
-        yolo_detection_enabled_ = new_status;
-        
-        // 更新复选框状态，但不触发回调
-        if (yolo_checkbox_) {
-            yolo_checkbox_->blockSignals(true);
-            yolo_checkbox_->setChecked(yolo_detection_enabled_);
-            yolo_checkbox_->blockSignals(false);
-        }
-        
-        // 更新状态栏信息
-        QString status_msg = QString("YOLO目标检测已%1").arg(yolo_detection_enabled_ ? "启用" : "禁用");
-        ui->statusbar->showMessage(status_msg, 3000);
-    }
-    
-    // 无论是否有变化，都确保UI反映当前状态
+    // 确保UI反映当前状态
     updateCameraViews();
     updateDetectionsTable();
 }
 
-// 修改YOLO切换处理函数
-void ArmControlGUI::onYoloDetectionToggled(bool checked)
-{
-    // 保存状态
-    yolo_detection_enabled_ = checked;
-    
-    // 创建服务请求
-    std_srvs::SetBool srv;
-    srv.request.data = checked;
-    
-    // 调用服务，启用/禁用YOLO检测
-    if (yolo_control_client_.call(srv)) {
-        if (srv.response.success) {
-            if (checked) {
-                logMessage("YOLO物体检测已启用，使用末端摄像头");
-        } else {
-                logMessage("YOLO物体检测已禁用");
-                // 清除检测结果
-                detected_objects_.clear();
-                updateDetectionsTable();
-                updateCameraViews();
-                
-                // 清除检测视图
-                QLabel* detectionView = ui->centralwidget->findChild<QLabel*>("detectionView");
-                QLabel* detectionStatusLabel = ui->centralwidget->findChild<QLabel*>("detectionStatusLabel");
-                
-                if (detectionView) {
-                    detectionView->clear();
-                    detectionView->setText("检测图像将显示在此处");
-                }
-                
-                if (detectionStatusLabel) {
-                    detectionStatusLabel->setText("物体检测已禁用");
-                }
-            }
-        } else {
-            logMessage(QString("YOLO控制失败: %1").arg(srv.response.message.c_str()));
-            // 回滚UI状态
-                yolo_checkbox_->blockSignals(true);
-            yolo_checkbox_->setChecked(!checked);
-                yolo_checkbox_->blockSignals(false);
-            yolo_detection_enabled_ = !checked;
-        }
-    } else {
-        logMessage("YOLO控制服务调用失败，请检查服务是否可用");
-        // 回滚UI状态
-        yolo_checkbox_->blockSignals(true);
-        yolo_checkbox_->setChecked(!checked);
-        yolo_checkbox_->blockSignals(false);
-        yolo_detection_enabled_ = !checked;
-    }
-}
+// YOLO检测功能已移除
 
 // 添加路径规划相关的槽函数
 void ArmControlGUI::onScanObjectsClicked()
 {
     logMessage("开始扫描物体...");
     
-    // 确保YOLO检测已启用
-    if (!yolo_detection_enabled_) {
-        logMessage("自动启用YOLO检测以扫描物体");
-        if (yolo_checkbox_) {
-            yolo_checkbox_->setChecked(true);
-        }
-        
-        // 等待YOLO服务启动
-        QApplication::processEvents();
-        ros::Duration(0.5).sleep();
-    }
-    
-    // 发送扫描命令 - 使用YOLOv8s进行实时扫描
+    // 发送扫描命令 - 使用前进行物体扫描
     std_msgs::String cmd_msg;
-    cmd_msg.data = "scan yolov8s";  // 指定使用YOLOv8s模型
+    cmd_msg.data = "scan";
     arm_command_pub_.publish(cmd_msg);
     
     // 显示状态信息
-    ui->statusbar->showMessage("正在使用YOLOv8s模型扫描物体...", 2000);
-    logMessage("使用YOLOv8s模型扫描合成摄像头图像");
+    ui->statusbar->showMessage("正在扫描工作区域内的物体...", 2000);
+    logMessage("扫描工作区域内的物体");
 }
 
 void ArmControlGUI::onExecutePathClicked()
@@ -1658,14 +1672,11 @@ void ArmControlGUI::objectDetectionCallback(const sensor_msgs::Image::ConstPtr& 
         ROS_INFO("收到同步检测数据: 图像=%dx%d, 位姿=%zu个", 
                  detection_image.cols, detection_image.rows, poses_msg->poses.size());
         
-        // 如果没有启用YOLO检测，则不处理
-        if (!yolo_detection_enabled_) {
-            ROS_INFO("YOLO检测未启用，忽略检测结果");
-            return;
-        }
-        
-        // 处理物体位置数据
-        detected_objects_.clear();
+            // 处理所有检测结果
+    ROS_INFO("处理物体检测结果");
+    
+    // 处理前先清除之前的检测结果
+    detected_objects_.clear();
         
         // 检查是否有附加信息（通常应该包含类别名称），当前假设这些信息在frames_id中
         bool has_object_ids = false;
@@ -1692,7 +1703,7 @@ void ArmControlGUI::objectDetectionCallback(const sensor_msgs::Image::ConstPtr& 
         for (size_t i = 0; i < poses_msg->poses.size(); ++i) {
             DetectedObject obj;
                         obj.id = class_names[i];  // 使用传递过来的类别名称
-                        obj.type = "检测物品";    // 通用类型描述
+                        obj.type = class_names[i];  // 使用类别名称作为物体类型
                         
                         // 将3D位置转换为厘米单位用于显示
                         double scale = 100.0; // 转换为厘米
@@ -1860,6 +1871,20 @@ void ArmControlGUI::updateDetectionsTable()
     // 阻止表格更新信号，避免不必要的刷新
     ui->detectionsTable->blockSignals(true);
     
+    // 记录当前选中行
+    int currentRow = ui->detectionsTable->currentRow();
+    
+    // 保存现有按钮，避免重复创建
+    QMap<int, QPushButton*> existingButtons;
+    for (int i = 0; i < ui->detectionsTable->rowCount(); i++) {
+        QWidget* widget = ui->detectionsTable->cellWidget(i, 5);
+        if (QPushButton* btn = qobject_cast<QPushButton*>(widget)) {
+            existingButtons[i] = btn;
+            // 断开之前的连接，避免信号重复
+            disconnect(btn, nullptr, this, nullptr);
+        }
+    }
+    
     // 清空表格
     ui->detectionsTable->setRowCount(0);
     
@@ -1901,14 +1926,35 @@ void ArmControlGUI::updateDetectionsTable()
         zItem->setFlags(zItem->flags() & ~Qt::ItemIsEditable);
         ui->detectionsTable->setItem(i, 4, zItem);
         
-        // 添加拾取按钮
-        QPushButton* pickButton = new QPushButton("拾取");
+        // 添加或复用拾取按钮
+        QPushButton* pickButton;
+        if (existingButtons.contains(i)) {
+            // 复用现有按钮
+            pickButton = existingButtons[i];
+        } else {
+            // 创建新按钮
+            pickButton = new QPushButton("拾取");
+        }
+        
+        // 设置按钮属性
         pickButton->setProperty("object_index", static_cast<int>(i));
+        
+        // 连接点击事件，使用lambda捕获当前索引i
         connect(pickButton, &QPushButton::clicked, [this, i]() {
             sendPickObjectCommand(i);
         });
+        
+        // 设置按钮到单元格
         ui->detectionsTable->setCellWidget(i, 5, pickButton);
     }
+    
+    // 恢复之前选中的行
+    if (currentRow >= 0 && currentRow < ui->detectionsTable->rowCount()) {
+        ui->detectionsTable->selectRow(currentRow);
+    }
+    
+    // 立即处理事件，避免UI卡顿和闪烁
+    QApplication::processEvents();
     
     // 恢复表格信号
     ui->detectionsTable->blockSignals(false);
@@ -1996,6 +2042,9 @@ void ArmControlGUI::sendGripperCommand(bool open)
     
     // 发布夹持器命令
     gripper_cmd_pub_.publish(gripper_cmd);
+    
+    // 立即处理事件，避免UI卡顿
+    QApplication::processEvents();
     
     // 更新状态
     gripper_open_ = open;
@@ -2143,7 +2192,6 @@ void ArmControlGUI::initializeMembers()
     current_control_mode_ = ArmControlMode::JOINT_CONTROL;
     
     // 视觉相关
-    yolo_detection_enabled_ = false;
     visual_servo_active_ = false;
     selected_object_index_ = -1;
     

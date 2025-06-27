@@ -34,10 +34,8 @@
         <arg name="with_yolo_controller" value="false" />
         <arg name="with_path_planner" value="false" />
         <arg name="with_trajectory_planner" value="false" />
+        <arg name="start_rviz" value="false" />
     </include>
-    
-    <!-- 启动RViz可视化 -->
-    <node name="rviz" pkg="rviz" type="rviz" args="-d $(find arm_gui)/rviz/arm_vision.rviz" />
     
     <!-- 打印使用说明 -->
     <node name="usage_info" pkg="rostopic" type="rostopic" args="pub -1 /arm_status std_msgs/String '使用方法：

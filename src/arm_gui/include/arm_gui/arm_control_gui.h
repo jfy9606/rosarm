@@ -200,9 +200,6 @@ private slots:
     // 相机视图更新
     void updateCameraView();
     
-    // YOLO控制
-    void onYoloDetectionToggled(bool checked);
-    
     // 3D视图相关槽
     void on3DViewObjectSelected(int index);
     void updateScene3D();
@@ -214,7 +211,6 @@ private:
     // UI相关
     Ui::ArmControlMainWindow* ui;
     QTimer* updateTimer;
-    QCheckBox* yolo_checkbox_;
     QComboBox* placement_area_combo_;
     QComboBox* control_mode_combo_;
     
@@ -264,7 +260,6 @@ private:
     QImage left_camera_image_;
     std::vector<DetectedObject> detected_objects_;
     int selected_object_index_;
-    bool yolo_detection_enabled_;
     bool visual_servo_active_;
     
     // 3D场景渲染器

@@ -8,6 +8,7 @@
   <arg name="with_path_planner" default="true" />
   <arg name="with_yolo_controller" default="true" />
   <arg name="camera_device" default="/dev/video0" doc="摄像头设备"/>
+  <arg name="start_rviz" default="false" doc="是否启动RViz可视化" />
   
   <!-- 启动摄像头节点 (仅当不使用立体视觉时) -->
   <group unless="$(arg with_stereo_vision)">
@@ -22,7 +23,8 @@
   <!-- 启动立体视觉节点 -->
   <group if="$(arg with_stereo_vision)">
     <include file="$(find stereo_vision)/launch/stereo_cameras.launch">
-      <!-- 不传递不存在的参数 -->
+      <!-- 禁用摄像头预览窗口 -->
+      <arg name="show_preview" value="false" />
     </include>
   </group>
   
@@ -59,6 +61,11 @@
     <!-- GUI参数 -->
     <param name="update_rate" value="20" />
   </node>
+
+  <!-- 可选启动RViz -->
+  <group if="$(arg start_rviz)">
+    <node name="rviz" pkg="rviz" type="rviz" args="-d $(find arm_gui)/rviz/arm_vision.rviz" />
+  </group>
 
   <!-- 加载机械臂描述参数 -->
   <rosparam command="load" file="$(find arm_trajectory)/config/arm_params.yaml" />
