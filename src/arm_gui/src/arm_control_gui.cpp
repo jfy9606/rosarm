@@ -250,6 +250,51 @@ void ArmControlGUI::initializeGUI()
         ui->detectionsDisplay->setLayout(rightLayout);
     }
     rightLayout->addLayout(detectionLayout);
+
+    // 初始化YOLO检测开关复选框
+    yolo_checkbox_ = new QCheckBox("启用YOLO检测", this);
+    ui->toolBar->addWidget(yolo_checkbox_);
+    connect(yolo_checkbox_, &QCheckBox::toggled, this, &ArmControlGUI::onYoloDetectionToggled);
+    yolo_checkbox_->setChecked(true);
+
+    // 初始化放置区域下拉框
+    placement_area_combo_ = new QComboBox(this);
+    placement_area_combo_->addItem("区域A", "area_a");
+    placement_area_combo_->addItem("区域B", "area_b");
+    placement_area_combo_->addItem("区域C", "area_c");
+    ui->toolBar->addWidget(new QLabel("放置区域:", this));
+    ui->toolBar->addWidget(placement_area_combo_);
+    
+    // 初始化控制模式选择
+    control_mode_combo_ = new QComboBox(this);
+    control_mode_combo_->addItem("关节控制", static_cast<int>(ArmControlMode::JOINT_CONTROL));
+    control_mode_combo_->addItem("笛卡尔控制", static_cast<int>(ArmControlMode::CARTESIAN_CONTROL));
+    control_mode_combo_->addItem("视觉伺服", static_cast<int>(ArmControlMode::VISUAL_SERVO));
+    ui->toolBar->addWidget(new QLabel("控制模式:", this));
+    ui->toolBar->addWidget(control_mode_combo_);
+    
+    // 连接控制模式选择信号
+    connect(control_mode_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged), 
+            [this](int index) {
+                current_control_mode_ = static_cast<ArmControlMode>(
+                    control_mode_combo_->itemData(index).toInt());
+                updateUI();
+            });
+    
+    // 设置默认控制模式
+    control_mode_combo_->setCurrentIndex(0); // 默认使用关节控制模式
+    
+    // 连接笛卡尔控制"移动到位置"按钮
+    QPushButton* moveToPositionButton = ui->centralwidget->findChild<QPushButton*>("moveToPositionButton1");
+    if (moveToPositionButton) {
+        connect(moveToPositionButton, &QPushButton::clicked, this, &ArmControlGUI::onMoveToPositionClicked);
+    } else {
+        // 尝试查找原始名称
+        moveToPositionButton = ui->centralwidget->findChild<QPushButton*>("moveToPositionButton");
+        if (moveToPositionButton) {
+            connect(moveToPositionButton, &QPushButton::clicked, this, &ArmControlGUI::onMoveToPositionClicked);
+        }
+    }
 }
 
 void ArmControlGUI::initializeJointControlConnections()
@@ -721,36 +766,44 @@ void ArmControlGUI::onJoint6SpinChanged(double value)
 // 末端执行器控制槽实现
 void ArmControlGUI::onMoveToPositionClicked()
 {
-    double x = ui->pos_x->value();
-    double y = ui->pos_y->value();
-    double z = ui->pos_z->value();
+    // 获取XYZ坐标值（厘米单位）
+    // 尝试查找控件，如果不存在则使用默认值
+    double x = 30.0; // 默认值 30cm
+    double y = 0.0;  // 默认值 0cm
+    double z = 20.0; // 默认值 20cm
     
-    logMessage(QString("移动到位置 (%1, %2, %3)").arg(x).arg(y).arg(z));
+    QDoubleSpinBox* xSpin = ui->centralwidget->findChild<QDoubleSpinBox*>("x_spin");
+    QDoubleSpinBox* ySpin = ui->centralwidget->findChild<QDoubleSpinBox*>("y_spin");
+    QDoubleSpinBox* zSpin = ui->centralwidget->findChild<QDoubleSpinBox*>("z_spin");
     
-    // 参照示例动作2实现，使用进给电机控制末端执行器移动
-    // 将xyz坐标转换为电机位置，这里使用z坐标作为进给深度
-    int motor_pos = -static_cast<int>(z * 20); // 将z坐标(mm)映射到电机位置值
+    if (xSpin) x = xSpin->value();
+    if (ySpin) y = ySpin->value();
+    if (zSpin) z = zSpin->value();
     
-    // 限制电机位置范围
-    motor_pos = std::max(-2500, std::min(motor_pos, 0));
+    // 记录日志
+    logMessage(QString("移动到笛卡尔坐标位置: X=%1, Y=%2, Z=%3 cm").arg(x).arg(y).arg(z));
     
-    // 执行示例动作2中的电机控制序列
-    // 先设置电机速度和模式
-    sendMotorOrder(2, 100, 100, 0, 0, false, motor_pos, 10);
-    QApplication::processEvents();
-    ros::Duration(0.5).sleep();
+    // 创建位置目标消息（米单位）
+    geometry_msgs::Pose target_pose;
+    target_pose.position.x = x / 100.0;  // 厘米转换为米
+    target_pose.position.y = y / 100.0;  // 厘米转换为米
+    target_pose.position.z = z / 100.0;  // 厘米转换为米
     
-    // 设置目标位置
-    sendMotorOrder(2, 0, 100, 0, 0, false, motor_pos, 10);
-    QApplication::processEvents();
-    ros::Duration(0.5).sleep();
+    // 设置朝向（默认保持垂直向下）
+    target_pose.orientation.x = 0.0;
+    target_pose.orientation.y = 0.0;
+    target_pose.orientation.z = 0.0;
+    target_pose.orientation.w = 1.0;
     
-    // 执行移动
-    sendMotorOrder(2, 99, 100, 0, 0, false, motor_pos, 10);
-    QApplication::processEvents();
+    // 发布目标位置消息
+    std_msgs::String cmd_msg;
+    cmd_msg.data = "move_to " + std::to_string(x/100.0) + " " + 
+                   std::to_string(y/100.0) + " " + std::to_string(z/100.0);
+    arm_command_pub_.publish(cmd_msg);
     
-    // 同时发送标准的位置命令以保持兼容性
-    sendPlaceCommand(x, y, z);
+    // 更新当前控制模式
+    current_control_mode_ = ArmControlMode::CARTESIAN_CONTROL;
+    updateUI();
 }
 
 void ArmControlGUI::onHomeButtonClicked()

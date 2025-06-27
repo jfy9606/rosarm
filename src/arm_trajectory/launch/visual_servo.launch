@@ -19,6 +19,19 @@
         <param name="z_offset" value="0.05" />
     </node>
     
+    <!-- 启动轨迹规划和运动执行节点 -->
+    <node name="trajectory_bridge" pkg="arm_trajectory" type="trajectory_bridge_node.py" output="screen">
+        <param name="execution_speed" value="1.0" />
+        <param name="trajectory_sampling_rate" value="50" />
+    </node>
+    
+    <!-- 启动路径规划节点 -->
+    <node name="path_planner" pkg="arm_trajectory" type="path_planner.py" output="screen">
+        <param name="optimization_max_iter" value="100" />
+        <param name="optimization_particles" value="30" />
+        <param name="visualization_enabled" value="true" />
+    </node>
+    
     <!-- 启动机械臂控制节点 -->
     <include file="$(find arm_gui)/launch/arm_control.launch" />
     
@@ -26,5 +39,9 @@
     <node name="rviz" pkg="rviz" type="rviz" args="-d $(find arm_gui)/rviz/arm_vision.rviz" />
     
     <!-- 打印使用说明 -->
-    <node name="usage_info" pkg="rostopic" type="rostopic" args="pub -1 /arm_status std_msgs/String '使用方法：发送 servo [物体ID] 命令启动视觉伺服控制，stop 停止控制，vacuum on/off 控制吸盘'" />
+    <node name="usage_info" pkg="rostopic" type="rostopic" args="pub -1 /arm_status std_msgs/String '使用方法：
+    1. 发送 servo [物体ID] 命令启动视觉伺服控制
+    2. 发送 move_to x y z 命令移动到特定坐标位置
+    3. 发送 stop 停止控制
+    4. 发送 vacuum on/off 控制吸盘'" />
 </launch> 

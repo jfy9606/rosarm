@@ -551,7 +551,19 @@ class ArmTrajectoryBridge:
                 self.execute_place_command(arm_id, x, y, z)
             except ValueError:
                 rospy.logerr("Invalid coordinates in place command")
-                
+        
+        elif parts[0] == "move_to" and len(parts) >= 4:
+            # Format: "move_to [x] [y] [z]" - 直接移动到笛卡尔坐标
+            try:
+                x = float(parts[1])
+                y = float(parts[2])
+                z = float(parts[3])
+                # 默认使用arm1
+                arm_id = "arm1"
+                self.execute_move_to_command(arm_id, x, y, z)
+            except ValueError:
+                rospy.logerr("Invalid coordinates in move_to command")
+            
         elif parts[0] == "home" and len(parts) >= 2:
             # Format: "home [arm_id]"
             arm_id = parts[1]
@@ -641,6 +653,42 @@ class ArmTrajectoryBridge:
         joint_traj = self.trajectory_to_joint_trajectory(trajectory)
         self.trajectory_pub[arm_id].publish(joint_traj)
         rospy.loginfo(f"Moving arm {arm_id} to home position")
+
+    def execute_move_to_command(self, arm_id, x, y, z):
+        """Execute a move-to command to a specific cartesian position"""
+        if arm_id not in self.arm_configs:
+            rospy.logerr(f"Unknown arm ID: {arm_id}")
+            return
+        
+        # 创建目标姿态
+        target_pose = Pose()
+        target_pose.position.x = x
+        target_pose.position.y = y 
+        target_pose.position.z = z
+        
+        # 设置固定朝向（默认向下）
+        target_pose.orientation.x = 0.0
+        target_pose.orientation.y = 0.0
+        target_pose.orientation.z = 0.0
+        target_pose.orientation.w = 1.0
+        
+        # 创建服务请求
+        req = PlanTrajectoryRequest()
+        req.arm_id = arm_id
+        req.target_pose = target_pose
+        req.execution_time = 3.0  # 3秒执行时间
+        req.avoid_obstacles = False  # 简单直线移动，不避障
+        
+        # 调用自己的服务处理程序
+        response = self.handle_plan_trajectory(req)
+        
+        if response.success:
+            # 转换为关节轨迹并发布
+            joint_traj = self.trajectory_to_joint_trajectory(response.trajectory)
+            self.trajectory_pub[arm_id].publish(joint_traj)
+            rospy.loginfo(f"执行移动命令: arm={arm_id}, 位置=[{x:.3f}, {y:.3f}, {z:.3f}]")
+        else:
+            rospy.logerr(f"规划轨迹失败: {response.message}")
 
 if __name__ == '__main__':
     try:
