@@ -1,9 +1,6 @@
 <launch>
-    <!-- 启动摄像头节点 -->
-    <include file="$(find stereo_vision)/launch/stereo_cameras.launch" />
-    
     <!-- 启动YOLO检测节点 -->
-    <node name="yolo_detector" pkg="stereo_vision" type="yolo_detector.py" output="screen">
+    <node name="yolo_detector_visual_servo" pkg="stereo_vision" type="yolo_detector.py" output="screen">
         <param name="model" value="yolov8n.pt" />
         <param name="conf" value="0.25" />
         <param name="iou_threshold" value="0.45" />
@@ -32,7 +29,12 @@
     </node>
     
     <!-- 启动机械臂控制节点 -->
-    <include file="$(find arm_gui)/launch/arm_gui.launch" />
+    <include file="$(find arm_gui)/launch/arm_gui.launch">
+        <arg name="with_stereo_vision" value="true" />
+        <arg name="with_yolo_controller" value="false" />
+        <arg name="with_path_planner" value="false" />
+        <arg name="with_trajectory_planner" value="false" />
+    </include>
     
     <!-- 启动RViz可视化 -->
     <node name="rviz" pkg="rviz" type="rviz" args="-d $(find arm_gui)/rviz/arm_vision.rviz" />

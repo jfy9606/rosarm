@@ -31,14 +31,14 @@
     <node pkg="stereo_vision" type="yolo_controller.py" name="yolo_controller" output="screen">
       <param name="initial_state" value="true" />
     </node>
-  </group>
   
-  <!-- 启动YOLO检测器 -->
-  <node pkg="stereo_vision" type="yolo_detector.py" name="yolo_detector" output="screen">
-    <param name="enabled" value="true" />
-    <param name="model" value="yolov8n.pt" />
-    <param name="conf" value="0.25" />
-  </node>
+    <!-- 启动YOLO检测器 -->
+    <node pkg="stereo_vision" type="yolo_detector.py" name="yolo_detector" output="screen">
+      <param name="enabled" value="true" />
+      <param name="model" value="yolov8n.pt" />
+      <param name="conf" value="0.25" />
+    </node>
+  </group>
   
   <!-- 启动路径规划节点 -->
   <group if="$(arg with_path_planner)">

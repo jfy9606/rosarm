@@ -1143,6 +1143,8 @@ void ArmControlGUI::detectionPosesCallback(const geometry_msgs::PoseArray::Const
     
     // 检查是否有附加信息（通常应该包含类别名称），当前假设这些信息在frames_id中
     bool has_object_ids = false;
+    std::vector<std::string> class_names;
+    
     if (!msg->header.frame_id.empty()) {
         // 尝试解析frame_id中可能包含的类别信息
         try {
@@ -1150,7 +1152,6 @@ void ArmControlGUI::detectionPosesCallback(const geometry_msgs::PoseArray::Const
             std::string frame_id = msg->header.frame_id;
             std::istringstream ss(frame_id);
             std::string token;
-            std::vector<std::string> class_names;
             
             while (std::getline(ss, token, ',')) {
                 if (!token.empty()) {
@@ -1158,30 +1159,10 @@ void ArmControlGUI::detectionPosesCallback(const geometry_msgs::PoseArray::Const
                 }
             }
             
-            has_object_ids = !class_names.empty() && class_names.size() == msg->poses.size();
+            has_object_ids = !class_names.empty();
             
-            // 如果成功解析类别信息，直接使用它们
             if (has_object_ids) {
                 ROS_INFO("成功解析类别信息: %zu 个类别", class_names.size());
-    for (size_t i = 0; i < msg->poses.size(); ++i) {
-        DetectedObject obj;
-                    obj.id = class_names[i];  // 使用传递过来的类别名称
-                    obj.type = "检测物品";    // 通用类型描述
-                    
-                    // 将3D位置转换为厘米单位用于显示
-                    double scale = 100.0; // 转换为厘米
-                    obj.x = msg->poses[i].position.x * scale;
-                    obj.y = msg->poses[i].position.y * scale;
-                    obj.z = msg->poses[i].position.z * scale;
-        
-        // 保存原始位姿
-        obj.pose = msg->poses[i];
-                    detected_objects_.push_back(obj);
-                    
-                    // 记录成功添加的物体
-                    ROS_INFO("添加检测物体到表格: %s [%.2f, %.2f, %.2f]", 
-                             obj.id.c_str(), obj.x, obj.y, obj.z);
-                }
             }
         } catch (const std::exception& e) {
             ROS_WARN("解析物体类别信息失败: %s", e.what());
@@ -1189,49 +1170,46 @@ void ArmControlGUI::detectionPosesCallback(const geometry_msgs::PoseArray::Const
         }
     }
     
-    // 如果无法从frame_id中获取类别信息，使用默认物体命名方式
-    if (!has_object_ids) {
-        ROS_INFO("使用默认物体命名方式");
-        for (size_t i = 0; i < msg->poses.size(); ++i) {
-            DetectedObject obj;
-            obj.id = "object_" + std::to_string(i);  // 通用对象名
+    // 处理所有物体
+    for (size_t i = 0; i < msg->poses.size(); ++i) {
+        DetectedObject obj;
+        
+        // 设置物体ID和类型
+        if (has_object_ids && i < class_names.size()) {
+            obj.id = class_names[i];
+            obj.type = class_names[i]; // 使用类别名作为类型
+        } else {
+            obj.id = "object_" + std::to_string(i);
             
-            // 根据物体位置特征决定类型名称
+            // 根据Z轴高度猜测物体类型
             float height = msg->poses[i].position.z;
             if (height < 0.05) {
-                obj.type = "low object";
+                obj.type = "低物体";
             } else if (height < 0.15) {
-                obj.type = "medium object";
+                obj.type = "中物体";
             } else {
-                obj.type = "tall object";
+                obj.type = "高物体";
             }
-            
-            // 将3D位置转换为厘米单位用于显示
-            double scale = 100.0; // 转换为厘米
-            obj.x = msg->poses[i].position.x * scale;
-            obj.y = msg->poses[i].position.y * scale;
-            obj.z = msg->poses[i].position.z * scale;
-            
-            // 保存原始位姿
-            obj.pose = msg->poses[i];
-        detected_objects_.push_back(obj);
-            
-            // 记录成功添加的物体
-            ROS_INFO("添加通用物体到表格: %s [%.2f, %.2f, %.2f]", 
-                     obj.id.c_str(), obj.x, obj.y, obj.z);
         }
+        
+        // 将3D位置转换为厘米单位用于显示
+        double scale = 100.0; // 转换为厘米
+        obj.x = msg->poses[i].position.x * scale;
+        obj.y = msg->poses[i].position.y * scale;
+        obj.z = msg->poses[i].position.z * scale;
+        
+        // 保存原始位姿
+        obj.pose = msg->poses[i];
+        detected_objects_.push_back(obj);
+        
+        // 记录成功添加的物体
+        ROS_INFO("添加检测物体到表格: %s [%.2f, %.2f, %.2f]", 
+                obj.id.c_str(), obj.x, obj.y, obj.z);
     }
     
-    // 确认检测到的物体数量
     ROS_INFO("检测到 %zu 个物体，准备更新UI", detected_objects_.size());
     
-    // 确保在主线程中更新UI，立即更新表格
-    QMetaObject::invokeMethod(this, "updateDetectionsTable", Qt::QueuedConnection);
-    
-    // 强制更新相机视图以显示检测结果
-    QMetaObject::invokeMethod(this, "updateCameraViews", Qt::QueuedConnection);
-    
-    // 强制更新整个UI
+    // 使用单一调用更新UI，避免重复更新
     QMetaObject::invokeMethod(this, "updateUI", Qt::QueuedConnection);
 }
 
@@ -1879,46 +1857,64 @@ void ArmControlGUI::updateConnectionStatus()
 // 更新检测结果表格
 void ArmControlGUI::updateDetectionsTable()
 {
-    // 暂时断开信号连接以避免循环触发
+    // 阻止表格更新信号，避免不必要的刷新
     ui->detectionsTable->blockSignals(true);
     
-    // 清除旧内容
+    // 清空表格
     ui->detectionsTable->setRowCount(0);
     
-    // 添加新内容
-    for (size_t i = 0; i < detected_objects_.size(); i++) {
+    // 如果没有检测到物体，直接返回
+    if (detected_objects_.empty()) {
+        ui->detectionsTable->blockSignals(false);
+        return;
+    }
+    
+    // 设置表格行数
+    ui->detectionsTable->setRowCount(detected_objects_.size());
+    
+    // 填充表格
+    for (size_t i = 0; i < detected_objects_.size(); ++i) {
         const auto& obj = detected_objects_[i];
         
-        // 添加新行
-        int row = ui->detectionsTable->rowCount();
-        ui->detectionsTable->insertRow(row);
-        
         // 设置ID
-        ui->detectionsTable->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(obj.id)));
+        QTableWidgetItem* idItem = new QTableWidgetItem(QString::fromStdString(obj.id));
+        idItem->setFlags(idItem->flags() & ~Qt::ItemIsEditable);
+        ui->detectionsTable->setItem(i, 0, idItem);
         
         // 设置类型
-        ui->detectionsTable->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(obj.type)));
+        QTableWidgetItem* typeItem = new QTableWidgetItem(QString::fromStdString(obj.type));
+        typeItem->setFlags(typeItem->flags() & ~Qt::ItemIsEditable);
+        ui->detectionsTable->setItem(i, 1, typeItem);
         
         // 设置X坐标
-        ui->detectionsTable->setItem(row, 2, new QTableWidgetItem(QString::number(obj.x, 'f', 3)));
+        QTableWidgetItem* xItem = new QTableWidgetItem(QString::number(obj.x, 'f', 2));
+        xItem->setFlags(xItem->flags() & ~Qt::ItemIsEditable);
+        ui->detectionsTable->setItem(i, 2, xItem);
         
         // 设置Y坐标
-        ui->detectionsTable->setItem(row, 3, new QTableWidgetItem(QString::number(obj.y, 'f', 3)));
+        QTableWidgetItem* yItem = new QTableWidgetItem(QString::number(obj.y, 'f', 2));
+        yItem->setFlags(yItem->flags() & ~Qt::ItemIsEditable);
+        ui->detectionsTable->setItem(i, 3, yItem);
         
         // 设置Z坐标
-        ui->detectionsTable->setItem(row, 4, new QTableWidgetItem(QString::number(obj.z, 'f', 3)));
+        QTableWidgetItem* zItem = new QTableWidgetItem(QString::number(obj.z, 'f', 2));
+        zItem->setFlags(zItem->flags() & ~Qt::ItemIsEditable);
+        ui->detectionsTable->setItem(i, 4, zItem);
         
         // 添加拾取按钮
         QPushButton* pickButton = new QPushButton("拾取");
+        pickButton->setProperty("object_index", static_cast<int>(i));
         connect(pickButton, &QPushButton::clicked, [this, i]() {
             sendPickObjectCommand(i);
         });
-        ui->detectionsTable->setCellWidget(row, 5, pickButton);
+        ui->detectionsTable->setCellWidget(i, 5, pickButton);
     }
     
-    // 恢复信号连接
+    // 恢复表格信号
     ui->detectionsTable->blockSignals(false);
 }
+
+
 
 // 添加缺失的按钮点击处理函数
 void ArmControlGUI::on_homeButton_clicked()
@@ -1979,55 +1975,17 @@ void ArmControlGUI::on_vacuumOffButton_clicked()
 // 更新UI
 void ArmControlGUI::updateUI()
 {
-    // 处理ROS事件
-    ros::spinOnce();
-    
-    // 更新关节信息显示
-    updateJointInfo();
-    
-    // 更新末端执行器位姿信息
-    updateEndEffectorPose();
-    
-    // 更新摄像头视图
-    updateCameraViews();
-    
-    // 更新3D场景
-    updateScene3D();
-    
-    // 更新检测结果表格
+    // 更新检测表格
     updateDetectionsTable();
     
-    // 更新吸盘状态
-    updateVacuumStatus();
+    // 更新相机视图
+    updateCameraViews();
     
-    // 更新连接状态
-    updateConnectionStatus();
+    // 更新关节状态
+    updateJointInfo();
     
-    // 根据当前控制模式更新界面元素
-    switch (current_control_mode_) {
-        case ArmControlMode::JOINT_CONTROL:
-            // 关节控制模式 - 启用关节控制组
-            ui->jointControlGroup->setEnabled(true);
-            break;
-            
-        case ArmControlMode::CARTESIAN_CONTROL:
-            // 笛卡尔控制模式 - 禁用关节控制组
-            ui->jointControlGroup->setEnabled(false);
-            break;
-            
-        case ArmControlMode::VISUAL_SERVO:
-            // 视觉伺服模式 - 控制组禁用
-            ui->jointControlGroup->setEnabled(false);
-            break;
-    }
-    
-    // 更新视觉伺服状态
-    if (visual_servo_active_) {
-        ui->statusbar->showMessage("视觉伺服控制：活动", 1000);
-    }
-    
-    // 刷新应用程序
-    QApplication::processEvents();
+    // 更新末端执行器位姿
+    updateEndEffectorPose();
 }
 
 void ArmControlGUI::sendGripperCommand(bool open)
