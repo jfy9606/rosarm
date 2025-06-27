@@ -1,5 +1,5 @@
 #!/bin/bash
-# 摄像头启动脚本
+# 机械臂控制系统启动脚本
 
 # 颜色定义
 RED='\033[0;31m'
@@ -30,45 +30,18 @@ else
     echo -e "${YELLOW}警告: 未找到工作空间的setup.bash文件，将使用系统ROS环境${NC}"
 fi
 
-# 检测摄像头
-echo -e "${BLUE}正在检测摄像头设备...${NC}"
-VIDEO_DEVICES=$(ls /dev/video* 2>/dev/null | sort)
-VIDEO_COUNT=$(echo "$VIDEO_DEVICES" | wc -l)
-
-# 默认摄像头设备
-DEFAULT_CAMERA="/dev/video0"
-
-if [ "$VIDEO_COUNT" -eq 0 ]; then
-    echo -e "${YELLOW}未检测到任何摄像头设备，将使用默认设备: ${DEFAULT_CAMERA}${NC}"
-    echo -e "${YELLOW}请确保摄像头已连接并有正确权限${NC}"
-    CAMERA=$DEFAULT_CAMERA
-    HAS_CAMERA=false
-else
-    echo -e "${GREEN}检测到以下摄像头设备:${NC}"
-    echo "$VIDEO_DEVICES"
-    CAMERA=$(echo "$VIDEO_DEVICES" | head -n 1)
-    echo -e "${GREEN}将使用设备: ${CAMERA}${NC}"
-    HAS_CAMERA=true
-fi
-
 # 默认参数
-RESOLUTION="1280x480"
-FPS=30
 YOLO_ENABLED=true
 YOLO_MODEL=""
 YOLO_THRESHOLD=0.5
 
 # 命令行参数模式
 COMMAND_MODE=false
-TEST_MODE=false
 
 # 帮助信息
 show_help() {
     echo "用法: $0 [选项]"
     echo "选项:"
-    echo "  -c, --camera PATH      摄像头设备路径 (默认: 自动检测)"
-    echo "  -r, --resolution WxH   分辨率 (默认: 1280x480)"
-    echo "  -f, --fps NUMBER       帧率 (默认: 30)"
     echo "  -y, --yolo             启用YOLO目标检测"
     echo "  -m, --model PATH       指定YOLOv8模型路径"
     echo "  -t, --threshold VALUE  设置检测置信度阈值 (0.0-1.0)"
@@ -79,21 +52,6 @@ show_help() {
 # 解析命令行参数
 while [[ $# -gt 0 ]]; do
     case $1 in
-        -c|--camera)
-            CAMERA="$2"
-            COMMAND_MODE=true
-            shift 2
-            ;;
-        -r|--resolution)
-            RESOLUTION="$2"
-            COMMAND_MODE=true
-            shift 2
-            ;;
-        -f|--fps)
-            FPS="$2"
-            COMMAND_MODE=true
-            shift 2
-            ;;
         -y|--yolo)
             YOLO_ENABLED=true
             COMMAND_MODE=true
@@ -119,14 +77,9 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# 解析分辨率
-WIDTH=$(echo $RESOLUTION | cut -d'x' -f1)
-HEIGHT=$(echo $RESOLUTION | cut -d'x' -f2)
-
 # 启动完整系统
 launch_full_system() {
-    echo -e "${GREEN}启动完整视觉控制系统...${NC}"
-    echo -e "${BLUE}摄像头: $CAMERA, 分辨率: ${WIDTH}x${HEIGHT}, FPS: $FPS${NC}"
+    echo -e "${GREEN}启动机械臂视觉控制系统...${NC}"
     echo -e "${CYAN}YOLO目标检测: 在GUI中控制开关${NC}"
     
     if [ -n "$YOLO_MODEL" ]; then
@@ -137,7 +90,7 @@ launch_full_system() {
     echo -e "${CYAN}检测置信度阈值: $YOLO_THRESHOLD${NC}"
     
     # 构建启动命令
-    LAUNCH_CMD="roslaunch launch/demo.launch camera_device:=$CAMERA yolo_enabled:=$YOLO_ENABLED"
+    LAUNCH_CMD="roslaunch arm_trajectory visual_servo.launch yolo_enabled:=$YOLO_ENABLED"
     
     # 添加额外参数
     if [ -n "$YOLO_MODEL" ]; then
@@ -164,8 +117,10 @@ show_menu() {
     echo -e "${YELLOW}2. 配置参数${NC}"
     echo -e "${YELLOW}0. 退出${NC}"
     echo -e "${BLUE}=====================================${NC}"
-    echo -e "${CYAN}注意: 系统包含路径规划和3D视图功能${NC}"
-    echo -e "${CYAN}      可以通过GUI控制面板随时开关YOLO检测${NC}"
+    echo -e "${CYAN}功能说明:${NC}"
+    echo -e "${CYAN}- 系统使用机械臂末端双目摄像头${NC}"
+    echo -e "${CYAN}- 支持直接输入三维坐标控制机械臂末端位置${NC}"
+    echo -e "${CYAN}- 支持使用YOLO检测物体并移动到物体位置${NC}"
     echo -e "${BLUE}=====================================${NC}"
     echo -ne "${GREEN}请选择: ${NC}"
     read -r choice
@@ -196,29 +151,6 @@ configure_params() {
     echo -e "${BLUE}=====================================${NC}"
     echo -e "${GREEN}配置参数${NC}"
     echo -e "${BLUE}=====================================${NC}"
-    
-    echo -e "${YELLOW}当前摄像头: $CAMERA${NC}"
-    echo -ne "${GREEN}输入新的摄像头设备 (留空保持不变): ${NC}"
-    read -r new_camera
-    if [ -n "$new_camera" ]; then
-        CAMERA="$new_camera"
-    fi
-    
-    echo -e "${YELLOW}当前分辨率: $RESOLUTION${NC}"
-    echo -ne "${GREEN}输入新的分辨率，格式为 宽x高 (留空保持不变): ${NC}"
-    read -r new_resolution
-    if [ -n "$new_resolution" ]; then
-        RESOLUTION="$new_resolution"
-        WIDTH=$(echo $RESOLUTION | cut -d'x' -f1)
-        HEIGHT=$(echo $RESOLUTION | cut -d'x' -f2)
-    fi
-    
-    echo -e "${YELLOW}当前帧率: $FPS${NC}"
-    echo -ne "${GREEN}输入新的帧率 (留空保持不变): ${NC}"
-    read -r new_fps
-    if [ -n "$new_fps" ]; then
-        FPS="$new_fps"
-    fi
     
     echo -e "${YELLOW}当前YOLOv8模型: $([ -n "$YOLO_MODEL" ] && echo "$YOLO_MODEL" || echo "默认")${NC}"
     echo -ne "${GREEN}输入YOLOv8模型路径 (留空使用默认模型): ${NC}"

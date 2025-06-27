@@ -30,6 +30,7 @@ arm_trajectory
 /home/jfy/arm/rosarm/devel/.private/arm_trajectory/lib/python3/dist-packages/arm_trajectory/msg/_TrajectoryPath.py /home/jfy/arm/rosarm/devel/lib/python3/dist-packages/arm_trajectory/msg/_TrajectoryPath.py
 /home/jfy/arm/rosarm/devel/.private/arm_trajectory/lib/python3/dist-packages/arm_trajectory/srv/_PlanTrajectory.py /home/jfy/arm/rosarm/devel/lib/python3/dist-packages/arm_trajectory/srv/_PlanTrajectory.py
 /home/jfy/arm/rosarm/devel/.private/arm_trajectory/lib/python3/dist-packages/arm_trajectory/srv/__init__.py /home/jfy/arm/rosarm/devel/lib/python3/dist-packages/arm_trajectory/srv/__init__.py
+/home/jfy/arm/rosarm/devel/.private/arm_trajectory/lib/arm_trajectory/visual_servo_controller.py /home/jfy/arm/rosarm/devel/lib/arm_trajectory/visual_servo_controller.py
 /home/jfy/arm/rosarm/devel/.private/arm_trajectory/lib/arm_trajectory/vision_arm_bridge.py /home/jfy/arm/rosarm/devel/lib/arm_trajectory/vision_arm_bridge.py
 /home/jfy/arm/rosarm/devel/.private/arm_trajectory/lib/arm_trajectory/whales_optimizer.py /home/jfy/arm/rosarm/devel/lib/arm_trajectory/whales_optimizer.py
 /home/jfy/arm/rosarm/devel/.private/arm_trajectory/lib/arm_trajectory/path_planner.py /home/jfy/arm/rosarm/devel/lib/arm_trajectory/path_planner.py

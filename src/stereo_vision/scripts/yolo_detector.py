@@ -60,8 +60,11 @@ class YoloDetector:
         self.model_name = model_name
         
         # 重叠检测合并参数
-        self.iou_threshold = rospy.get_param('~iou_threshold', 0.6)  # 更高的IoU阈值，更容易合并重叠检测
-        self.same_class_only = rospy.get_param('~same_class_only', True)  # 是否只合并相同类别的检测
+        self.iou_threshold = rospy.get_param('~iou_threshold', 0.45)  # IoU阈值
+        self.same_class_only = rospy.get_param('~same_class_only', False)  # 是否只合并相同类别的检测
+        
+        # 获取图像话题参数
+        self.image_topic = rospy.get_param('~image_topic', '/stereo_camera/image_merged')
         
         # 创建图像转换桥
         self.bridge = CvBridge()
@@ -71,7 +74,30 @@ class YoloDetector:
             try:
                 # 尝试加载模型
                 rospy.loginfo(f"正在加载YOLO模型: {model_name}")
-                self.model = YOLO(model_name)
+                
+                # 尝试在多个路径中查找模型
+                model_paths = [
+                    model_name,  # 直接使用提供的路径
+                    os.path.join(os.path.dirname(os.path.abspath(__file__)), model_name),  # 当前脚本目录
+                    os.path.join(os.path.expanduser('~'), '.local', 'lib', 'python3.8', 'site-packages', 'ultralytics', 'models', model_name),  # 安装目录
+                ]
+                
+                model_loaded = False
+                for path in model_paths:
+                    try:
+                        if os.path.exists(path):
+                            rospy.loginfo(f"找到模型路径: {path}")
+                            self.model = YOLO(path)
+                            model_loaded = True
+                            break
+                    except Exception as e:
+                        rospy.logwarn(f"在路径 {path} 加载模型失败: {e}")
+                
+                if not model_loaded:
+                    rospy.loginfo("尝试直接从ultralytics加载模型")
+                    self.model = YOLO(model_name)
+                    model_loaded = True
+                
                 rospy.loginfo(f"YOLO模型加载成功: {model_name}")
                 
                 # 获取类别名称
@@ -128,14 +154,15 @@ class YoloDetector:
         # 初始化YOLO模型
         self.model_loaded = False
         
-        # 打印Python路径以便调试
-        rospy.loginfo(f"Python路径: {sys.path}")
-        
+                # 打印Python路径以便调试
+                rospy.loginfo(f"Python路径: {sys.path}")
+                
         # 上次日志记录时间
         self.last_log_time = rospy.Time.now()
         
         # 订阅图像话题（使用合成图像）
-        self.image_sub = rospy.Subscriber('/stereo_camera/image_merged', Image, self.image_callback)
+        self.image_sub = rospy.Subscriber(self.image_topic, Image, self.image_callback)
+        rospy.loginfo(f"已订阅图像话题: {self.image_topic}")
         
         # 订阅控制话题
         self.control_sub = rospy.Subscriber('/yolo/status', Bool, self.control_callback)
@@ -173,7 +200,7 @@ class YoloDetector:
             # 异常也需要限流，避免刷屏
             current_time = rospy.Time.now()
             if not hasattr(self, 'last_error_time') or (current_time - self.last_error_time).to_sec() > 10.0:
-                rospy.logerr(f"处理图像时出错: {str(e)}")
+            rospy.logerr(f"处理图像时出错: {str(e)}")
                 self.last_error_time = current_time
     
     def detect_objects(self, image):
@@ -218,7 +245,7 @@ class YoloDetector:
                 # 异常也需要限流，避免刷屏
                 current_time = rospy.Time.now()
                 if not hasattr(self, 'last_detect_error_time') or (current_time - self.last_detect_error_time).to_sec() > 10.0:
-                    rospy.logerr(f"YOLO检测出错: {str(e)}")
+                rospy.logerr(f"YOLO检测出错: {str(e)}")
                     self.last_detect_error_time = current_time
                 # 出错时回退到模拟模式
                 return self.simulate_detections(image)
@@ -572,14 +599,14 @@ def main():
         
         # 创建YOLOv8检测器
         detector = YoloDetector(model_name, conf_threshold, simulation_mode)
-        
+    
         # 启动ROS节点
         rospy.spin()
-        
+    
     except rospy.ROSInterruptException:
         rospy.loginfo("YOLO检测器节点已关闭")
     except Exception as e:
         rospy.logerr(f"YOLO检测器节点出错: {str(e)}")
-        
+
 if __name__ == '__main__':
     main() 

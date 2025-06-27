@@ -609,6 +609,16 @@
               </column>
              </widget>
             </item>
+            <item>
+             <widget class="QWidget" name="detectionsDisplay" native="true">
+              <property name="minimumSize">
+               <size>
+                <width>0</width>
+                <height>200</height>
+               </size>
+              </property>
+             </widget>
+            </item>
            </layout>
           </widget>
          </widget>
@@ -640,7 +650,6 @@
     <property name="title">
      <string>设置</string>
     </property>
-    <addaction name="actionCamera_Settings"/>
     <addaction name="actionRobot_Settings"/>
    </widget>
    <widget class="QMenu" name="menu_Help">
@@ -667,7 +676,6 @@
    <addaction name="actionOpen_Task_Sequence"/>
    <addaction name="actionSave_Task_Sequence"/>
    <addaction name="separator"/>
-   <addaction name="actionCamera_Settings"/>
   </widget>
   <action name="actionOpen_Task_Sequence">
    <property name="text">
@@ -682,11 +690,6 @@
   <action name="actionExit">
    <property name="text">
     <string>退出</string>
-   </property>
-  </action>
-  <action name="actionCamera_Settings">
-   <property name="text">
-    <string>摄像头设置</string>
    </property>
   </action>
   <action name="actionRobot_Settings">

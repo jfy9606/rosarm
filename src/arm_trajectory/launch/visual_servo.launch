@@ -1,6 +1,6 @@
 <launch>
     <!-- 启动摄像头节点 -->
-    <include file="$(find stereo_vision)/launch/stereo_camera.launch" />
+    <include file="$(find stereo_vision)/launch/stereo_cameras.launch" />
     
     <!-- 启动YOLO检测节点 -->
     <node name="yolo_detector" pkg="stereo_vision" type="yolo_detector.py" output="screen">
@@ -9,6 +9,7 @@
         <param name="iou_threshold" value="0.45" />
         <param name="same_class_only" value="false" />
         <param name="simulation_mode" value="false" />
+        <param name="image_topic" value="/stereo_camera/image_merged" />
     </node>
     
     <!-- 启动视觉伺服控制节点 -->

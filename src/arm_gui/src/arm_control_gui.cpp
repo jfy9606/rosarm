@@ -148,7 +148,6 @@ void ArmControlGUI::initializeGUI()
     connect(ui->actionOpen_Task_Sequence, &QAction::triggered, this, &ArmControlGUI::onOpenTaskSequence);
     connect(ui->actionSave_Task_Sequence, &QAction::triggered, this, &ArmControlGUI::onSaveTaskSequence);
     connect(ui->actionExit, &QAction::triggered, this, &ArmControlGUI::onExitApplication);
-    connect(ui->actionCamera_Settings, &QAction::triggered, this, &ArmControlGUI::onCameraSettings);
     connect(ui->actionRobot_Settings, &QAction::triggered, this, &ArmControlGUI::onRobotSettings);
     connect(ui->actionAbout, &QAction::triggered, this, &ArmControlGUI::onAbout);
     
@@ -163,7 +162,6 @@ void ArmControlGUI::initializeGUI()
     
     // 连接UI文件中定义的路径规划控件
     connect(ui->scanObjectsButton, &QPushButton::clicked, this, &ArmControlGUI::onScanObjectsClicked);
-    connect(ui->planPathButton, &QPushButton::clicked, this, &ArmControlGUI::onPlanPathClicked);
     connect(ui->executePathButton, &QPushButton::clicked, this, &ArmControlGUI::onExecutePathClicked);
     connect(ui->visualizeWorkspaceButton, &QPushButton::clicked, this, &ArmControlGUI::onVisualizeWorkspaceClicked);
     
@@ -174,17 +172,26 @@ void ArmControlGUI::initializeGUI()
     placement_area_combo_->addItem("区域2", "area_2");
     placement_area_combo_->addItem("区域3", "area_3");
     
-    // 创建并连接示例动作按钮
-    QGroupBox* demoGroup = new QGroupBox("示例动作");
-    QVBoxLayout* demoLayout = new QVBoxLayout(demoGroup);
+    // 创建控制模式选择下拉框
+    control_mode_combo_ = new QComboBox(this);
+    control_mode_combo_->addItem("关节控制模式", static_cast<int>(ArmControlMode::JOINT_CONTROL));
+    control_mode_combo_->addItem("笛卡尔控制模式", static_cast<int>(ArmControlMode::CARTESIAN_CONTROL));
+    control_mode_combo_->addItem("视觉伺服模式", static_cast<int>(ArmControlMode::VISUAL_SERVO));
     
-    QPushButton* demoButton1 = new QPushButton("示例1：自由度展示");
-    QPushButton* demoButton2 = new QPushButton("示例2：正常姿态");
-    QPushButton* demoButton3 = new QPushButton("示例3：大角度姿态");
+    // 默认选择关节控制模式
+    control_mode_combo_->setCurrentIndex(0);
+    current_control_mode_ = ArmControlMode::JOINT_CONTROL;
     
-    demoLayout->addWidget(demoButton1);
-    demoLayout->addWidget(demoButton2);
-    demoLayout->addWidget(demoButton3);
+    // 连接模式切换信号
+    connect(control_mode_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged), [this](int index) {
+        current_control_mode_ = static_cast<ArmControlMode>(control_mode_combo_->itemData(index).toInt());
+        logMessage(QString("切换到%1").arg(control_mode_combo_->currentText()));
+    });
+    
+    // 添加控制模式选择到顶部工具栏
+    QLabel* modeLabel = new QLabel("控制模式: ");
+    ui->toolBar->addWidget(modeLabel);
+    ui->toolBar->addWidget(control_mode_combo_);
     
     // 创建YOLO检测控制
     QGroupBox* visionGroup = new QGroupBox("视觉检测");
@@ -194,27 +201,55 @@ void ArmControlGUI::initializeGUI()
     connect(yolo_checkbox_, &QCheckBox::toggled, this, &ArmControlGUI::onYoloDetectionToggled);
     visionLayout->addWidget(yolo_checkbox_);
     
-    // 将示例动作组和视觉控制组添加到controlWidget的布局中
+    QLabel* infoLabel = new QLabel("使用机械臂末端摄像头进行检测");
+    infoLabel->setWordWrap(true);
+    visionLayout->addWidget(infoLabel);
+    
+    // 将视觉控制组添加到controlWidget的布局中
     QVBoxLayout* controlLayout = qobject_cast<QVBoxLayout*>(ui->controlWidget->layout());
     if (controlLayout) {
-        controlLayout->addWidget(demoGroup);
-        controlLayout->addWidget(visionGroup);  // 添加视觉控制组
-        // 注意：不再创建和添加新的路径规划控件，使用UI中已有的
-    } else {
-        // 如果没有布局，打印错误信息
-        logMessage("错误: 无法获取控制部件布局");
+        controlLayout->addWidget(visionGroup);
     }
     
-    // 连接示例动作按钮信号
-    connect(demoButton1, &QPushButton::clicked, this, &ArmControlGUI::onDemoAction1Clicked);
-    connect(demoButton2, &QPushButton::clicked, this, &ArmControlGUI::onDemoAction2Clicked);
-    connect(demoButton3, &QPushButton::clicked, this, &ArmControlGUI::onDemoAction3Clicked);
+    // 连接检测表格的单元格点击信号
+    connect(ui->detectionsTable, &QTableWidget::cellClicked, this, &ArmControlGUI::onDetectionsTableCellClicked);
     
-    // 连接检测表格的单元格点击事件
-    if (ui->detectionsTable) {
-        connect(ui->detectionsTable, &QTableWidget::cellClicked, 
-                this, &ArmControlGUI::onDetectionsTableCellClicked);
+    // 设置检测结果表格
+    ui->detectionsTable->setColumnCount(6);
+    ui->detectionsTable->setHorizontalHeaderLabels({"ID", "类型", "X", "Y", "Z", "操作"});
+    ui->detectionsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    
+    // 设置相机视图鼠标追踪
+    ui->cameraView->setMouseTracking(true);
+    ui->cameraView->installEventFilter(this);
+    
+    // 添加日志
+    logMessage("控制界面初始化完成，使用机械臂末端双目摄像头");
+    logMessage("YOLO检测器已加载，使用YOLOv8n模型");
+    
+    // 创建检测结果状态标签
+    QLabel* detectionStatusLabel = new QLabel("未启用物体检测");
+    detectionStatusLabel->setObjectName("detectionStatusLabel");
+    
+    // 创建检测图像视图
+    QLabel* detectionView = new QLabel();
+    detectionView->setObjectName("detectionView");
+    detectionView->setMinimumSize(QSize(320, 240));
+    detectionView->setAlignment(Qt::AlignCenter);
+    detectionView->setText("检测图像将显示在此处");
+    
+    // 添加检测状态标签和检测图像视图到布局中
+    QVBoxLayout* detectionLayout = new QVBoxLayout();
+    detectionLayout->addWidget(detectionStatusLabel);
+    detectionLayout->addWidget(detectionView);
+    
+    // 将检测布局添加到界面中
+    QVBoxLayout* rightLayout = qobject_cast<QVBoxLayout*>(ui->detectionsDisplay->layout());
+    if (!rightLayout) {
+        rightLayout = new QVBoxLayout(ui->detectionsDisplay);
+        ui->detectionsDisplay->setLayout(rightLayout);
     }
+    rightLayout->addLayout(detectionLayout);
 }
 
 void ArmControlGUI::initializeJointControlConnections()
@@ -245,21 +280,21 @@ void ArmControlGUI::initializeROS()
     dh_params_.resize(6);
     // [type, d, theta, a, alpha]
     // type: 0=revolute, 1=prismatic
-    dh_params_[0] = std::make_tuple(0, 0.0, 0.0, 13.0, M_PI/2);  // 第一关节 (旋转)
-    dh_params_[1] = std::make_tuple(1, 0.0, M_PI/4, 0.0, 0.0);   // 第二关节 (伸缩)
-    dh_params_[2] = std::make_tuple(0, 13.0, 0.0, 0.0, M_PI/2);  // 第三关节 (旋转)
-    dh_params_[3] = std::make_tuple(0, 0.0, 0.0, 25.0, M_PI/2);  // 第四关节 (旋转)
-    dh_params_[4] = std::make_tuple(0, 0.0, M_PI/2, 0.0, M_PI/2); // 第五关节 (固定)
-    dh_params_[5] = std::make_tuple(1, 5.0, M_PI/2, 0.0, 0.0);   // 第六关节 (伸缩)
+    dh_params_[0] = std::make_tuple(2, 0.0, 0.0, 0.0, 0.0);     // 底座旋转关节
+    dh_params_[1] = std::make_tuple(1, 0.0, 0.0, 0.0, 0.0);     // 伸缩关节
+    dh_params_[2] = std::make_tuple(2, 0.0, 0.0, 0.4, 0.0);     // 肩部关节
+    dh_params_[3] = std::make_tuple(2, 0.0, 0.0, 0.4, 0.0);     // 肘部关节
+    dh_params_[4] = std::make_tuple(2, 0.0, 0.0, 0.0, 90.0);    // 末端旋转关节
+    dh_params_[5] = std::make_tuple(1, 0.0, 0.0, 0.0, 0.0);     // 末端伸缩关节
     
-    // 关节限制，确保与examples中一致
+    // 初始化关节限制
     joint_limits_.resize(6);
-    joint_limits_[0] = std::make_pair(-M_PI, M_PI);       // theta1 (rad)
-    joint_limits_[1] = std::make_pair(0.0, 43.0);         // d2 (cm)
-    joint_limits_[2] = std::make_pair(-M_PI/2, M_PI/2);   // theta3 (rad)
-    joint_limits_[3] = std::make_pair(0.0, M_PI);         // theta4 (rad)
-    joint_limits_[4] = std::make_pair(M_PI/2, M_PI/2);    // theta5 (rad, fixed)
-    joint_limits_[5] = std::make_pair(5.0, 15.0);         // d6 (cm)
+    joint_limits_[0] = std::make_pair(-180.0, 180.0);  // 底座旋转
+    joint_limits_[1] = std::make_pair(0.0, 43.0);      // 伸缩
+    joint_limits_[2] = std::make_pair(-90.0, 90.0);    // 肩部
+    joint_limits_[3] = std::make_pair(0.0, 180.0);     // 肘部
+    joint_limits_[4] = std::make_pair(-180.0, 180.0);  // 末端旋转
+    joint_limits_[5] = std::make_pair(5.0, 15.0);      // 末端伸缩
 
     // 初始化订阅者和发布者
     joint_state_sub_ = nh_.subscribe("/arm1/joint_states", 1, &ArmControlGUI::jointStateCallback, this);
@@ -290,20 +325,20 @@ void ArmControlGUI::initializeOpenGL()
 // 设置相机参数
 void ArmControlGUI::setupCameraParameters()
 {
-    // 相机内参矩阵（fx, 0, cx; 0, fy, cy; 0, 0, 1）
+    // 设置相机内参矩阵 (根据实际相机标定结果调整)
     camera_intrinsic_.setToIdentity();
-    camera_intrinsic_(0, 0) = 525.0; // fx
-    camera_intrinsic_(1, 1) = 525.0; // fy
-    camera_intrinsic_(0, 2) = 320.0; // cx
-    camera_intrinsic_(1, 2) = 240.0; // cy
+    camera_intrinsic_(0, 0) = 500.0; // 焦距x
+    camera_intrinsic_(1, 1) = 500.0; // 焦距y
+    camera_intrinsic_(0, 2) = 320.0; // 中心点x
+    camera_intrinsic_(1, 2) = 240.0; // 中心点y
+    camera_intrinsic_(2, 2) = 1.0;
     
-    // 初始化相机外参（世界坐标系到相机坐标系的变换）
-    // 这里我们不再使用固定变换，而是会动态更新为末端执行器的位置
+    // 初始化相机外参矩阵
     camera_extrinsic_.setToIdentity();
+    // 默认相机位置在原点，朝向z轴正方向
+    camera_extrinsic_.setColumn(3, QVector4D(0.0f, 0.0f, 0.0f, 1.0f));
     
-    // 设置相机帧率为30FPS（摄像头最高支持30FPS，不支持60FPS）
-    ros::NodeHandle nh_private("~");
-    nh_private.setParam("/camera/frame_rate", 30);
+    logMessage("相机参数已初始化");
 }
 
 // 更新3D场景
@@ -326,110 +361,81 @@ void ArmControlGUI::updateScene3D()
 // 更新场景中的物体
 void ArmControlGUI::updateSceneObjects()
 {
+    // 清空场景中的物体
     scene_objects_.clear();
     
-    // 如果机械臂关节值为空，使用默认值
-    if (current_joint_values_.empty() || current_joint_values_.size() < 6) {
-        return;
-    }
+    // 场景中添加原点（坐标系中心）
+    scene_objects_.push_back(std::make_pair(QVector3D(0, 0, 0), QColor(255, 255, 255)));
     
-    // 计算末端执行器的位置和姿态
+    // 计算机械臂末端位置
     geometry_msgs::Pose end_effector_pose = jointsToPos(current_joint_values_);
     
-    // 更新相机外参矩阵，使其跟随末端执行器
-    updateCameraTransform(end_effector_pose);
+    // 将末端位置添加到场景
+    scene_objects_.push_back(std::make_pair(
+        QVector3D(end_effector_pose.position.x * 100, // 米转厘米
+                 end_effector_pose.position.y * 100,
+                 end_effector_pose.position.z * 100),
+        QColor(0, 255, 0)));
     
-    // 将检测到的物体添加到场景中，但考虑从相机视角进行变换
+    // 添加检测到的物体
     for (const DetectedObject& obj : detected_objects_) {
-        // 创建物体在相机坐标系中的位置和颜色
-        QVector3D position_camera(obj.x / 100.0f, obj.y / 100.0f, obj.z / 100.0f);
-        
-        // 转换到世界坐标系，考虑相机在机械臂末端的位置
-        QVector4D position_world = camera_extrinsic_.inverted() * QVector4D(position_camera, 1.0f);
-        QVector3D position(position_world.x(), position_world.y(), position_world.z());
-        
-        // 根据物体类型设置不同颜色
+        // 确定物体的颜色
         QColor color(255, 0, 0); // 默认红色
-        if (!obj.type.empty()) {
-            // 根据物体类型设置不同颜色
-            if (obj.type == "cube" || obj.type.find("cube") != std::string::npos) {
-                color = QColor(0, 0, 255); // 蓝色
-            } else if (obj.type == "cylinder" || obj.type.find("cylinder") != std::string::npos) {
-                color = QColor(0, 255, 0); // 绿色
-            } else if (obj.type == "sphere" || obj.type.find("sphere") != std::string::npos) {
+        
+        // 如果是水果，使用不同颜色
+        if (obj.type == "apple") {
+            color = QColor(255, 0, 0); // 红色
+        } else if (obj.type == "banana") {
                 color = QColor(255, 255, 0); // 黄色
-            }
+        } else if (obj.type == "orange") {
+            color = QColor(255, 165, 0); // 橙色
+        } else if (obj.type == "tomato") {
+            color = QColor(255, 99, 71); // 番茄红
         }
         
-        scene_objects_.push_back(std::make_pair(position, color));
+        // 将相机坐标系中的点转换到世界坐标系
+        QVector4D position_camera(obj.x / 100.0f, obj.y / 100.0f, obj.z / 100.0f, 1.0f); // 厘米转米
+        QVector4D position_world = camera_extrinsic_.inverted() * position_camera;
+        
+        // 添加到场景中
+        scene_objects_.push_back(std::make_pair(
+            QVector3D(position_world.x() * 100, // 米转厘米
+                     position_world.y() * 100,
+                     position_world.z() * 100),
+            color));
     }
     
-    // 更新场景渲染器中的物体
+    // 更新3D渲染器
+    if (scene_3d_renderer_) {
     scene_3d_renderer_->updateObjects(scene_objects_);
+    }
 }
 
 // 新增函数：更新相机变换矩阵
 void ArmControlGUI::updateCameraTransform(const geometry_msgs::Pose& end_effector_pose)
 {
-    // 创建从世界坐标系到末端执行器的变换矩阵
+    // 创建从世界坐标系到机械臂末端的变换矩阵
     QMatrix4x4 world_to_end_effector;
     
-    // 设置平移部分
-    world_to_end_effector.setColumn(3, QVector4D(
-        end_effector_pose.position.x,
-        end_effector_pose.position.y,
-        end_effector_pose.position.z,
-        1.0f
-    ));
-    
-    // 从四元数创建旋转矩阵
-    QQuaternion q(
-        end_effector_pose.orientation.w,  // Qt quaternion 构造顺序是 w,x,y,z
+    // 设置旋转部分（使用四元数）
+    QQuaternion rotation(end_effector_pose.orientation.w,
         end_effector_pose.orientation.x,
         end_effector_pose.orientation.y,
-        end_effector_pose.orientation.z
-    );
+                          end_effector_pose.orientation.z);
+    world_to_end_effector.rotate(rotation);
     
-    // 创建旋转矩阵并应用到变换矩阵
-    QMatrix3x3 rot_mat;
-    float x2 = q.x() * q.x();
-    float y2 = q.y() * q.y();
-    float z2 = q.z() * q.z();
-    float xy = q.x() * q.y();
-    float xz = q.x() * q.z();
-    float yz = q.y() * q.z();
-    float wx = q.scalar() * q.x();
-    float wy = q.scalar() * q.y();
-    float wz = q.scalar() * q.z();
+    // 设置平移部分
+    world_to_end_effector.setColumn(3, QVector4D(end_effector_pose.position.x,
+                                               end_effector_pose.position.y,
+                                               end_effector_pose.position.z, 1.0f));
     
-    // 填充旋转矩阵
-    rot_mat(0, 0) = 1.0f - 2.0f * (y2 + z2);
-    rot_mat(0, 1) = 2.0f * (xy - wz);
-    rot_mat(0, 2) = 2.0f * (xz + wy);
-    rot_mat(1, 0) = 2.0f * (xy + wz);
-    rot_mat(1, 1) = 1.0f - 2.0f * (x2 + z2);
-    rot_mat(1, 2) = 2.0f * (yz - wx);
-    rot_mat(2, 0) = 2.0f * (xz - wy);
-    rot_mat(2, 1) = 2.0f * (yz + wx);
-    rot_mat(2, 2) = 1.0f - 2.0f * (x2 + y2);
-    
-    // 设置旋转部分
-    for (int i = 0; i < 3; ++i) {
-        for (int j = 0; j < 3; ++j) {
-            world_to_end_effector(i, j) = rot_mat(i, j);
-        }
-    }
-    
-    // 相机在末端执行器上的偏移（吸盘位置，向下看）
+    // 定义从末端到相机的变换矩阵（根据实际安装位置调整）
     QMatrix4x4 end_effector_to_camera;
     end_effector_to_camera.setToIdentity();
-    // 假设相机安装在末端吸盘上，朝向下方
-    // 旋转90度使相机朝下
-    end_effector_to_camera.rotate(90, 1, 0, 0);
-    // 平移到吸盘位置
-    end_effector_to_camera.translate(0, 0, 0.05); // 5cm偏移
+    // 假设相机安装在末端前方，偏移一定距离
+    end_effector_to_camera.translate(0.0f, 0.0f, 0.1f); // 10cm前方
     
-    // 最终的相机外参矩阵 = 世界到末端 * 末端到相机
+    // 计算相机的世界坐标系位置
     camera_extrinsic_ = world_to_end_effector * end_effector_to_camera;
 }
 
@@ -786,30 +792,34 @@ void ArmControlGUI::onVacuumPowerSliderChanged(int value)
 
 void ArmControlGUI::onVacuumOnButtonClicked()
 {
+    // 发送吸盘开启命令
+    sendVacuumCommand(true, vacuum_power_);
     vacuum_on_ = true;
     
-    // 参照示例动作2实现，使用继电器命令控制吸附
+    // 更新UI
+    updateVacuumStatus();
+    
+    // 记录操作
+    logMessage(QString("吸盘已开启，功率: %1%").arg(vacuum_power_));
+    
+    // 发送继电器命令
     sendRelayOrder("11");
-    QApplication::processEvents();
-    
-    // 同时发送标准的吸附命令以保持兼容性
-    sendVacuumCommand(true, vacuum_power_);
-    
-    logMessage(QString("开启吸附，功率: %1%").arg(vacuum_power_));
 }
 
 void ArmControlGUI::onVacuumOffButtonClicked()
 {
+    // 发送吸盘关闭命令
+    sendVacuumCommand(false);
     vacuum_on_ = false;
     
-    // 参照示例动作2实现，使用继电器命令控制吸附
+    // 更新UI
+    updateVacuumStatus();
+    
+    // 记录操作
+    logMessage("吸盘已关闭");
+    
+    // 发送继电器命令
     sendRelayOrder("00");
-    QApplication::processEvents();
-    
-    // 同时发送标准的吸附命令以保持兼容性
-    sendVacuumCommand(false, 0);
-    
-    logMessage("关闭吸附");
 }
 
 // 任务控制槽实现
@@ -839,12 +849,6 @@ void ArmControlGUI::onPlaceButtonClicked()
     logMessage(QString("放置物体到位置 (%1, %2, %3)").arg(x).arg(y).arg(z));
 }
 
-void ArmControlGUI::onSequenceButtonClicked()
-{
-    // 这里可以实现预设任务序列执行逻辑
-    logMessage("执行预设任务序列");
-}
-
 // 菜单操作槽实现
 void ArmControlGUI::onOpenTaskSequence()
 {
@@ -865,12 +869,6 @@ void ArmControlGUI::onSaveTaskSequence()
 void ArmControlGUI::onExitApplication()
 {
     QApplication::quit();
-}
-
-void ArmControlGUI::onCameraSettings()
-{
-    // 这里可以实现摄像头设置对话框
-    QMessageBox::information(this, "摄像头设置", "摄像头设置功能尚未实现");
 }
 
 void ArmControlGUI::onRobotSettings()
@@ -930,8 +928,8 @@ void ArmControlGUI::jointStateCallback(const sensor_msgs::JointState::ConstPtr& 
     // 更新当前关节值
     if (msg->position.size() >= 6) {
         for (size_t i = 0; i < 6 && i < msg->position.size(); ++i) {
-            current_joint_values_[i] = msg->position[i];
-        }
+                current_joint_values_[i] = msg->position[i];
+            }
         
         // 记录接收到的关节状态 - 但只在值变化时记录，避免刷屏
         static std::vector<double> last_joint_values;
@@ -993,47 +991,6 @@ void ArmControlGUI::jointStateCallback(const sensor_msgs::JointState::ConstPtr& 
         }
     }
 }
-
-void ArmControlGUI::leftCameraCallback(const sensor_msgs::Image::ConstPtr& msg)
-{
-    try {
-        // 将ROS图像转换为OpenCV图像
-        cv_bridge::CvImageConstPtr cv_ptr = cv_bridge::toCvShare(msg, "bgr8");
-        
-        // 记录图像信息
-        ROS_INFO("接收到左相机图像: 尺寸=%dx%d, 编码=%s", 
-                cv_ptr->image.cols, cv_ptr->image.rows, msg->encoding.c_str());
-        logMessage(QString("接收到左相机图像: %1x%2").arg(cv_ptr->image.cols).arg(cv_ptr->image.rows));
-        
-        // 转换为QImage
-        QImage image(cv_ptr->image.data, cv_ptr->image.cols, cv_ptr->image.rows, 
-                     cv_ptr->image.step, QImage::Format_RGB888);
-        image = image.rgbSwapped(); // BGR to RGB
-        
-        // 保存图像
-        left_camera_image_ = image;
-        
-        // 将图像同时设置为当前显示的图像
-        current_camera_image_ = image;
-        
-        // 记录成功接收的图像帧
-        static int frame_count = 0;
-        frame_count++;
-        if (frame_count % 30 == 0) {  // 每30帧记录一次
-            ROS_INFO("成功接收到摄像头图像帧：%d (尺寸: %dx%d)", 
-                    frame_count, image.width(), image.height());
-        }
-        
-        // 更新UI (在主线程中)
-        QMetaObject::invokeMethod(this, "updateCameraView", Qt::QueuedConnection);
-    }
-    catch (cv_bridge::Exception& e) {
-        ROS_ERROR("cv_bridge exception in left camera callback: %s", e.what());
-        logMessage(QString("图像转换错误: %1").arg(e.what()));
-    }
-}
-
-// rightCameraCallback函数已删除
 
 void ArmControlGUI::detectionImageCallback(const sensor_msgs::Image::ConstPtr& msg)
 {
@@ -1153,8 +1110,8 @@ void ArmControlGUI::detectionPosesCallback(const geometry_msgs::PoseArray::Const
             // 如果成功解析类别信息，直接使用它们
             if (has_object_ids) {
                 ROS_INFO("成功解析类别信息: %zu 个类别", class_names.size());
-                for (size_t i = 0; i < msg->poses.size(); ++i) {
-                    DetectedObject obj;
+    for (size_t i = 0; i < msg->poses.size(); ++i) {
+        DetectedObject obj;
                     obj.id = class_names[i];  // 使用传递过来的类别名称
                     obj.type = "检测物品";    // 通用类型描述
                     
@@ -1163,9 +1120,9 @@ void ArmControlGUI::detectionPosesCallback(const geometry_msgs::PoseArray::Const
                     obj.x = msg->poses[i].position.x * scale;
                     obj.y = msg->poses[i].position.y * scale;
                     obj.z = msg->poses[i].position.z * scale;
-                    
-                    // 保存原始位姿
-                    obj.pose = msg->poses[i];
+        
+        // 保存原始位姿
+        obj.pose = msg->poses[i];
                     detected_objects_.push_back(obj);
                     
                     // 记录成功添加的物体
@@ -1204,7 +1161,7 @@ void ArmControlGUI::detectionPosesCallback(const geometry_msgs::PoseArray::Const
             
             // 保存原始位姿
             obj.pose = msg->poses[i];
-            detected_objects_.push_back(obj);
+        detected_objects_.push_back(obj);
             
             // 记录成功添加的物体
             ROS_INFO("添加通用物体到表格: %s [%.2f, %.2f, %.2f]", 
@@ -1272,26 +1229,32 @@ void ArmControlGUI::updateJointControlWidgets()
 
 void ArmControlGUI::updateEndEffectorPose()
 {
-    // 如果机械臂坐标不是必要信息，则不显示在GUI上
-    // 我们只在开发或调试模式下显示这些信息
-    
-    // 获取是否处于调试模式 - 可以通过参数或环境变量控制
-    bool debug_mode = false;  // 默认不显示机械臂坐标
-    
-    if (debug_mode) {
-        // 计算末端位姿
-        current_end_effector_pose_ = jointsToPos(current_joint_values_);
+    if (current_joint_values_.size() >= 6) {
+        // 使用正向运动学计算末端执行器位置
+        geometry_msgs::Pose pose = jointsToPos(current_joint_values_);
         
-        // 更新位置输入框(转换为厘米)
-        ui->pos_x->setValue(current_end_effector_pose_.position.x * 100);
-        ui->pos_y->setValue(current_end_effector_pose_.position.y * 100);
-        ui->pos_z->setValue(current_end_effector_pose_.position.z * 100);
-    } else {
-        // 在非调试模式下，不显示机械臂坐标
-        // 可以将位置输入框设为零或隐藏
-        ui->pos_x->setValue(0);
-        ui->pos_y->setValue(0);
-        ui->pos_z->setValue(0);
+        // 保存当前位置为3D向量和四元数
+        current_end_position_ = QVector3D(
+            pose.position.x,
+            pose.position.y,
+            pose.position.z
+        );
+        
+        current_end_orientation_ = QQuaternion(
+            pose.orientation.w,
+            pose.orientation.x,
+            pose.orientation.y,
+            pose.orientation.z
+        );
+        
+        // 更新相机变换矩阵
+        updateCameraTransform(pose);
+        
+        // 记录位置信息到日志（不更新UI）
+        logMessage(QString("末端位置: X=%1, Y=%2, Z=%3 cm").arg(
+            pose.position.x * 100.0, 0, 'f', 1).arg(
+            pose.position.y * 100.0, 0, 'f', 1).arg(
+            pose.position.z * 100.0, 0, 'f', 1));
     }
 }
 
@@ -1308,159 +1271,68 @@ void ArmControlGUI::updateVacuumStatus()
 
 void ArmControlGUI::updateCameraViews()
 {
-    // 检查是否有有效图像
+    // 如果没有图像，则跳过
     if (current_camera_image_.isNull()) {
-        ROS_WARN("updateCameraViews: 当前图像为空，无法更新相机视图");
         return;
     }
     
-    // 记录图像更新
-    ROS_INFO("更新相机视图: 图像尺寸=%dx%d, 检测到 %zu 个物体", 
-             current_camera_image_.width(), current_camera_image_.height(), 
-             detected_objects_.size());
-    
-    // 创建用于显示的图像副本
-    QImage display_image = current_camera_image_.copy();
-    QPainter painter(&display_image);
-    
-    // 在图像底部添加分辨率信息
-    painter.setPen(Qt::white);
-    painter.setFont(QFont("Arial", 10));
-    QString resolution_text = QString("%1 x %2").arg(display_image.width()).arg(display_image.height());
-    painter.drawText(10, display_image.height() - 10, resolution_text);
-    
-    // 检查是否启用了YOLO检测
-    if (yolo_detection_enabled_) {
-        // 在图像顶部添加检测状态信息
-        QString status_text = QString("YOLO检测: 启用 (%1 个物体)").arg(detected_objects_.size());
-        painter.setPen(Qt::green);
-        painter.setFont(QFont("Arial", 12, QFont::Bold));
-        painter.drawText(10, 20, status_text);
-    } else {
-        // 在图像顶部添加检测状态信息
-        QString status_text = "YOLO检测: 禁用";
-        painter.setPen(Qt::red);
-        painter.setFont(QFont("Arial", 12, QFont::Bold));
-        painter.drawText(10, 20, status_text);
-    }
-    
-    // 绘制检测到的物体
-    if (!detected_objects_.empty()) {
-        ROS_INFO("在相机视图上绘制 %zu 个检测物体", detected_objects_.size());
-        
-        for (size_t i = 0; i < detected_objects_.size(); ++i) {
-            const DetectedObject& obj = detected_objects_[i];
-            
-            // 将物体坐标转换为图像坐标
-            float img_x = (obj.x / 100.0f + 0.5f) * display_image.width();  // 厘米转米再转像素
-            float img_y = (0.5f - obj.y / 100.0f) * display_image.height(); // 厘米转米再转像素
-            
-            // 确保坐标在图像范围内
-            if (img_x >= 0 && img_x < display_image.width() && 
-                img_y >= 0 && img_y < display_image.height()) {
-                
-                // 设置画笔颜色和宽度
-                if (static_cast<int>(i) == selected_object_index_) {
-                    painter.setPen(QPen(Qt::yellow, 3));
-                } else {
-                    painter.setPen(QPen(Qt::red, 2));
-                }
-                
-                // 计算矩形大小
-                int box_size = 60;  // 固定大小
-                
-                QRect rect(img_x - box_size/2, img_y - box_size/2, box_size, box_size);
-                
-                // 绘制矩形框
-                painter.drawRect(rect);
-                
-                // 设置字体和颜色
-                QFont font = painter.font();
-                font.setBold(true);
-                font.setPointSize(10);
-                painter.setFont(font);
-                
-                if (static_cast<int>(i) == selected_object_index_) {
-                    painter.setPen(QPen(Qt::yellow));
-                } else {
-                    painter.setPen(QPen(Qt::white));
-                }
-                
-                // 准备文本 - 使用物体实际名称
-                QString text = QString::fromStdString(obj.id);
-                
-                // 获取文本尺寸
-                QFontMetrics fm(font);
-                QRect text_rect = fm.boundingRect(text);
-                
-                // 绘制背景
-                QRect background_rect(
-                    img_x - text_rect.width()/2 - 2,
-                    img_y - box_size/2 - text_rect.height() - 4,
-                    text_rect.width() + 4,
-                    text_rect.height() + 4
-                );
-                
-                painter.fillRect(background_rect, QColor(0, 0, 0, 128));
-                
-                // 绘制物体名称
-                painter.drawText(
-                    img_x - text_rect.width()/2,
-                    img_y - box_size/2 - 4,
-                    text
-                );
-                
-                // 绘制类型信息
-                QString type_text = QString::fromStdString(obj.type);
-                QRect type_rect = fm.boundingRect(type_text);
-                
-                QRect type_bg_rect(
-                    img_x - type_rect.width()/2 - 2,
-                    img_y + box_size/2 + 2,
-                    type_rect.width() + 4,
-                    type_rect.height() + 4
-                );
-                
-                painter.fillRect(type_bg_rect, QColor(0, 0, 0, 128));
-                
-                painter.drawText(
-                    img_x - type_rect.width()/2,
-                    img_y + box_size/2 + type_rect.height() + 2,
-                    type_text
-                );
-                
-                // 记录绘制的物体
-                ROS_INFO("绘制物体 %zu: %s [%.1f, %.1f] → 图像坐标 [%.1f, %.1f]", 
-                         i, obj.id.c_str(), obj.x, obj.y, img_x, img_y);
-            } else {
-                ROS_WARN("物体 %zu: %s [%.1f, %.1f] 坐标超出图像范围", 
-                         i, obj.id.c_str(), obj.x, obj.y);
-            }
-        }
-    }
-    
-    // 更新相机视图，缩小以适配显示区域
-    QPixmap pixmap = QPixmap::fromImage(display_image);
-    
-    // 获取相机视图控件的尺寸
+    // 获取当前相机视图组件的大小
     QSize viewSize = ui->cameraView->size();
     
-    // 计算合适的缩放比例，保持图像比例不变
-    float scaleFactor = qMin(
-        static_cast<float>(viewSize.width()) / pixmap.width(),
-        static_cast<float>(viewSize.height()) / pixmap.height()
-    ) * 0.95; // 再缩小5%以确保完全显示
+    // 缩放图像以适应视图
+    QImage scaledImage = current_camera_image_.scaled(viewSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
     
-    // 缩放图像
-    QSize scaledSize(pixmap.width() * scaleFactor, pixmap.height() * scaleFactor);
-    pixmap = pixmap.scaled(scaledSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    // 创建一个带有标记的副本
+    QImage displayImage = scaledImage.copy();
+    QPainter painter(&displayImage);
     
-    // 设置显示
-    ui->cameraView->setPixmap(pixmap);
-    ui->cameraView->update();
+    // 添加检测到的物体标记
+    for (size_t i = 0; i < detected_objects_.size(); i++) {
+        // 将3D世界坐标转为图像坐标
+        QVector3D objPos(detected_objects_[i].x, detected_objects_[i].y, detected_objects_[i].z);
+        QPoint imgPos = point3DToImage(objPos);
+        
+        // 调整为当前显示比例
+        float scaleX = static_cast<float>(scaledImage.width()) / current_camera_image_.width();
+        float scaleY = static_cast<float>(scaledImage.height()) / current_camera_image_.height();
+        imgPos.setX(imgPos.x() * scaleX);
+        imgPos.setY(imgPos.y() * scaleY);
+        
+        // 设置绘制样式
+        if (static_cast<int>(i) == selected_object_index_) {
+            painter.setPen(QPen(Qt::red, 3));
+        } else {
+            painter.setPen(QPen(Qt::green, 2));
+        }
+        
+        // 绘制标记
+        painter.drawEllipse(imgPos, 15, 15);
+        
+        // 添加标签
+        painter.setFont(QFont("Arial", 10));
+        painter.drawText(imgPos.x() + 20, imgPos.y() + 5, 
+                       QString("%1: %2").arg(detected_objects_[i].id.c_str())
+                                       .arg(detected_objects_[i].type.c_str()));
+    }
     
-    // 记录相机视图更新完成
-    ROS_INFO("相机视图更新完成: 显示尺寸=%dx%d", pixmap.width(), pixmap.height());
+    // 设置图像到相机视图
+    ui->cameraView->setPixmap(QPixmap::fromImage(displayImage));
+    
+    // 如果有检测标签和视图，更新它们
+    QLabel* detectionStatusLabel = ui->centralwidget->findChild<QLabel*>("detectionStatusLabel");
+    QLabel* detectionView = ui->centralwidget->findChild<QLabel*>("detectionView");
+    
+    if (detectionStatusLabel && detectionView) {
+        // 更新状态文本
+        QString status = QString("检测到 %1 个物体").arg(detected_objects_.size());
+        detectionStatusLabel->setText(status);
+        
+        // 如果有检测图像，显示它
+        if (!current_camera_image_.isNull()) {
+            detectionView->setPixmap(QPixmap::fromImage(current_camera_image_.scaled(
+                detectionView->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation)));
+        }
+    }
 }
 
 // 操作函数实现
@@ -1557,9 +1429,12 @@ geometry_msgs::Pose ArmControlGUI::jointsToPos(const std::vector<double>& joint_
     // 这里应该实现正运动学算法，将关节角度转换为末端位姿
     // 简单起见，先返回一个假的位姿
     geometry_msgs::Pose pose;
-    pose.position.x = 0.1 + 0.05 * sin(joint_values[0]);
-    pose.position.y = 0.2 * sin(joint_values[2]);
-    pose.position.z = 0.3 + 0.1 * joint_values[1] / 43.0 + 0.05 * sin(joint_values[3]);
+    pose.position.x = 0.3; // 默认在前方30cm
+    pose.position.y = 0.0;
+    pose.position.z = 0.2; // 默认高度20cm
+    pose.orientation.x = 0.0;
+    pose.orientation.y = 0.0;
+    pose.orientation.z = 0.0;
     pose.orientation.w = 1.0;
     return pose;
 }
@@ -1576,14 +1451,6 @@ void ArmControlGUI::logMessage(const QString& message)
     
     // 滚动到底部 - 使用简化版本避免QScrollBar的问题
     ui->logTextEdit->moveCursor(QTextCursor::End);
-}
-
-// OpenGL渲染
-void ArmControlGUI::renderRobotArm()
-{
-    // 这里应该实现OpenGL渲染机械臂的代码
-    // 需要使用当前的关节值计算各个连杆的位置和姿态
-    // ...
 }
 
 // 电机控制函数
@@ -1609,122 +1476,9 @@ void ArmControlGUI::sendRelayOrder(const std::string& command)
     std_msgs::String msg;
     msg.data = command;
     relay_order_pub_.publish(msg);
-    logMessage(QString("发送继电器命令: %1").arg(QString::fromStdString(command)));
-}
-
-// 示例动作函数
-void ArmControlGUI::onDemoAction1Clicked()
-{
-    logMessage("执行示例动作1: 自由度展示");
     
-    // 夹持电机移动
-    sendMotorOrder(1, 11, 0, 0, 0, true, -25, 30);
-    QApplication::processEvents();
-    ros::Duration(5.0).sleep();
-    logMessage("夹持电机移动");
-    
-    // 夹持电机归零
-    sendMotorOrder(1, 11, 0, 0, 0, true, 0, 30);
-    QApplication::processEvents();
-    ros::Duration(5.0).sleep();
-    logMessage("夹持电机归零");
-    
-    // 进给电机移动
-    sendMotorOrder(2, 100, 200, 0, 0, false, -2000, 10);
-    QApplication::processEvents();
-    ros::Duration(0.5).sleep();
-    sendMotorOrder(2, 0, 200, 0, 0, false, -2000, 10);
-    QApplication::processEvents();
-    ros::Duration(0.5).sleep();
-    sendMotorOrder(2, 99, 200, 0, 0, false, -2000, 10);
-    QApplication::processEvents();
-    ros::Duration(3.0).sleep();
-    logMessage("进给电机移动");
-    
-    // 进给电机归零
-    sendMotorOrder(2, 100, 200, 0, 0, false, 1900, 10);
-    QApplication::processEvents();
-    ros::Duration(0.5).sleep();
-    sendMotorOrder(2, 0, 200, 0, 0, true, 300, 10);
-    QApplication::processEvents();
-    ros::Duration(0.5).sleep();
-    sendMotorOrder(2, 99, 200, 0, 0, false, 1900, 10);
-    QApplication::processEvents();
-    ros::Duration(3.0).sleep();
-    sendMotorOrder(2, 100, 100, 0, 0, false, 1900, 10);
-    QApplication::processEvents();
-    ros::Duration(0.5).sleep();
-    logMessage("进给电机归零");
-    
-    logMessage("示例动作1完成");
-}
-
-void ArmControlGUI::onDemoAction2Clicked()
-{
-    logMessage("执行示例动作2: 正常姿态展示");
-    
-    QApplication::processEvents();
-    ros::Duration(5.0).sleep();
-    
-    // 进给电机移动
-    sendMotorOrder(2, 100, 100, 0, 0, false, -2000, 10);
-    QApplication::processEvents();
-    ros::Duration(0.5).sleep();
-    sendMotorOrder(2, 0, 100, 0, 0, false, -2500, 10);
-    QApplication::processEvents();
-    ros::Duration(0.5).sleep();
-    sendMotorOrder(2, 99, 100, 0, 0, false, -2000, 10);
-    QApplication::processEvents();
-    ros::Duration(13.0).sleep();
-    logMessage("进给电机移动");
-    
-    // 吸附启动
-    sendRelayOrder("11");
-    QApplication::processEvents();
-    
-    // 进给电机归零
-    sendMotorOrder(2, 100, 200, 0, 0, false, 2000, 10);
-    QApplication::processEvents();
-    ros::Duration(0.5).sleep();
-    sendMotorOrder(2, 0, 200, 0, 0, true, 300, 10);
-    QApplication::processEvents();
-    ros::Duration(0.5).sleep();
-    sendMotorOrder(2, 99, 200, 0, 0, false, 2000, 10);
-    QApplication::processEvents();
-    ros::Duration(3.0).sleep();
-    sendMotorOrder(2, 100, 100, 0, 0, false, 2000, 10);
-    QApplication::processEvents();
-    ros::Duration(0.5).sleep();
-    logMessage("进给电机归零");
-    
-    QApplication::processEvents();
-    ros::Duration(5.0).sleep();
-    
-    // 吸附关闭
-    sendRelayOrder("00");
-    QApplication::processEvents();
-    
-    logMessage("示例动作2完成");
-}
-
-void ArmControlGUI::onDemoAction3Clicked()
-{
-    logMessage("执行示例动作3: 大角度姿态展示");
-    
-    // 夹持电机移动
-    sendMotorOrder(1, 11, 0, 0, 0, true, -25, 30);
-    QApplication::processEvents();
-    ros::Duration(5.0).sleep();
-    logMessage("夹持电机移动");
-    
-    logMessage("示例动作3完成");
-}
-
-void ArmControlGUI::updateROS()
-{
-    if (ros::ok()) {
-        ros::spinOnce();
-    }
+    // 记录操作
+    logMessage(QString("发送继电器命令: %1").arg(command.c_str()));
 }
 
 // 修改YOLO状态回调函数
@@ -1757,56 +1511,54 @@ void ArmControlGUI::yoloStatusCallback(const std_msgs::Bool::ConstPtr& msg)
 // 修改YOLO切换处理函数
 void ArmControlGUI::onYoloDetectionToggled(bool checked)
 {
-    // 记录操作到日志
-    logMessage(QString("尝试%1 YOLO检测...").arg(checked ? "启用" : "禁用"));
-    
-    // 无论服务是否可用，先将状态保存起来
+    // 保存状态
     yolo_detection_enabled_ = checked;
-    
-    // 如果禁用检测，清空物体表格
-    if (!checked) {
-        detected_objects_.clear();
-        updateDetectionsTable();
-    }
-    
-    // 检查服务是否可用
-    if (!yolo_control_client_.exists()) {
-        logMessage("警告: YOLO控制服务不可用，但已记录您的选择");
-        return;
-    }
     
     // 创建服务请求
     std_srvs::SetBool srv;
     srv.request.data = checked;
     
-    // 调用服务
+    // 调用服务，启用/禁用YOLO检测
     if (yolo_control_client_.call(srv)) {
         if (srv.response.success) {
-            logMessage(QString("YOLO检测已%1").arg(checked ? "启用" : "禁用"));
-            
-            // 如果禁用检测，再次确保清空物体表格
-            if (!checked) {
+            if (checked) {
+                logMessage("YOLO物体检测已启用，使用末端摄像头");
+        } else {
+                logMessage("YOLO物体检测已禁用");
+                // 清除检测结果
                 detected_objects_.clear();
                 updateDetectionsTable();
+                updateCameraViews();
+                
+                // 清除检测视图
+                QLabel* detectionView = ui->centralwidget->findChild<QLabel*>("detectionView");
+                QLabel* detectionStatusLabel = ui->centralwidget->findChild<QLabel*>("detectionStatusLabel");
+                
+                if (detectionView) {
+                    detectionView->clear();
+                    detectionView->setText("检测图像将显示在此处");
+                }
+                
+                if (detectionStatusLabel) {
+                    detectionStatusLabel->setText("物体检测已禁用");
+                }
             }
         } else {
-            logMessage(QString("无法%1 YOLO检测: %2").arg(
-                checked ? "启用" : "禁用").arg(QString::fromStdString(srv.response.message)));
-            
-            // 恢复复选框状态
-            if (yolo_checkbox_) {
+            logMessage(QString("YOLO控制失败: %1").arg(srv.response.message.c_str()));
+            // 回滚UI状态
                 yolo_checkbox_->blockSignals(true);
-                yolo_checkbox_->setChecked(!checked); // 恢复之前的状态
+            yolo_checkbox_->setChecked(!checked);
                 yolo_checkbox_->blockSignals(false);
-            }
+            yolo_detection_enabled_ = !checked;
         }
     } else {
-        logMessage("YOLO控制服务调用失败，但已记录您的选择");
+        logMessage("YOLO控制服务调用失败，请检查服务是否可用");
+        // 回滚UI状态
+        yolo_checkbox_->blockSignals(true);
+        yolo_checkbox_->setChecked(!checked);
+        yolo_checkbox_->blockSignals(false);
+        yolo_detection_enabled_ = !checked;
     }
-    
-    // 即使服务调用失败，也立即更新视图，以便在本地显示检测结果
-    updateCameraViews();
-    updateDetectionsTable();
 }
 
 // 添加路径规划相关的槽函数
@@ -1834,42 +1586,6 @@ void ArmControlGUI::onScanObjectsClicked()
     // 显示状态信息
     ui->statusbar->showMessage("正在使用YOLOv8s模型扫描物体...", 2000);
     logMessage("使用YOLOv8s模型扫描合成摄像头图像");
-}
-
-void ArmControlGUI::onPlanPathClicked()
-{
-    logMessage("开始规划路径...");
-    
-    // 检查是否有检测到的物体
-    if (detected_objects_.empty()) {
-        logMessage("没有检测到物体，请先扫描物体");
-        ui->statusbar->showMessage("错误: 没有检测到物体，请先扫描物体", 3000);
-        return;
-    }
-    
-    // 获取当前选中的物体（如果有在表格中选中）
-    int selected_row = ui->detectionsTable->currentRow();
-    const DetectedObject* selected_obj = nullptr;
-    
-    // 如果有选中的行，使用该行对应的物体，否则使用第一个物体
-    if (selected_row >= 0 && selected_row < static_cast<int>(detected_objects_.size())) {
-        selected_obj = &detected_objects_[selected_row];
-    } else {
-        selected_obj = &detected_objects_[0];
-    }
-    
-    QString object_id = QString::fromStdString(selected_obj->id);
-    
-    // 获取选中的放置区
-    QString placement_area = placement_area_combo_->currentData().toString();
-    
-    // 发送规划命令
-    std_msgs::String cmd_msg;
-    cmd_msg.data = QString("plan %1 %2").arg(object_id).arg(placement_area).toStdString();
-    arm_command_pub_.publish(cmd_msg);
-    
-    logMessage(QString("已规划从物体 %1 到放置区 %2 的路径").arg(object_id).arg(placement_area));
-    ui->statusbar->showMessage(QString("已规划路径: 物体 %1 → 放置区 %2").arg(object_id).arg(placement_area), 3000);
 }
 
 void ArmControlGUI::onExecutePathClicked()
@@ -1942,8 +1658,8 @@ void ArmControlGUI::objectDetectionCallback(const sensor_msgs::Image::ConstPtr& 
                 // 如果成功解析类别信息，直接使用它们
                 if (has_object_ids) {
                     ROS_INFO("成功解析类别信息: %zu 个类别", class_names.size());
-                    for (size_t i = 0; i < poses_msg->poses.size(); ++i) {
-                        DetectedObject obj;
+        for (size_t i = 0; i < poses_msg->poses.size(); ++i) {
+            DetectedObject obj;
                         obj.id = class_names[i];  // 使用传递过来的类别名称
                         obj.type = "检测物品";    // 通用类型描述
                         
@@ -1954,8 +1670,8 @@ void ArmControlGUI::objectDetectionCallback(const sensor_msgs::Image::ConstPtr& 
                         obj.z = poses_msg->poses[i].position.z * scale;
                         
                         // 保存原始位姿
-                        obj.pose = poses_msg->poses[i];
-                        detected_objects_.push_back(obj);
+            obj.pose = poses_msg->poses[i];
+            detected_objects_.push_back(obj);
                         
                         // 记录成功添加的物体
                         ROS_INFO("添加检测物体到表格: %s [%.2f, %.2f, %.2f]", 
@@ -2107,118 +1823,48 @@ void ArmControlGUI::updateConnectionStatus()
     statusBar()->showMessage(status);
 }
 
-// 添加更新检测结果表格的函数
+// 更新检测结果表格
 void ArmControlGUI::updateDetectionsTable()
 {
-    // 获取表格控件
-    QTableWidget* table = ui->detectionsTable;
-    if (!table) {
-        ROS_ERROR("无法获取检测表格控件");
-        return;
+    // 暂时断开信号连接以避免循环触发
+    ui->detectionsTable->blockSignals(true);
+    
+    // 清除旧内容
+    ui->detectionsTable->setRowCount(0);
+    
+    // 添加新内容
+    for (size_t i = 0; i < detected_objects_.size(); i++) {
+        const auto& obj = detected_objects_[i];
+        
+        // 添加新行
+        int row = ui->detectionsTable->rowCount();
+        ui->detectionsTable->insertRow(row);
+        
+        // 设置ID
+        ui->detectionsTable->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(obj.id)));
+        
+        // 设置类型
+        ui->detectionsTable->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(obj.type)));
+        
+        // 设置X坐标
+        ui->detectionsTable->setItem(row, 2, new QTableWidgetItem(QString::number(obj.x, 'f', 3)));
+        
+        // 设置Y坐标
+        ui->detectionsTable->setItem(row, 3, new QTableWidgetItem(QString::number(obj.y, 'f', 3)));
+        
+        // 设置Z坐标
+        ui->detectionsTable->setItem(row, 4, new QTableWidgetItem(QString::number(obj.z, 'f', 3)));
+        
+        // 添加拾取按钮
+        QPushButton* pickButton = new QPushButton("拾取");
+        connect(pickButton, &QPushButton::clicked, [this, i]() {
+            sendPickObjectCommand(i);
+        });
+        ui->detectionsTable->setCellWidget(row, 5, pickButton);
     }
     
-    // 记录调用信息
-    ROS_INFO("更新检测表格: %zu 个物体", detected_objects_.size());
-    
-    // 保存当前选中的行
-    int currentRow = table->currentRow();
-    
-    // 阻止信号以避免触发不必要的事件
-    table->blockSignals(true);
-    
-    // 清空表格
-    table->clearContents();
-    table->setRowCount(detected_objects_.size());
-    
-    // 设置表头
-    if (table->columnCount() < 5) {
-        table->setColumnCount(5);
-        table->setHorizontalHeaderLabels({"名称", "类型", "X(cm)", "Y(cm)", "Z(cm)"});
-    }
-    
-    // 填充表格数据
-    for (size_t i = 0; i < detected_objects_.size(); ++i) {
-        const DetectedObject& obj = detected_objects_[i];
-        
-        // 名称
-        QTableWidgetItem* nameItem = new QTableWidgetItem(QString::fromStdString(obj.id));
-        nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable); // 设为只读
-        table->setItem(i, 0, nameItem);
-        
-        // 类型
-        QTableWidgetItem* typeItem = new QTableWidgetItem(QString::fromStdString(obj.type));
-        typeItem->setFlags(typeItem->flags() & ~Qt::ItemIsEditable); // 设为只读
-        table->setItem(i, 1, typeItem);
-        
-        // X坐标（厘米）
-        QTableWidgetItem* xItem = new QTableWidgetItem(QString::number(obj.x, 'f', 1));
-        xItem->setFlags(xItem->flags() & ~Qt::ItemIsEditable); // 设为只读
-        table->setItem(i, 2, xItem);
-        
-        // Y坐标（厘米）
-        QTableWidgetItem* yItem = new QTableWidgetItem(QString::number(obj.y, 'f', 1));
-        yItem->setFlags(yItem->flags() & ~Qt::ItemIsEditable); // 设为只读
-        table->setItem(i, 3, yItem);
-        
-        // Z坐标（厘米）
-        QTableWidgetItem* zItem = new QTableWidgetItem(QString::number(obj.z, 'f', 1));
-        zItem->setFlags(zItem->flags() & ~Qt::ItemIsEditable); // 设为只读
-        table->setItem(i, 4, zItem);
-        
-        // 如果这个物体是当前选中的物体，设置其背景颜色
-        if (static_cast<int>(i) == selected_object_index_) {
-            for (int col = 0; col < table->columnCount(); ++col) {
-                if (table->item(i, col)) {
-                    table->item(i, col)->setBackground(QColor(255, 255, 0, 64)); // 浅黄色背景
-                }
-            }
-        }
-        
-        // 记录添加到表格的物体
-        ROS_INFO("表格行 %zu: %s [%.1f, %.1f, %.1f]", 
-                i, obj.id.c_str(), obj.x, obj.y, obj.z);
-    }
-    
-    // 如果检测到的物体数量为0，添加一个提示行
-    if (detected_objects_.empty()) {
-        table->setRowCount(1);
-        QTableWidgetItem* msgItem = new QTableWidgetItem("未检测到物体");
-        msgItem->setFlags(msgItem->flags() & ~Qt::ItemIsEditable); // 设为只读
-        table->setItem(0, 0, msgItem);
-        
-        // 合并单元格显示提示信息
-        table->setSpan(0, 0, 1, 5);
-        
-        // 灰色字体，居中显示
-        msgItem->setForeground(QBrush(Qt::gray));
-        msgItem->setTextAlignment(Qt::AlignCenter);
-        
-        ROS_INFO("表格显示'未检测到物体'提示");
-    }
-    
-    // 恢复表格信号
-    table->blockSignals(false);
-    
-    // 恢复选中行
-    if (currentRow >= 0 && currentRow < table->rowCount()) {
-        table->selectRow(currentRow);
-    }
-    
-    // 自动调整列宽以适应内容
-    table->resizeColumnsToContents();
-    
-    // 确保表格可见
-    table->show();
-    table->update();
-    
-    // 更新3D场景中的物体
-    updateSceneObjects();
-    
-    // 记录表格更新完成
-    ROS_INFO("检测表格更新完成，行数: %d", table->rowCount());
-    
-    // 强制刷新UI
-    table->parentWidget()->update();
+    // 恢复信号连接
+    ui->detectionsTable->blockSignals(false);
 }
 
 // 添加缺失的按钮点击处理函数
@@ -2277,48 +1923,58 @@ void ArmControlGUI::on_vacuumOffButton_clicked()
     onVacuumOffButtonClicked();
 }
 
-void ArmControlGUI::on_example1Button_clicked()
-{
-    onDemoAction1Clicked();
-}
-
-void ArmControlGUI::on_example2Button_clicked()
-{
-    onDemoAction2Clicked();
-}
-
-void ArmControlGUI::on_example3Button_clicked()
-{
-    onDemoAction3Clicked();
-}
-
+// 更新UI
 void ArmControlGUI::updateUI()
 {
-    // 更新GUI组件
-    onUpdateGUI();
+    // 处理ROS事件
+    ros::spinOnce();
     
-    // 更新检测表格
-    static int update_count = 0;
-    update_count++;
+    // 更新关节信息显示
+    updateJointInfo();
     
-    // 每5次更新检查一次检测表格
-    if (update_count % 5 == 0) {
-        // 检查是否启用了YOLO检测
-        if (yolo_detection_enabled_) {
-            // 记录表格更新尝试
-            ROS_INFO("UI更新: 尝试更新检测表格 (检测已启用)");
+    // 更新末端执行器位姿信息
+    updateEndEffectorPose();
+    
+    // 更新摄像头视图
+    updateCameraViews();
+    
+    // 更新3D场景
+    updateScene3D();
+    
+    // 更新检测结果表格
+    updateDetectionsTable();
+    
+    // 更新吸盘状态
+    updateVacuumStatus();
+    
+    // 更新连接状态
+    updateConnectionStatus();
+    
+    // 根据当前控制模式更新界面元素
+    switch (current_control_mode_) {
+        case ArmControlMode::JOINT_CONTROL:
+            // 关节控制模式 - 启用关节控制组
+            ui->jointControlGroup->setEnabled(true);
+            break;
             
-            // 更新检测表格
-            updateDetectionsTable();
-        } else {
-            // 如果检测未启用，但表格不为空，则清空表格
-            if (!detected_objects_.empty()) {
-                ROS_INFO("UI更新: 检测未启用，清空表格");
-                detected_objects_.clear();
-                updateDetectionsTable();
-            }
-        }
+        case ArmControlMode::CARTESIAN_CONTROL:
+            // 笛卡尔控制模式 - 禁用关节控制组
+            ui->jointControlGroup->setEnabled(false);
+            break;
+            
+        case ArmControlMode::VISUAL_SERVO:
+            // 视觉伺服模式 - 控制组禁用
+            ui->jointControlGroup->setEnabled(false);
+            break;
     }
+    
+    // 更新视觉伺服状态
+    if (visual_servo_active_) {
+        ui->statusbar->showMessage("视觉伺服控制：活动", 1000);
+    }
+    
+    // 刷新应用程序
+    QApplication::processEvents();
 }
 
 void ArmControlGUI::sendGripperCommand(bool open)
@@ -2459,165 +2115,76 @@ void ArmControlGUI::updateGUIJointValues()
 // 添加初始化成员变量的函数
 void ArmControlGUI::initializeMembers()
 {
-    // 初始化标志和状态变量
+    // 机械臂状态初始化
+    current_joint_values_ = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    target_joint_values_ = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    
+    // 关节限制
+    joint_min_values_ = {-180.0, 0.0, -90.0, 0.0, 0.0, 5.0};
+    joint_max_values_ = {180.0, 43.0, 90.0, 180.0, 0.0, 15.0};
+    
+    // 末端执行器状态
     gripper_open_ = true;
     vacuum_on_ = false;
     vacuum_power_ = 50;
+    
+    // 控制模式
+    current_control_mode_ = ArmControlMode::JOINT_CONTROL;
+    
+    // 视觉相关
     yolo_detection_enabled_ = false;
-    enable_3d_rendering_ = true;
+    visual_servo_active_ = false;
     selected_object_index_ = -1;
-    object_detection_sync_ = nullptr;
     
-    // 创建定时器用于更新UI
+    // 更新定时器
     updateTimer = new QTimer(this);
+    updateTimer->setInterval(100); // 10Hz更新
     connect(updateTimer, &QTimer::timeout, this, &ArmControlGUI::updateUI);
-    updateTimer->start(100); // 10Hz
+    updateTimer->start();
     
-    // 初始化空白图像等待摄像头连接
-    QImage emptyImage(640, 480, QImage::Format_RGB888);
-    emptyImage.fill(Qt::black);
-    QPainter painter(&emptyImage);
-    painter.setPen(Qt::white);
-    painter.setFont(QFont("Arial", 14, QFont::Bold));
-    painter.drawText(emptyImage.rect(), Qt::AlignCenter, "等待摄像头连接...");
-    
-    left_camera_image_ = emptyImage;
-    current_camera_image_ = emptyImage;
+    // 日志消息
+    logMessage("系统初始化完成，使用机械臂末端双目摄像头");
 }
 
 // 添加设置ROS订阅的函数
 void ArmControlGUI::setupROSSubscriptions()
 {
-    // 订阅关节状态，包含舵机位置等信息
+    // 订阅关节状态
     joint_state_sub_ = nh_.subscribe("/arm1/joint_states", 10, &ArmControlGUI::jointStateCallback, this);
     
-    // 订阅电机状态，实时获取电机位置和电流
-    ros::Subscriber motor_state_sub = nh_.subscribe("/motor_states", 10, &ArmControlGUI::motorStateCallback, this);
-    
-    // 订阅舵机状态，实时获取舵机位置
-    ros::Subscriber servo_state_sub = nh_.subscribe("/servo_states", 10, &ArmControlGUI::servoStateCallback, this);
-    
-    // 订阅合成的双目摄像头话题，无论分辨率如何，都使用这个作为GUI显示源
+    // 订阅合成立体图像
     stereo_merged_sub_ = nh_.subscribe("/stereo_camera/image_merged", 1, &ArmControlGUI::stereoMergedCallback, this);
     
-    // 备份订阅，如果没有立体相机，则使用普通摄像头
-    ros::Subscriber raw_camera_sub = nh_.subscribe("/camera/image_raw", 1, &ArmControlGUI::stereoMergedCallback, this);
+    // 订阅检测图像
+    detection_image_sub_ = nh_.subscribe("/detections/image", 1, &ArmControlGUI::detectionImageCallback, this);
     
-    // 使用YOLO检测结果订阅
-    detection_image_sub_ = nh_.subscribe("/yolo_detection/image", 1, &ArmControlGUI::detectionImageCallback, this);
-    detection_poses_sub_ = nh_.subscribe("/yolo_detection/poses", 1, &ArmControlGUI::detectionPosesCallback, this);
+    // 订阅检测位姿
+    detection_poses_sub_ = nh_.subscribe("/detections/poses", 1, &ArmControlGUI::detectionPosesCallback, this);
     
-    // 创建消息过滤器，同步处理图像和物体位置信息
-    message_filters::Subscriber<sensor_msgs::Image> detection_image_filter(nh_, "/yolo_detection/image", 1);
-    message_filters::Subscriber<geometry_msgs::PoseArray> detection_poses_filter(nh_, "/yolo_detection/poses", 1);
-    
-    typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, geometry_msgs::PoseArray> MySyncPolicy;
-    object_detection_sync_ = new message_filters::Synchronizer<MySyncPolicy>(MySyncPolicy(10), detection_image_filter, detection_poses_filter);
-    object_detection_sync_->registerCallback(boost::bind(&ArmControlGUI::objectDetectionCallback, this, _1, _2));
-    
-    // YOLO状态订阅
+    // 订阅YOLO状态
     yolo_status_sub_ = nh_.subscribe("/yolo/status", 1, &ArmControlGUI::yoloStatusCallback, this);
     
-    // YOLO控制服务客户端
-    yolo_control_client_ = nh_.serviceClient<std_srvs::SetBool>("/yolo/control");
+    // 设置同步订阅器用于同步处理检测图像和位姿
+    detection_image_sub_filter_ = new message_filters::Subscriber<sensor_msgs::Image>(nh_, "/detections/image", 1);
+    detection_poses_sub_filter_ = new message_filters::Subscriber<geometry_msgs::PoseArray>(nh_, "/detections/poses", 1);
     
-    // 设置定时器用于更新ROS
-    QTimer *ros_timer = new QTimer(this);
-    connect(ros_timer, &QTimer::timeout, this, &ArmControlGUI::updateROS);
-    ros_timer->start(10); // 10ms
+    // 创建同步器
+    object_detection_sync_ = new message_filters::Synchronizer<SyncPolicy>(
+        SyncPolicy(10), *detection_image_sub_filter_, *detection_poses_sub_filter_);
     
-    // 设置定时器用于更新3D场景
-    QTimer *scene_timer = new QTimer(this);
-    connect(scene_timer, &QTimer::timeout, this, &ArmControlGUI::updateScene3D);
-    scene_timer->start(100); // 10Hz
-}
-
-// 电机状态回调函数
-void ArmControlGUI::motorStateCallback(const sensor_msgs::JointState::ConstPtr& msg)
-{
-    // 处理电机状态数据
-    if (!msg->name.empty() && !msg->position.empty()) {
-        // 更新机械臂3D模型
-        if (scene_3d_renderer_ && current_joint_values_.size() >= 6) {
-            // 将电机位置更新到当前关节值中
-            for (size_t i = 0; i < msg->name.size(); ++i) {
-                const std::string& name = msg->name[i];
-                
-                // 根据电机名称更新对应关节
-                if (name == "base_motor" && i < msg->position.size()) {
-                    current_joint_values_[0] = msg->position[i];  // 底座旋转关节
-                }
-                else if (name == "lift_motor" && i < msg->position.size()) {
-                    current_joint_values_[1] = msg->position[i];  // 升降关节
-                }
-                else if (name == "arm_motor" && i < msg->position.size()) {
-                    current_joint_values_[3] = msg->position[i];  // 臂部旋转关节
-                }
-            }
-            
-            // 通知3D渲染器更新机械臂姿势
-            scene_3d_renderer_->setRobotPose(current_joint_values_);
-        }
-    }
+    // 注册回调函数
+    object_detection_sync_->registerCallback(boost::bind(&ArmControlGUI::objectDetectionCallback, this, _1, _2));
     
-    // 显示电机运行状态
-    if (!msg->name.empty() && !msg->velocity.empty() && !msg->effort.empty()) {
-        // 找到最活跃的电机（速度最大）
-        size_t active_motor = 0;
-        double max_velocity = 0.0;
-        
-        for (size_t i = 0; i < msg->velocity.size(); ++i) {
-            if (std::fabs(msg->velocity[i]) > max_velocity) {
-                max_velocity = std::fabs(msg->velocity[i]);
-                active_motor = i;
-            }
-        }
-        
-        // 如果有活跃的电机，显示其状态
-        if (max_velocity > 0.1) {
-            QString motor_name = QString::fromStdString(
-                active_motor < msg->name.size() ? msg->name[active_motor] : "未知电机");
-            
-            // 在工具栏显示状态而不是状态栏，以免和其他消息冲突
-            static QLabel* motorStatusLabel = nullptr;
-            if (!motorStatusLabel) {
-                motorStatusLabel = new QLabel(this);
-                ui->toolBar->addWidget(motorStatusLabel);
-            }
-            
-            double current = active_motor < msg->effort.size() ? msg->effort[active_motor] : 0.0;
-            motorStatusLabel->setText(QString("%1: %2 rpm, %3 A").arg(
-                motor_name).arg(max_velocity, 0, 'f', 1).arg(current, 0, 'f', 2));
-        }
-    }
-}
-
-// 舵机状态回调函数
-void ArmControlGUI::servoStateCallback(const sensor_msgs::JointState::ConstPtr& msg)
-{
-    // 处理舵机状态数据
-    if (!msg->name.empty() && !msg->position.empty()) {
-        // 更新机械臂3D模型
-        if (scene_3d_renderer_ && current_joint_values_.size() >= 6) {
-            // 将舵机位置更新到当前关节值中
-            for (size_t i = 0; i < msg->name.size(); ++i) {
-                const std::string& name = msg->name[i];
-                
-                // 根据舵机名称更新对应关节
-                if (name == "wrist_servo" && i < msg->position.size()) {
-                    current_joint_values_[4] = msg->position[i];  // 腕部旋转关节
-                }
-                else if (name == "gripper_servo" && i < msg->position.size()) {
-                    // 吸盘长度或夹爪开合，映射到关节值5
-                    current_joint_values_[5] = msg->position[i]; 
-                    
-                    // 更新吸盘状态
-                    gripper_open_ = msg->position[i] < 0.5; // 假设<0.5表示开
-                }
-            }
-            
-            // 通知3D渲染器更新机械臂姿势
-            scene_3d_renderer_->setRobotPose(current_joint_values_);
-        }
-    }
+    // 设置发布器
+    joint_command_pub_ = nh_.advertise<sensor_msgs::JointState>("/arm1/joint_command", 10);
+    gripper_cmd_pub_ = nh_.advertise<std_msgs::Bool>("/arm1/gripper_command", 10);
+    vacuum_cmd_pub_ = nh_.advertise<std_msgs::Bool>("/arm1/vacuum_command", 10);
+    vacuum_power_pub_ = nh_.advertise<std_msgs::Float64>("/arm1/vacuum_power", 10);
+    arm_command_pub_ = nh_.advertise<std_msgs::String>("/arm_commands", 10);
+    
+    // YOLO控制客户端
+    yolo_control_client_ = nh_.serviceClient<std_srvs::SetBool>("/yolo_detector/enable");
+    
+    // 日志消息
+    logMessage("已订阅ROS话题，等待数据...");
 }
