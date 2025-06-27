@@ -4,9 +4,9 @@
     
     <!-- 启动YOLO检测节点 -->
     <node name="yolo_detector" pkg="stereo_vision" type="yolo_detector.py" output="screen">
-        <param name="model" value="yolov8s.pt" />
-        <param name="conf" value="0.3" />
-        <param name="iou_threshold" value="0.6" />
+        <param name="model" value="yolov8n.pt" />
+        <param name="conf" value="0.25" />
+        <param name="iou_threshold" value="0.45" />
         <param name="same_class_only" value="false" />
         <param name="simulation_mode" value="false" />
     </node>

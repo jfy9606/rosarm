@@ -11,6 +11,7 @@ from sensor_msgs.msg import Image
 from geometry_msgs.msg import Pose, PoseArray
 from std_msgs.msg import Bool
 from cv_bridge import CvBridge, CvBridgeError
+from ultralytics import YOLO
 
 # 通过环境变量获取Python路径
 # 获取PYTHONPATH环境变量并将其添加到sys.path
@@ -76,6 +77,9 @@ class YoloDetector:
                 # 获取类别名称
                 self.class_names = self.model.names
                 rospy.loginfo(f"加载了 {len(self.class_names)} 个类别")
+                
+                # 设置模型加载标志为True
+                self.model_loaded = True
             except Exception as e:
                 rospy.logerr(f"加载YOLO模型失败: {str(e)}")
                 rospy.logwarn("切换到模拟模式")
@@ -138,6 +142,7 @@ class YoloDetector:
         
         # 创建检测结果发布器
         self.detection_pub = rospy.Publisher('/detections/image', Image, queue_size=10)
+        self.detection_image_pub = rospy.Publisher('/detections/image', Image, queue_size=10)  # 确保这个发布器存在
         self.poses_pub = rospy.Publisher('/detections/poses', PoseArray, queue_size=10)
         
         rospy.loginfo(f"YOLO目标检测器已初始化，检测状态: {'启用' if not self.simulation_mode else '禁用'}, 模式: {'模拟' if self.simulation_mode else '正常'}")
@@ -162,41 +167,8 @@ class YoloDetector:
             return
         
         try:
-            # 将ROS图像消息转换为OpenCV格式
-            cv_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
-            
-            # 进行YOLO检测
-            detections = self.detect_objects(cv_image)
-            
-            # 在图像上绘制检测结果
-            result_image = self.draw_detections(cv_image, detections)
-            
-            # 将结果图像转换回ROS消息并发布
-            result_msg = self.bridge.cv2_to_imgmsg(result_image, "bgr8")
-            result_msg.header = msg.header
-            self.detection_pub.publish(result_msg)
-            
-            # 发布检测到的物体位姿
-            self.publish_poses(detections, msg.header)
-            
-            # 严格限制日志输出频率，每30秒一次和启动时
-            current_time = rospy.Time.now()
-            if not hasattr(self, 'last_log_time') or (current_time - self.last_log_time).to_sec() > 30.0:
-                if len(detections) > 0:
-                    class_counts = {}
-                    for det in detections:
-                        class_id = int(det[5])
-                        class_name = self.class_names[class_id] if class_id < len(self.class_names) else f"class{class_id}"
-                        if class_name in class_counts:
-                            class_counts[class_name] += 1
-                        else:
-                            class_counts[class_name] = 1
-                    
-                    # 只打印汇总信息，不是每个物体
-                    summary = ", ".join([f"{count} {name}" for name, count in class_counts.items()])
-                    rospy.loginfo(f"检测到: {summary}")
-                self.last_log_time = current_time
-                
+            # 使用detect_and_publish方法处理图像并发布结果
+            self.detect_and_publish(msg)
         except Exception as e:
             # 异常也需要限流，避免刷屏
             current_time = rospy.Time.now()
