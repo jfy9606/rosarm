@@ -1212,13 +1212,16 @@ void ArmControlGUI::detectionPosesCallback(const geometry_msgs::PoseArray::Const
         }
     }
     
+    // 确认检测到的物体数量
+    ROS_INFO("检测到 %zu 个物体，准备更新UI", detected_objects_.size());
+    
     // 确保在主线程中更新UI，立即更新表格
     QMetaObject::invokeMethod(this, "updateDetectionsTable", Qt::QueuedConnection);
     
-    // 记录检测到的物体数量
-    ROS_INFO("检测到 %zu 个物体，已更新表格", detected_objects_.size());
+    // 强制更新相机视图以显示检测结果
+    QMetaObject::invokeMethod(this, "updateCameraViews", Qt::QueuedConnection);
     
-    // 强制更新UI
+    // 强制更新整个UI
     QMetaObject::invokeMethod(this, "updateUI", Qt::QueuedConnection);
 }
 
@@ -1342,7 +1345,7 @@ void ArmControlGUI::updateCameraViews()
     }
     
     // 绘制检测到的物体
-    if (yolo_detection_enabled_ && !detected_objects_.empty()) {
+    if (!detected_objects_.empty()) {
         ROS_INFO("在相机视图上绘制 %zu 个检测物体", detected_objects_.size());
         
         for (size_t i = 0; i < detected_objects_.size(); ++i) {
@@ -1904,70 +1907,114 @@ void ArmControlGUI::objectDetectionCallback(const sensor_msgs::Image::ConstPtr& 
         cv_bridge::CvImageConstPtr cv_ptr = cv_bridge::toCvShare(img_msg, "bgr8");
         cv::Mat detection_image = cv_ptr->image.clone();
         
+        // 记录收到的图像和位姿信息
+        ROS_INFO("收到同步检测数据: 图像=%dx%d, 位姿=%zu个", 
+                 detection_image.cols, detection_image.rows, poses_msg->poses.size());
+        
         // 如果没有启用YOLO检测，则不处理
         if (!yolo_detection_enabled_) {
+            ROS_INFO("YOLO检测未启用，忽略检测结果");
             return;
         }
         
         // 处理物体位置数据
         detected_objects_.clear();
-        for (size_t i = 0; i < poses_msg->poses.size(); ++i) {
-            DetectedObject obj;
-            
+        
+        // 检查是否有附加信息（通常应该包含类别名称），当前假设这些信息在frames_id中
+        bool has_object_ids = false;
+        if (!poses_msg->header.frame_id.empty()) {
+            // 尝试解析frame_id中可能包含的类别信息
+            try {
+                // 假设frame_id格式是 "class1,class2,class3,..."
+                std::string frame_id = poses_msg->header.frame_id;
+                std::istringstream ss(frame_id);
+                std::string token;
+                std::vector<std::string> class_names;
+                
+                while (std::getline(ss, token, ',')) {
+                    if (!token.empty()) {
+                        class_names.push_back(token);
+                    }
+                }
+                
+                has_object_ids = !class_names.empty() && class_names.size() == poses_msg->poses.size();
+                
+                // 如果成功解析类别信息，直接使用它们
+                if (has_object_ids) {
+                    ROS_INFO("成功解析类别信息: %zu 个类别", class_names.size());
+                    for (size_t i = 0; i < poses_msg->poses.size(); ++i) {
+                        DetectedObject obj;
+                        obj.id = class_names[i];  // 使用传递过来的类别名称
+                        obj.type = "检测物品";    // 通用类型描述
+                        
+                        // 将3D位置转换为厘米单位用于显示
+                        double scale = 100.0; // 转换为厘米
+                        obj.x = poses_msg->poses[i].position.x * scale;
+                        obj.y = poses_msg->poses[i].position.y * scale;
+                        obj.z = poses_msg->poses[i].position.z * scale;
+                        
+                        // 保存原始位姿
+                        obj.pose = poses_msg->poses[i];
+                        detected_objects_.push_back(obj);
+                        
+                        // 记录成功添加的物体
+                        ROS_INFO("添加检测物体到表格: %s [%.2f, %.2f, %.2f]", 
+                                 obj.id.c_str(), obj.x, obj.y, obj.z);
+                    }
+                }
+            } catch (const std::exception& e) {
+                ROS_WARN("解析物体类别信息失败: %s", e.what());
+                has_object_ids = false;
+            }
+        }
+        
+        // 如果无法从frame_id中获取类别信息，使用默认物体命名方式
+        if (!has_object_ids) {
             // 使用自定义物品名称而不是object_*
             // 为每个检测分配一个更有意义的名称和类型
-            float height = poses_msg->poses[i].position.z;
-            
-            // 根据物体位置特征决定类型名称
-            std::string type_name;
-            if (height < 0.05) {
-                type_name = "低矮物品";
-            } else if (height < 0.15) {
-                type_name = "中等物品";
-            } else {
-                type_name = "高大物品";
-            }
-            
-            // 根据检测顺序分配物品名称，这里列出了常见物品
             const std::vector<std::string> item_names = {
                 "水杯", "鼠标", "键盘", "手机", "书本", 
                 "笔", "剪刀", "USB盘", "眼镜", "钥匙", 
                 "螺丝刀", "玩具", "橡皮擦", "胶带", "标签"
             };
             
-            // 根据索引分配名称，如果超出范围则使用通用名称
-            if (i < item_names.size()) {
-                obj.id = item_names[i];
-            } else {
-                obj.id = "物品_" + std::to_string(i+1);
-            }
-            
-            obj.type = type_name;
-            
-            // 将3D位置转换为厘米单位用于显示
-            double scale = 100.0; // 转换为厘米
-            obj.x = poses_msg->poses[i].position.x * scale;
-            obj.y = poses_msg->poses[i].position.y * scale;
-            obj.z = poses_msg->poses[i].position.z * scale;
-            
-            // 保存原始位姿
-            obj.pose = poses_msg->poses[i];
-            detected_objects_.push_back(obj);
-            
-            // 在图像上绘制检测框和物体名称
-            float pos_x = (poses_msg->poses[i].position.x + 0.5) * detection_image.cols;
-            float pos_y = (0.5 - poses_msg->poses[i].position.y) * detection_image.rows;
-            
-            // 确保坐标在图像范围内
-            if (pos_x >= 0 && pos_x < detection_image.cols && 
-                pos_y >= 0 && pos_y < detection_image.rows) {
+            for (size_t i = 0; i < poses_msg->poses.size(); ++i) {
+                DetectedObject obj;
                 
-                // 绘制圆圈标记物体位置
-                cv::circle(detection_image, cv::Point(pos_x, pos_y), 10, cv::Scalar(0, 255, 0), 2);
+                // 根据物体位置特征决定类型名称
+                float height = poses_msg->poses[i].position.z;
                 
-                // 添加文本标签 - 显示实际物品名称
-                cv::putText(detection_image, obj.id, cv::Point(pos_x, pos_y - 15),
-                           cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 0), 2);
+                std::string type_name;
+                if (height < 0.05) {
+                    type_name = "低矮物品";
+                } else if (height < 0.15) {
+                    type_name = "中等物品";
+                } else {
+                    type_name = "高大物品";
+                }
+                
+                // 根据索引分配名称，如果超出范围则使用通用名称
+                if (i < item_names.size()) {
+                    obj.id = item_names[i];
+                } else {
+                    obj.id = "物品_" + std::to_string(i+1);
+                }
+                
+                obj.type = type_name;
+                
+                // 将3D位置转换为厘米单位用于显示
+                double scale = 100.0; // 转换为厘米
+                obj.x = poses_msg->poses[i].position.x * scale;
+                obj.y = poses_msg->poses[i].position.y * scale;
+                obj.z = poses_msg->poses[i].position.z * scale;
+                
+                // 保存原始位姿
+                obj.pose = poses_msg->poses[i];
+                detected_objects_.push_back(obj);
+                
+                // 记录成功添加的物体
+                ROS_INFO("添加物体到表格: %s [%.2f, %.2f, %.2f]", 
+                         obj.id.c_str(), obj.x, obj.y, obj.z);
             }
         }
         
@@ -1985,9 +2032,13 @@ void ArmControlGUI::objectDetectionCallback(const sensor_msgs::Image::ConstPtr& 
         // 保存为当前图像以显示
         current_camera_image_ = detected_image.copy();
         
+        // 记录检测到的物体数量
+        ROS_INFO("同步检测到 %zu 个物体，准备更新UI", detected_objects_.size());
+        
         // 更新UI
         QMetaObject::invokeMethod(this, "updateCameraViews", Qt::QueuedConnection);
         QMetaObject::invokeMethod(this, "updateDetectionsTable", Qt::QueuedConnection);
+        QMetaObject::invokeMethod(this, "updateUI", Qt::QueuedConnection);
     } catch (cv_bridge::Exception& e) {
         ROS_ERROR("物体检测回调中的cv_bridge异常: %s", e.what());
     } catch (std::exception& e) {
@@ -2054,12 +2105,6 @@ void ArmControlGUI::updateConnectionStatus()
     
     // 设置状态栏文本
     statusBar()->showMessage(status);
-}
-
-// 添加测试图像生成函数
-void ArmControlGUI::generateTestImages()
-{
-    // 这个函数将被移除，因为我们使用真实相机图像
 }
 
 // 添加更新检测结果表格的函数

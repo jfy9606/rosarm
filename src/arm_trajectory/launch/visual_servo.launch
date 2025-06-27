@@ -1,0 +1,29 @@
+<launch>
+    <!-- 启动摄像头节点 -->
+    <include file="$(find stereo_vision)/launch/stereo_camera.launch" />
+    
+    <!-- 启动YOLO检测节点 -->
+    <node name="yolo_detector" pkg="stereo_vision" type="yolo_detector.py" output="screen">
+        <param name="model" value="yolov8s.pt" />
+        <param name="conf" value="0.3" />
+        <param name="iou_threshold" value="0.6" />
+        <param name="same_class_only" value="false" />
+        <param name="simulation_mode" value="false" />
+    </node>
+    
+    <!-- 启动视觉伺服控制节点 -->
+    <node name="visual_servo_controller" pkg="arm_trajectory" type="visual_servo_controller.py" output="screen">
+        <param name="distance_threshold" value="0.05" />
+        <param name="approach_speed" value="0.01" />
+        <param name="z_offset" value="0.05" />
+    </node>
+    
+    <!-- 启动机械臂控制节点 -->
+    <include file="$(find arm_gui)/launch/arm_control.launch" />
+    
+    <!-- 启动RViz可视化 -->
+    <node name="rviz" pkg="rviz" type="rviz" args="-d $(find arm_gui)/rviz/arm_vision.rviz" />
+    
+    <!-- 打印使用说明 -->
+    <node name="usage_info" pkg="rostopic" type="rostopic" args="pub -1 /arm_status std_msgs/String '使用方法：发送 servo [物体ID] 命令启动视觉伺服控制，stop 停止控制，vacuum on/off 控制吸盘'" />
+</launch> 
