@@ -10,6 +10,8 @@ from arm_trajectory.msg import TrajectoryPath, TrajectoryPoint
 from arm_trajectory.srv import PlanTrajectory, PlanTrajectoryRequest, PlanTrajectoryResponse
 import sys
 import os
+import math
+import random
 
 # 通过环境变量获取Python路径
 # 获取PYTHONPATH环境变量并将其添加到sys.path
@@ -32,49 +34,84 @@ if cwd not in sys.path:
     sys.path.append(cwd)
     rospy.loginfo(f"添加当前工作目录到路径: {cwd}")
 
-# 导入鲸鱼优化器或提供替代方法
-use_whale_optimizer = True
+# 尝试导入WhaleOptimizer
 try:
-    # 尝试导入WhaleOptimizer
-    try:
-        from whales_optimizer import WhaleOptimizer, forward_kinematics_dh
-        rospy.loginfo("成功导入WhaleOptimizer")
-    except ImportError as e:
-        # 如果直接导入失败，尝试从其他位置导入
-        search_paths = [
-            os.path.join(script_dir, "whales_optimizer.py"),  # 当前目录
-            os.path.join(os.path.dirname(script_dir), "scripts", "whales_optimizer.py"),  # 上级目录的scripts文件夹
-            os.path.join(os.getcwd(), "whales_optimizer.py"),  # 工作目录
-            # 尝试查找在ROS环境中生成的路径
-            os.path.join(os.path.expanduser("~"), "rosarm", "devel", ".private", "arm_trajectory", "lib", "arm_trajectory", "whales_optimizer.py"),
-            "/home/test/rosarm/devel/.private/arm_trajectory/lib/arm_trajectory/whales_optimizer.py"
-        ]
-        
-        imported = False
-        for path in search_paths:
-            if os.path.exists(path):
-                rospy.loginfo(f"尝试从 {path} 导入WhaleOptimizer")
-                try:
-                    import importlib.util
-                    spec = importlib.util.spec_from_file_location("whales_optimizer", path)
-                    whales_module = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(whales_module)
-                    WhaleOptimizer = whales_module.WhaleOptimizer
-                    forward_kinematics_dh = whales_module.forward_kinematics_dh
-                    rospy.loginfo(f"成功从 {path} 导入WhaleOptimizer")
-                    imported = True
-                    break
-                except Exception as load_err:
-                    rospy.logerr(f"从 {path} 导入时出错: {load_err}")
-        
-        if not imported:
-            rospy.logerr(f"导入WhaleOptimizer失败: {e}")
-            use_whale_optimizer = False
-            rospy.loginfo("将使用备选优化方法")
-except Exception as e:
-    rospy.logerr(f"设置导入路径时发生错误: {e}")
-    use_whale_optimizer = False
+    # 直接从当前目录导入
+    import sys
+    import os
+    
+    # 获取当前脚本目录路径
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # 将当前目录添加到Python路径
+    if current_dir not in sys.path:
+        sys.path.append(current_dir)
+    
+    # 直接从文件导入类
+    from whales_optimizer import WhaleOptimizer, forward_kinematics_dh
+    rospy.loginfo("成功导入WhaleOptimizer")
+except ImportError as e:
+    rospy.logerr(f"导入WhaleOptimizer失败: {e}")
     rospy.loginfo("将使用备选优化方法")
+    
+    # 定义简单的替代优化器
+    class SimpleOptimizer:
+        """
+        当无法导入WhaleOptimizer时使用
+        """
+        def __init__(self, num_whales=30, dim=6, max_iter=100, lb=None, ub=None, robot=None, target_T=None):
+            self.dim = dim
+            self.max_iter = max_iter
+            self.lb = np.array(lb) if lb is not None else np.array([-math.pi, 0, -math.pi/2, 0, math.pi/2, 5])
+            self.ub = np.array(ub) if ub is not None else np.array([math.pi, 43, math.pi/2, math.pi, math.pi/2, 15])
+            self.robot = robot
+            self.target_T = target_T
+            self.best_position = None
+            self.best_fitness = float('inf')
+        
+        def calculate_fitness(self, position):
+            """计算适应度"""
+            if self.robot is not None:
+                T = self.robot.fkine(position)
+            else:
+                T = forward_kinematics_dh(position)
+            
+            position_error = np.linalg.norm(T[:3, 3] - self.target_T[:3, 3])
+            rotation_error = np.linalg.norm(T[:3, :3] - self.target_T[:3, :3], 'fro')
+            return 0.7 * position_error + 0.3 * rotation_error
+        
+        def run(self):
+            """运行优化"""
+            # 简单随机搜索
+            best_position = np.zeros(self.dim)
+            best_fitness = float('inf')
+            
+            for _ in range(self.max_iter * 10):  # 增加迭代次数以提高成功率
+                # 随机生成一个位置
+                position = np.array([random.uniform(self.lb[i], self.ub[i]) for i in range(self.dim)])
+                
+                # 计算适应度
+                fitness = self.calculate_fitness(position)
+                
+                # 更新最佳位置
+                if fitness < best_fitness:
+                    best_fitness = fitness
+                    best_position = position.copy()
+            
+            self.best_position = best_position
+            self.best_fitness = best_fitness
+            return best_position, best_fitness
+        
+        def getBestPosition(self):
+            """获取最佳位置"""
+            return self.best_position.tolist() if self.best_position is not None else None
+        
+        def getBestFitness(self):
+            """获取最佳适应度"""
+            return self.best_fitness
+    
+    # 使用替代优化器
+    WhaleOptimizer = SimpleOptimizer
 
 from math import pi
 import tf.transformations
@@ -121,120 +158,6 @@ def simple_forward_kinematics(joint_values, dh_params=None):
         T = T @ transform
     
     return T
-
-# 备选优化方法类
-class SimpleOptimizer:
-    """
-    简单的逆运动学求解器
-    当无法使用WhaleOptimizer时使用
-    """
-    def __init__(self, num_particles=30, max_iter=100, forward_kinematics_func=None, joint_limits=None):
-        """初始化优化器"""
-        self.num_particles = num_particles
-        self.max_iter = max_iter
-        self.forward_kinematics_func = forward_kinematics_func or simple_forward_kinematics
-        self.joint_limits = joint_limits or [
-            [-pi, pi],      # theta1
-            [0, 43],        # d2
-            [-pi/2, pi/2],  # theta3
-            [0, pi],        # theta4
-            [pi/2, pi/2],   # theta5 (fixed)
-            [5, 15]         # d6
-        ]
-
-    def optimize(self, target_pose, initial_guess=None):
-        """
-        使用粒子群算法优化逆运动学
-        
-        Args:
-            target_pose: 目标位姿的4x4变换矩阵
-            initial_guess: 初始关节角度猜测
-            
-        Returns:
-            best_position: 最佳关节角度
-            best_fitness: 最佳适应度值
-            fitness_history: 适应度历史记录
-        """
-        rospy.loginfo("使用简单粒子群优化器求解逆运动学")
-        
-        # 初始化粒子群
-        particles = np.zeros((self.num_particles, len(self.joint_limits)))
-        velocities = np.zeros_like(particles)
-        
-        # 随机初始化粒子位置
-        for i in range(self.num_particles):
-            for j in range(len(self.joint_limits)):
-                lb, ub = self.joint_limits[j]
-                particles[i, j] = np.random.uniform(lb, ub)
-                velocities[i, j] = np.random.uniform(-1, 1)
-        
-        # 如果提供了初始猜测，将第一个粒子设为初始猜测
-        if initial_guess is not None:
-            particles[0] = np.array(initial_guess)
-        
-        # 初始化最佳位置
-        p_best = particles.copy()
-        p_best_fitness = np.full(self.num_particles, float('inf'))
-        
-        g_best = None
-        g_best_fitness = float('inf')
-        
-        fitness_history = []
-        
-        # 主循环
-        for t in range(self.max_iter):
-            # 计算每个粒子的适应度
-            for i in range(self.num_particles):
-                # 计算当前关节角度的末端位姿
-                T = self.forward_kinematics_func(particles[i])
-                
-                # 计算位置误差
-                pos_error = np.linalg.norm(T[:3, 3] - target_pose[:3, 3])
-                
-                # 计算方向误差
-                rot_error = np.linalg.norm(T[:3, :3] - target_pose[:3, :3], 'fro')
-                
-                # 总误差为位置误差和方向误差的加权和
-                fitness = 0.7 * pos_error + 0.3 * rot_error
-                
-                # 更新个体最佳
-                if fitness < p_best_fitness[i]:
-                    p_best[i] = particles[i].copy()
-                    p_best_fitness[i] = fitness
-                
-                # 更新全局最佳
-                if fitness < g_best_fitness:
-                    g_best = particles[i].copy()
-                    g_best_fitness = fitness
-            
-            # 记录最佳适应度
-            fitness_history.append(g_best_fitness)
-            
-            # 每10次迭代打印一次状态
-            if (t + 1) % 10 == 0 or t == 0 or t == self.max_iter - 1:
-                rospy.loginfo(f"迭代 {t+1}/{self.max_iter}: 最佳适应度 = {g_best_fitness:.6f}")
-            
-            # 更新粒子速度和位置
-            w = 0.5  # 惯性权重
-            c1 = 1.5  # 认知参数
-            c2 = 1.5  # 社会参数
-            
-            for i in range(self.num_particles):
-                # 更新速度
-                r1, r2 = np.random.random(2)
-                velocities[i] = (w * velocities[i] + 
-                                c1 * r1 * (p_best[i] - particles[i]) + 
-                                c2 * r2 * (g_best - particles[i]))
-                
-                # 更新位置
-                particles[i] += velocities[i]
-                
-                # 边界处理
-                for j in range(len(self.joint_limits)):
-                    lb, ub = self.joint_limits[j]
-                    particles[i, j] = max(lb, min(ub, particles[i, j]))
-        
-        return g_best, g_best_fitness, fitness_history
 
 class ArmTrajectoryBridge:
     """Bridge node for connecting stereo vision with trajectory planning"""

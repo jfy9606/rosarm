@@ -141,69 +141,24 @@ class SimpleOptimizer:
 
 # 尝试导入WhaleOptimizer
 try:
-    # 获取当前脚本路径
+    # 直接从当前目录导入
+    import sys
+    import os
+    
+    # 获取当前脚本目录路径
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    # 将当前目录添加到sys.path
+    
+    # 将当前目录添加到Python路径
     if current_dir not in sys.path:
         sys.path.append(current_dir)
     
-    # 打印路径以便调试
-    rospy.loginfo(f"Python路径: {sys.path}")
-    
-    # 尝试直接导入本地文件
+    # 直接从文件导入类
     from whales_optimizer import WhaleOptimizer, forward_kinematics_dh
     rospy.loginfo("成功导入WhaleOptimizer")
-    # 设置全局变量以便后续使用
-    USING_WHALE_OPTIMIZER = True
 except ImportError as e:
     rospy.logerr(f"导入WhaleOptimizer失败: {e}")
-    # 不退出程序，而是使用备选优化方法
-    rospy.logwarn("将使用备选优化方法")
-    # 设置全局变量以便后续使用
-    USING_WHALE_OPTIMIZER = False
-    # 导入forward_kinematics_dh函数
-    def compute_dh_transform(theta, d, a, alpha):
-        """计算单个关节的DH变换矩阵"""
-        ct = np.cos(theta)
-        st = np.sin(theta)
-        ca = np.cos(alpha)
-        sa = np.sin(alpha)
-        
-        return np.array([
-            [ct, -st*ca, st*sa, a*ct],
-            [st, ct*ca, -ct*sa, a*st],
-            [0, sa, ca, d],
-            [0, 0, 0, 1]
-        ])
-
-    def forward_kinematics_dh(joint_values, dh_params):
-        """
-        使用DH参数计算正向运动学
-        
-        Args:
-            joint_values: 关节值列表 [θ1, d2, θ3, θ4, θ5, d6]
-            dh_params: DH参数列表 [(d, θ, a, α), ...]，其中关节值替换适当的参数
-        
-        Returns:
-            T: 末端执行器变换矩阵 (4x4)
-        """
-        T = np.eye(4)
-        
-        for i, (joint_type, d, theta, a, alpha) in enumerate(dh_params):
-            if joint_type == "revolute":
-                # θ是变量
-                theta = joint_values[i]
-            elif joint_type == "prismatic":
-                # d是变量
-                d = joint_values[i]
-                
-            # 计算此关节的变换矩阵
-            T_i = compute_dh_transform(theta, d, a, alpha)
-            
-            # 更新总变换
-            T = T @ T_i
-            
-        return T
+    rospy.loginfo("将使用备选优化方法")
+    use_whale_optimizer = False
 
 class CoordinateSystem:
     """机械臂工作空间坐标系统"""
@@ -389,7 +344,7 @@ class PathPlanner:
         self.arm_config = arm_config
         
         # 初始化优化器，根据导入情况选择
-        if USING_WHALE_OPTIMIZER:
+        if use_whale_optimizer:
             rospy.loginfo("使用WhaleOptimizer进行路径规划")
             self.optimizer = WhaleOptimizer(
                 num_whales=arm_config["optimizer"]["population_size"],

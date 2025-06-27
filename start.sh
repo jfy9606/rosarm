@@ -77,6 +77,202 @@ fix_permissions() {
     echo -e "${BLUE}=====================================${NC}"
 }
 
+# 自动检测串口设备
+detect_ports() {
+    echo -e "${BLUE}=====================================${NC}"
+    echo -e "${GREEN}智能串口设备检测${NC}"
+    echo -e "${BLUE}=====================================${NC}"
+    
+    # 检查是否有串口设备
+    USB_PORTS=$(ls /dev/ttyUSB* 2>/dev/null || echo "")
+    ACM_PORTS=$(ls /dev/ttyACM* 2>/dev/null || echo "")
+    
+    # 所有可用串口
+    ALL_PORTS="${USB_PORTS} ${ACM_PORTS}"
+    
+    # 计算串口数量
+    PORT_COUNT=$(echo "${ALL_PORTS}" | wc -w)
+    
+    if [ "${PORT_COUNT}" -eq 0 ]; then
+        echo -e "${RED}未检测到任何串口设备${NC}"
+        echo -e "${YELLOW}请检查USB连接或设备驱动${NC}"
+        return 1
+    fi
+    
+    # 显示检测到的串口
+    echo -e "${GREEN}检测到 ${PORT_COUNT} 个串口设备:${NC}"
+    for port in ${ALL_PORTS}; do
+        echo -e "${CYAN}- ${port}${NC}"
+    done
+    
+    # 智能检测舵机串口 - 通过串口特性识别
+    echo -e "\n${GREEN}开始智能检测舵机控制串口...${NC}"
+    
+    # 1. 创建临时目录
+    TEMP_DIR=$(mktemp -d)
+    SERVO_DETECTION_LOG="$TEMP_DIR/servo_detection.log"
+    
+    # 2. 定义一个函数来测试串口是否是舵机控制串口
+    test_servo_port() {
+        local port="$1"
+        echo -e "${CYAN}测试串口 ${port}...${NC}"
+        
+        # 保存原始串口权限
+        local original_perm=$(stat -c %a "$port")
+        
+        # 设置串口权限
+        sudo chmod 666 "$port" 2>/dev/null
+        
+        # 尝试与舵机通信 (使用stty设置波特率，然后发送简单查询)
+        {
+            stty -F "$port" 1000000 -echo raw
+            # 短暂延迟
+            sleep 0.2
+            # 尝试发送无害的命令并读取响应
+            # 这里使用timeout命令限制等待时间
+            timeout 0.5 cat "$port" > "$SERVO_DETECTION_LOG" &
+            local cat_pid=$!
+            
+            # 发送简单查询命令 (SC舵机的简单查询格式)
+            # 0xFF 0xFD ID 0x01 0x00 CHKSUM (5个字节的查询命令)
+            echo -en '\xFF\xFD\x01\x01\x00\xFF' > "$port"
+            sleep 0.3
+            
+            # 尝试停止cat进程
+            kill -9 $cat_pid 2>/dev/null
+        } &>/dev/null
+        
+        # 恢复原始权限
+        sudo chmod "$original_perm" "$port" 2>/dev/null
+        
+        # 检查是否有特定的响应模式
+        # 舵机通常会返回一个特定格式的响应数据
+        local response_size=$(wc -c < "$SERVO_DETECTION_LOG")
+        
+        # 如果有数据返回，可能是舵机 (这里简化判断逻辑)
+        if [ "$response_size" -gt 0 ]; then
+            echo -e "${GREEN}串口 ${port} 有响应数据 (${response_size} 字节)${NC}"
+            return 0
+        else
+            echo -e "${YELLOW}串口 ${port} 无响应数据${NC}"
+            return 1
+        fi
+    }
+    
+    # 3. 遍历所有串口进行测试
+    DETECTED_SERVO_PORT=""
+    
+    # 首先测试USB设备 (通常舵机控制器连接到USB)
+    for port in ${USB_PORTS}; do
+        if test_servo_port "$port"; then
+            DETECTED_SERVO_PORT="$port"
+            echo -e "${GREEN}在 ${port} 检测到舵机控制器！${NC}"
+            break
+        fi
+    done
+    
+    # 如果在USB设备中未找到，测试ACM设备
+    if [ -z "$DETECTED_SERVO_PORT" ] && [ -n "${ACM_PORTS}" ]; then
+        for port in ${ACM_PORTS}; do
+            if test_servo_port "$port"; then
+                DETECTED_SERVO_PORT="$port"
+                echo -e "${GREEN}在 ${port} 检测到舵机控制器！${NC}"
+                break
+            fi
+        done
+    fi
+    
+    # 4. 如果自动检测失败，提供手动选择
+    if [ -z "$DETECTED_SERVO_PORT" ]; then
+        echo -e "${YELLOW}未自动检测到舵机控制器${NC}"
+        echo -e "${YELLOW}请从以下串口中手动选择:${NC}"
+        
+        # 显示编号的串口列表
+        local i=1
+        local ports_array=()
+        for port in ${ALL_PORTS}; do
+            ports_array[$i]=$port
+            echo -e "${CYAN}$i) ${port}${NC}"
+            i=$((i+1))
+        done
+        
+        # 用户选择
+        echo -ne "${GREEN}请输入串口编号 (1-$((i-1)), 或按Enter跳过): ${NC}"
+        read -r port_choice
+        
+        # 验证输入
+        if [[ "$port_choice" =~ ^[0-9]+$ ]] && [ "$port_choice" -ge 1 ] && [ "$port_choice" -lt "$i" ]; then
+            DETECTED_SERVO_PORT="${ports_array[$port_choice]}"
+        else
+            # 默认使用第一个串口
+            DETECTED_SERVO_PORT=$(echo ${ALL_PORTS} | awk '{print $1}')
+            echo -e "${YELLOW}使用默认串口: ${DETECTED_SERVO_PORT}${NC}"
+        fi
+    fi
+    
+    # 5. 清理临时文件
+    rm -rf "$TEMP_DIR"
+    
+    # 6. 更新launch文件配置
+    if [ -n "$DETECTED_SERVO_PORT" ]; then
+        echo -e "${GREEN}将使用 ${DETECTED_SERVO_PORT} 作为舵机控制串口${NC}"
+        
+        # 更新launch文件中的串口配置
+        LAUNCH_FILE="$WORKSPACE_DIR/src/arm_trajectory/launch/visual_servo.launch"
+        if [ -f "${LAUNCH_FILE}" ]; then
+            # 备份原始文件
+            cp "${LAUNCH_FILE}" "${LAUNCH_FILE}.bak"
+            
+            # 更新串口配置
+            sed -i "s|<arg name=\"servo_port\" default=\"/dev/ttyUSB[0-9]*\"|<arg name=\"servo_port\" default=\"${DETECTED_SERVO_PORT}\"|g" "${LAUNCH_FILE}"
+            sed -i "s|<arg name=\"servo_port\" default=\"/dev/ttyACM[0-9]*\"|<arg name=\"servo_port\" default=\"${DETECTED_SERVO_PORT}\"|g" "${LAUNCH_FILE}"
+            
+            echo -e "${GREEN}已更新 ${LAUNCH_FILE} 中的串口配置${NC}"
+            return 0
+        else
+            echo -e "${YELLOW}未找到launch文件: ${LAUNCH_FILE}${NC}"
+            return 1
+        fi
+    else
+        echo -e "${RED}未找到可用的串口设备${NC}"
+        return 1
+    fi
+}
+
+# 创建ROS日志配置文件以减少不必要的输出
+setup_log_config() {
+    echo -e "${BLUE}=====================================${NC}"
+    echo -e "${GREEN}配置ROS日志级别${NC}"
+    echo -e "${BLUE}=====================================${NC}"
+    
+    # 创建日志配置目录
+    LOG_CONFIG_DIR="$WORKSPACE_DIR/src/arm_trajectory/config"
+    mkdir -p "$LOG_CONFIG_DIR"
+    
+    # 创建rosconsole.conf文件
+    LOG_CONFIG_FILE="$LOG_CONFIG_DIR/rosconsole.conf"
+    cat > "$LOG_CONFIG_FILE" << EOF
+# ROS日志配置文件
+# 设置默认日志级别为WARN，减少INFO级别的输出
+log4j.logger.ros=WARN
+log4j.logger.ros.roscpp=WARN
+log4j.logger.ros.roscpp.superdebug=WARN
+
+# 特定节点的日志级别
+log4j.logger.ros.stereo_camera_node=WARN
+log4j.logger.ros.arm_gui_node=WARN
+
+# 允许ERROR级别的日志
+log4j.logger.ros.servo=ERROR
+log4j.logger.ros.visual_servo_controller=ERROR
+log4j.logger.ros.trajectory_bridge=ERROR
+log4j.logger.ros.path_planner=ERROR
+EOF
+    
+    echo -e "${GREEN}已创建日志配置文件: ${LOG_CONFIG_FILE}${NC}"
+    echo -e "${BLUE}=====================================${NC}"
+}
+
 # 执行权限修复
 fix_permissions
 
@@ -100,6 +296,12 @@ if [ -f "$WORKSPACE_DIR/devel/setup.bash" ]; then
 else
     echo -e "${YELLOW}警告: 未找到工作空间的setup.bash文件，将使用系统ROS环境${NC}"
 fi
+
+# 自动检测串口设备
+detect_ports
+
+# 设置日志配置
+setup_log_config
 
 # 默认参数
 YOLO_ENABLED=true

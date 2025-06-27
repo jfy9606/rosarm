@@ -1,69 +1,50 @@
 <launch>
-    <!-- 启动电机控制和舵机控制节点 -->
-    <arg name="serial_port" default="/dev/ttyUSB0" doc="电机控制串口" />
-    <arg name="servo_port" default="/dev/ttyUSB1" doc="舵机控制串口" />
+    <!-- 参数设置 -->
+    <arg name="servo_port" default="/dev/ttyUSB0" doc="舵机控制串口" />
+    <arg name="camera_index" default="0" doc="摄像头索引" />
+    <arg name="yolo_enabled" default="true" doc="是否启用YOLO目标检测" />
+    <arg name="yolo_model_path" default="" doc="自定义YOLOv8模型路径" />
+    <arg name="yolo_confidence" default="0.5" doc="YOLO检测置信度阈值" />
     
-    <!-- 电机控制节点 -->
-    <node name="talker" pkg="liancheng_socket" type="talk_test" output="screen">
-    </node>
+    <!-- 设置日志级别 -->
+    <env name="ROSCONSOLE_CONFIG_FILE" 
+         value="$(find arm_trajectory)/config/rosconsole.conf"/>
     
-    <!-- 串口通信节点 - 电机控制 -->
-    <node name="serial" pkg="liancheng_socket" type="liancheng_serial" output="screen">
-        <param name="port" value="$(arg serial_port)" />
-        <param name="baud_rate" value="115200" />
-    </node>
-    
-    <!-- 舵机控制节点 -->
+    <!-- 启动舵机控制节点 -->
     <node name="servo" pkg="servo_wrist" type="wrist_ctrl" args="$(arg servo_port)" output="screen">
-        <!-- 舵机串口参数 -->
+        <param name="baudrate" value="1000000" />
     </node>
     
-    <!-- 继电器控制节点 -->
-    <node name="relay" pkg="relay" type="listener" output="screen">
-    </node>
-
-    <!-- 启动YOLO检测节点 -->
-    <node name="yolo_detector_visual_servo" pkg="stereo_vision" type="yolo_detector.py" output="screen">
-        <param name="model" value="yolov8n.pt" />
-        <param name="conf" value="0.25" />
-        <param name="iou_threshold" value="0.45" />
-        <param name="same_class_only" value="false" />
-        <param name="image_topic" value="/stereo_camera/image_merged" />
+    <!-- 启动YOLO目标检测节点 -->
+    <node name="yolo_detector_visual_servo" pkg="arm_trajectory" type="yolo_detector.py" output="screen" if="$(arg yolo_enabled)">
+        <param name="model_path" value="$(arg yolo_model_path)" />
+        <param name="confidence" value="$(arg yolo_confidence)" />
     </node>
     
-    <!-- 启动视觉伺服控制节点 -->
-    <node name="visual_servo_controller" pkg="arm_trajectory" type="visual_servo_controller.py" output="screen">
-        <param name="distance_threshold" value="0.05" />
-        <param name="approach_speed" value="0.01" />
-        <param name="z_offset" value="0.05" />
-    </node>
+    <!-- 启动视觉伺服控制器 -->
+    <node name="visual_servo_controller" pkg="arm_trajectory" type="visual_servo_controller.py" output="screen" />
     
-    <!-- 启动轨迹规划和运动执行节点 -->
-    <node name="trajectory_bridge" pkg="arm_trajectory" type="trajectory_bridge_node.py" output="screen">
-        <param name="execution_speed" value="1.0" />
-        <param name="trajectory_sampling_rate" value="50" />
-    </node>
+    <!-- 启动轨迹桥接节点 -->
+    <node name="trajectory_bridge" pkg="arm_trajectory" type="trajectory_bridge_node.py" output="screen" />
     
     <!-- 启动路径规划节点 -->
-    <node name="path_planner" pkg="arm_trajectory" type="path_planner.py" output="screen">
-        <param name="optimization_max_iter" value="100" />
-        <param name="optimization_particles" value="30" />
-        <param name="visualization_enabled" value="true" />
+    <node name="path_planner" pkg="arm_trajectory" type="path_planner.py" output="screen" />
+    
+    <!-- 启动立体相机节点 -->
+    <node name="stereo_camera_node" pkg="arm_trajectory" type="stereo_camera_node.py" output="screen">
+        <param name="camera_index" value="$(arg camera_index)" />
     </node>
     
-    <!-- 启动机械臂控制节点 -->
-    <include file="$(find arm_gui)/launch/arm_gui.launch">
-        <arg name="with_stereo_vision" value="true" />
-        <arg name="with_yolo_controller" value="false" />
-        <arg name="with_path_planner" value="false" />
-        <arg name="with_trajectory_planner" value="false" />
-        <arg name="start_rviz" value="false" />
-    </include>
+    <!-- 相机图像中继节点 -->
+    <node name="camera_relay_left" pkg="topic_tools" type="relay" 
+          args="/stereo_camera/left/image_raw /camera/image_raw" />
     
-    <!-- 打印使用说明 -->
-    <node name="usage_info" pkg="rostopic" type="rostopic" args="pub -1 /arm_status std_msgs/String '使用方法：
-    1. 发送 servo [物体ID] 命令启动视觉伺服控制
-    2. 发送 move_to x y z 命令移动到特定坐标位置
-    3. 发送 stop 停止控制
-    4. 发送 vacuum on/off 控制吸盘'" />
+    <node name="camera_relay_merged" pkg="topic_tools" type="relay"
+          args="/stereo_camera/image_merged /stereo_camera/image_merged" />
+    
+    <!-- 启动GUI控制界面 -->
+    <node name="arm_gui_node" pkg="arm_gui" type="arm_gui_node" output="screen" />
+    
+    <!-- 显示资源使用信息 -->
+    <node name="usage_info" pkg="arm_trajectory" type="resource_monitor.py" output="screen" />
 </launch> 
