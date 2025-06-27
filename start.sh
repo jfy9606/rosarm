@@ -9,6 +9,77 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
+# 修复串口和摄像头权限
+fix_permissions() {
+    echo -e "${BLUE}=====================================${NC}"
+    echo -e "${GREEN}正在修复设备权限...${NC}"
+    
+    # 检查是否为root用户
+    if [ "$EUID" -eq 0 ]; then
+        # 修复串口权限
+        echo -e "${CYAN}修复串口权限...${NC}"
+        for port in /dev/ttyUSB* /dev/ttyACM*; do
+            if [ -e "$port" ]; then
+                chmod 666 "$port"
+                echo -e "${GREEN}已设置权限: $port${NC}"
+            fi
+        done
+        
+        # 修复摄像头权限
+        echo -e "${CYAN}修复摄像头权限...${NC}"
+        for camera in /dev/video*; do
+            if [ -e "$camera" ]; then
+                chmod 666 "$camera"
+                echo -e "${GREEN}已设置权限: $camera${NC}"
+            fi
+        done
+        
+        # 添加当前用户到相关组
+        if [ -n "$SUDO_USER" ]; then
+            echo -e "${CYAN}将用户 $SUDO_USER 添加到dialout和video组...${NC}"
+            usermod -a -G dialout "$SUDO_USER"
+            usermod -a -G video "$SUDO_USER"
+            echo -e "${GREEN}用户组设置完成${NC}"
+        fi
+    else
+        # 非root用户，使用sudo尝试修复权限
+        echo -e "${YELLOW}需要管理员权限来修复设备权限${NC}"
+        echo -e "${CYAN}请输入密码以修复权限:${NC}"
+        
+        # 使用sudo修复串口权限
+        sudo -p "" sh -c '
+            for port in /dev/ttyUSB* /dev/ttyACM*; do
+                if [ -e "$port" ]; then
+                    chmod 666 "$port"
+                    echo -e "\033[0;32m已设置权限: $port\033[0m"
+                fi
+            done
+            
+            # 修复摄像头权限
+            for camera in /dev/video*; do
+                if [ -e "$camera" ]; then
+                    chmod 666 "$camera"
+                    echo -e "\033[0;32m已设置权限: $camera\033[0m"
+                fi
+            done
+            
+            # 添加当前用户到相关组
+            usermod -a -G dialout "'$USER'"
+            usermod -a -G video "'$USER'"
+            echo -e "\033[0;32m用户组设置完成\033[0m"
+        ' || {
+            echo -e "${RED}权限修复失败。请手动运行以下命令:${NC}"
+            echo -e "${YELLOW}sudo chmod 666 /dev/ttyUSB* /dev/ttyACM* /dev/video*${NC}"
+            echo -e "${YELLOW}sudo usermod -a -G dialout,video $USER${NC}"
+        }
+    fi
+    
+    echo -e "${BLUE}=====================================${NC}"
+}
+
+# 执行权限修复
+fix_permissions
+
 # 检查ROS环境
 if [ -z "$ROS_DISTRO" ]; then
     echo -e "${RED}未检测到ROS环境，正在尝试加载...${NC}"
