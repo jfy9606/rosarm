@@ -42,7 +42,7 @@ if user_site and user_site not in sys.path and os.path.exists(user_site):
 class YoloDetector:
     """YOLO目标检测器，用于检测图像中的物体"""
     
-    def __init__(self, model_name="yolov8n.pt", conf_threshold=0.3, simulation_mode=False):
+    def __init__(self, model_name="yolov8n.pt", conf_threshold=0.25, simulation_mode=False):
         """
         初始化YOLOv8检测器
         
@@ -134,8 +134,8 @@ class YoloDetector:
         # 上次日志记录时间
         self.last_log_time = rospy.Time.now()
         
-        # 订阅图像话题
-        self.image_sub = rospy.Subscriber('/camera/image_raw', Image, self.image_callback)
+        # 订阅图像话题（使用合成图像）
+        self.image_sub = rospy.Subscriber('/stereo_camera/image_merged', Image, self.image_callback)
         
         # 订阅控制话题
         self.control_sub = rospy.Subscriber('/yolo/status', Bool, self.control_callback)
@@ -566,8 +566,8 @@ def main():
     """主函数"""
     try:
         # 获取ROS参数
-        model_name = rospy.get_param('~model', 'yolov8s.pt')
-        conf_threshold = rospy.get_param('~conf', 0.3)
+        model_name = rospy.get_param('~model', 'yolov8n.pt')
+        conf_threshold = rospy.get_param('~conf', 0.25)
         simulation_mode = rospy.get_param('~simulation_mode', False)
         
         # 创建YOLOv8检测器
