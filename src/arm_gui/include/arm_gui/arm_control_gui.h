@@ -206,6 +206,10 @@ private slots:
     
     // 摄像头图像鼠标事件处理
     void onCameraViewClicked(QPoint pos);
+    
+    // 将这两个函数移动到槽中
+    void updateCameraViews();
+    void updateDetectionsTable();
 
 private:
     // UI相关
@@ -310,8 +314,6 @@ private:
     void updateVacuumStatus();
     void updateJointInfo();
     void updateEndEffectorPose();
-    void updateCameraViews();
-    void updateDetectionsTable();
     void updateConnectionStatus();
     void updateGUIJointValues();
     void updateSceneObjects();

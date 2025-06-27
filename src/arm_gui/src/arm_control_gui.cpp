@@ -553,9 +553,9 @@ void ArmControlGUI::onJoint1SliderChanged(int value)
     // 存储当前值
     current_joint_values_[0] = value * M_PI / 180.0; // 转换为弧度
     
-    // 使用示例动作代码中的电机控制值范围
-    // 底座旋转电机控制 - 映射到1000-2000范围
-    int motor_pos = map(value, -180, 180, 1000, 2000);
+    // 使用更大的映射范围控制底座旋转电机
+    // 底座旋转电机控制 - 映射到800-2200范围以提供更大的有效控制区间
+    int motor_pos = map(value, -180, 180, 800, 2200);
     
     // 发送电机控制命令
     sendMotorOrder(1, 11, 0, 0, 0, true, motor_pos, 30);
@@ -583,8 +583,8 @@ void ArmControlGUI::onJoint2SliderChanged(int value)
     // 存储当前值
     current_joint_values_[1] = value;
     
-    // 关节2电机控制 - 映射到1000-2000范围
-    int motor_pos = map(value, 0, 50, 1000, 2000);
+    // 关节2电机控制 - 映射到800-2200范围以提供更大的有效控制区间
+    int motor_pos = map(value, 0, 50, 800, 2200);
     
     // 发送电机控制命令
     sendMotorOrder(1, 12, 0, 0, 0, true, motor_pos, 30);
@@ -612,8 +612,8 @@ void ArmControlGUI::onJoint3SliderChanged(int value)
     // 存储当前值
     current_joint_values_[2] = value * M_PI / 180.0; // 转换为弧度
     
-    // 肩部关节电机控制 - 映射到1000-2000范围
-    int motor_pos = map(value, -90, 90, 1000, 2000);
+    // 肩部关节电机控制 - 映射到800-2200范围以提供更大的有效控制区间
+    int motor_pos = map(value, -90, 90, 800, 2200);
     
     // 使用示例动作中的电机控制序列，先准备电机
     sendMotorOrder(2, 100, 100, 0, 0, false, motor_pos, 10);
@@ -647,8 +647,8 @@ void ArmControlGUI::onJoint4SliderChanged(int value)
     // 存储当前值
     current_joint_values_[3] = value * M_PI / 180.0; // 转换为弧度
     
-    // 肘部关节电机控制 - 映射到1000-2000范围
-    int motor_pos = map(value, 0, 180, 1000, 2000);
+    // 肘部关节电机控制 - 映射到800-2200范围以提供更大的有效控制区间
+    int motor_pos = map(value, 0, 180, 800, 2200);
     
     // 使用示例动作中的夹持电机控制方式
     sendMotorOrder(1, 13, 0, 0, 0, true, motor_pos, 30);
@@ -674,8 +674,8 @@ void ArmControlGUI::onJoint6SliderChanged(int value)
     // 存储当前值
     current_joint_values_[5] = value;
     
-    // 末端伸缩电机控制 - 映射到1000-2000范围
-    int motor_pos = map(value, 5, 15, 1000, 2000);
+    // 末端伸缩电机控制 - 映射到800-2200范围以提供更大的有效控制区间
+    int motor_pos = map(value, 5, 15, 800, 2200);
     
     // 发送电机控制命令
     sendMotorOrder(1, 14, 0, 0, 0, true, motor_pos, 30);
@@ -701,8 +701,8 @@ void ArmControlGUI::onJoint1SpinChanged(double value)
     // 存储当前值
     current_joint_values_[0] = value * M_PI / 180.0; // 转换为弧度
     
-    // 底座旋转电机控制 - 映射到1000-2000范围
-    int motor_pos = map(static_cast<int>(value), -180, 180, 1000, 2000);
+    // 底座旋转电机控制 - 映射到800-2200范围以提供更大的有效控制区间
+    int motor_pos = map(static_cast<int>(value), -180, 180, 800, 2200);
     
     // 发送电机控制命令
     sendMotorOrder(1, 11, 0, 0, 0, true, motor_pos, 30);
@@ -728,8 +728,8 @@ void ArmControlGUI::onJoint2SpinChanged(double value)
     // 存储当前值
     current_joint_values_[1] = value;
     
-    // 关节2电机控制 - 映射到1000-2000范围
-    int motor_pos = map(static_cast<int>(value), 0, 50, 1000, 2000);
+    // 关节2电机控制 - 映射到800-2200范围以提供更大的有效控制区间
+    int motor_pos = map(static_cast<int>(value), 0, 50, 800, 2200);
     
     // 发送电机控制命令
     sendMotorOrder(1, 12, 0, 0, 0, true, motor_pos, 30);
@@ -755,8 +755,8 @@ void ArmControlGUI::onJoint3SpinChanged(double value)
     // 存储当前值
     current_joint_values_[2] = value * M_PI / 180.0; // 转换为弧度
     
-    // 肩部关节电机控制 - 映射到1000-2000范围
-    int motor_pos = map(static_cast<int>(value), -90, 90, 1000, 2000);
+    // 肩部关节电机控制 - 映射到800-2200范围以提供更大的有效控制区间
+    int motor_pos = map(static_cast<int>(value), -90, 90, 800, 2200);
     
     // 使用示例动作中的电机控制序列
     sendMotorOrder(2, 100, 100, 0, 0, false, motor_pos, 10);
@@ -788,10 +788,10 @@ void ArmControlGUI::onJoint4SpinChanged(double value)
     // 存储当前值
     current_joint_values_[3] = value * M_PI / 180.0; // 转换为弧度
     
-    // 肘部关节电机控制 - 映射到1000-2000范围
-    int motor_pos = map(static_cast<int>(value), 0, 180, 1000, 2000);
+    // 肘部关节电机控制 - 映射到800-2200范围以提供更大的有效控制区间
+    int motor_pos = map(static_cast<int>(value), 0, 180, 800, 2200);
     
-    // 发送电机控制命令
+    // 使用示例动作中的夹持电机控制方式
     sendMotorOrder(1, 13, 0, 0, 0, true, motor_pos, 30);
     QApplication::processEvents();
     
@@ -815,8 +815,8 @@ void ArmControlGUI::onJoint6SpinChanged(double value)
     // 存储当前值
     current_joint_values_[5] = value;
     
-    // 末端伸缩电机控制 - 映射到1000-2000范围
-    int motor_pos = map(static_cast<int>(value), 5, 15, 1000, 2000);
+    // 末端伸缩电机控制 - 映射到800-2200范围以提供更大的有效控制区间
+    int motor_pos = map(static_cast<int>(value), 5, 15, 800, 2200);
     
     // 发送电机控制命令
     sendMotorOrder(1, 14, 0, 0, 0, true, motor_pos, 30);
@@ -1118,8 +1118,11 @@ void ArmControlGUI::jointStateCallback(const sensor_msgs::JointState::ConstPtr& 
 
 void ArmControlGUI::detectionImageCallback(const sensor_msgs::Image::ConstPtr& msg)
 {
-    // 收到检测图像
-    logMessage(QString("收到检测图像: 尺寸=%1x%2, 通道=%3").arg(msg->width).arg(msg->height).arg(msg->encoding == "rgb8" ? 3 : 1));
+    // 减少日志输出频率，添加静态计数器
+    static int log_counter = 0;
+    if (log_counter++ % 100 == 0) { // 每100次消息才记录一次日志
+        logMessage(QString("收到检测图像: 尺寸=%1x%2, 通道=%3").arg(msg->width).arg(msg->height).arg(msg->encoding == "rgb8" ? 3 : 1));
+    }
     
     // 将ROS图像消息转换为OpenCV图像
     cv_bridge::CvImageConstPtr cv_ptr;
@@ -1138,48 +1141,69 @@ void ArmControlGUI::detectionImageCallback(const sensor_msgs::Image::ConstPtr& m
     
     // 在主线程中更新UI
     QMetaObject::invokeMethod(this, "updateCameraViews", Qt::QueuedConnection);
-    QMetaObject::invokeMethod(this, "updateDetectionsTable", Qt::QueuedConnection);
+    // 注释掉该行，因为图像变化不应触发检测表格更新
+    // QMetaObject::invokeMethod(this, "updateDetectionsTable", Qt::QueuedConnection);
 }
 
 void ArmControlGUI::detectionPosesCallback(const geometry_msgs::PoseArray::ConstPtr& msg)
 {
     // 收到检测位姿消息
     int num_objects = msg->poses.size();
-    logMessage(QString("收到检测位姿消息: %1 个物体, frame_id=%2").arg(num_objects).arg(QString::fromStdString(msg->header.frame_id)));
+    // 减少日志输出频率，添加静态计数器
+    static int log_counter = 0;
+    if (log_counter++ % 100 == 0) { // 每100次消息才记录一次日志
+        logMessage(QString("收到检测位姿消息: %1 个物体, frame_id=%2").arg(num_objects).arg(QString::fromStdString(msg->header.frame_id)));
+    }
     
     if (num_objects == 0)
     {
         // 如果没有检测到物体，清空检测列表
-        logMessage("检测位姿为空，清空表格");
-        detected_objects_.clear();
-        QMetaObject::invokeMethod(this, "updateDetectionsTable", Qt::QueuedConnection);
+        if (!detected_objects_.empty()) {
+            // 仅当之前有对象而现在没有时才记录并清空
+            if (log_counter % 100 == 0) {
+                logMessage("检测位姿为空，清空表格");
+            }
+            detected_objects_.clear();
+            QMetaObject::invokeMethod(this, "updateDetectionsTable", Qt::QueuedConnection);
+        }
         return;
     }
     
-    // 清空旧的检测结果
-    detected_objects_.clear();
-    
     // 处理检测到的每个物体
-    for (size_t i = 0; i < msg->poses.size(); ++i)
-    {
-        DetectedObject obj;
-        obj.id = "obj_" + std::to_string(i+1);
-        obj.type = "未知物体";
-        
-        // 记录位姿信息
-        obj.pose = msg->poses[i];
-        
-        // 转换位置到厘米单位显示
-        obj.x = obj.pose.position.x * 100.0; // 转换为厘米
-        obj.y = obj.pose.position.y * 100.0; // 转换为厘米
-        obj.z = obj.pose.position.z * 100.0; // 转换为厘米
-        
-        // 添加到检测列表
-        detected_objects_.push_back(obj);
+    // 首先检查是否需要更新列表，避免不必要的清空和重建
+    bool need_update = false;
+    
+    // 检测结果数量不同时需要更新
+    if (detected_objects_.size() != msg->poses.size()) {
+        need_update = true;
     }
     
-    // 在主线程中更新检测表格
-    QMetaObject::invokeMethod(this, "updateDetectionsTable", Qt::QueuedConnection);
+    // 只有需要更新时才清空旧的检测结果
+    if (need_update) {
+        detected_objects_.clear();
+        
+        // 处理检测到的每个物体
+        for (size_t i = 0; i < msg->poses.size(); ++i)
+        {
+            DetectedObject obj;
+            obj.id = "obj_" + std::to_string(i+1);
+            obj.type = "未知物体";
+            
+            // 记录位姿信息
+            obj.pose = msg->poses[i];
+            
+            // 转换位置到厘米单位显示
+            obj.x = obj.pose.position.x * 100.0; // 转换为厘米
+            obj.y = obj.pose.position.y * 100.0; // 转换为厘米
+            obj.z = obj.pose.position.z * 100.0; // 转换为厘米
+            
+            // 添加到检测列表
+            detected_objects_.push_back(obj);
+        }
+        
+        // 在主线程中更新检测表格
+        QMetaObject::invokeMethod(this, "updateDetectionsTable", Qt::QueuedConnection);
+    }
 }
 
 // GUI更新函数实现
@@ -1670,8 +1694,11 @@ void ArmControlGUI::onVisualizeWorkspaceClicked()
 void ArmControlGUI::objectDetectionCallback(const sensor_msgs::Image::ConstPtr& img_msg, 
                                          const geometry_msgs::PoseArray::ConstPtr& poses_msg)
 {
-    // 记录接收到的同步数据
-    logMessage(QString("收到同步检测数据: 图像=%1x%2, 位姿=%3个").arg(img_msg->width).arg(img_msg->height).arg(poses_msg->poses.size()));
+    // 减少日志输出频率，添加静态计数器
+    static int log_counter = 0;
+    if (log_counter++ % 100 == 0) { // 每100次消息才记录一次日志
+        logMessage(QString("收到同步检测数据: 图像=%1x%2, 位姿=%3个").arg(img_msg->width).arg(img_msg->height).arg(poses_msg->poses.size()));
+    }
     
     // 处理图像数据
     cv_bridge::CvImageConstPtr cv_ptr;
@@ -1689,32 +1716,51 @@ void ArmControlGUI::objectDetectionCallback(const sensor_msgs::Image::ConstPtr& 
     current_camera_image_ = cvMatToQImage(cv_ptr->image);
     
     // 处理位姿数据
-    logMessage("处理物体检测结果");
-    detected_objects_.clear();
-    
-    for (size_t i = 0; i < poses_msg->poses.size(); ++i)
-    {
-        DetectedObject obj;
-        obj.id = "obj_" + std::to_string(i+1);
-        obj.type = "未知物体";
-        
-        // 记录位姿信息
-        obj.pose = poses_msg->poses[i];
-        
-        // 转换位置到厘米单位显示
-        obj.x = obj.pose.position.x * 100.0; // 转换为厘米
-        obj.y = obj.pose.position.y * 100.0; // 转换为厘米
-        obj.z = obj.pose.position.z * 100.0; // 转换为厘米
-        
-        // 添加到检测列表
-        detected_objects_.push_back(obj);
+    if (log_counter % 100 == 0) {
+        logMessage("处理物体检测结果");
     }
     
-    logMessage(QString("同步检测到 %1 个物体，准备更新UI").arg(detected_objects_.size()));
+    // 检查是否需要更新检测列表
+    bool need_update = false;
     
-    // 在主线程中更新UI
-    QMetaObject::invokeMethod(this, "updateCameraViews", Qt::QueuedConnection);
-    QMetaObject::invokeMethod(this, "updateDetectionsTable", Qt::QueuedConnection);
+    // 检测结果数量不同时需要更新
+    if (detected_objects_.size() != poses_msg->poses.size()) {
+        need_update = true;
+    }
+    
+    // 只有需要更新时才清空旧的检测结果
+    if (need_update) {
+        detected_objects_.clear();
+        
+        for (size_t i = 0; i < poses_msg->poses.size(); ++i)
+        {
+            DetectedObject obj;
+            obj.id = "obj_" + std::to_string(i+1);
+            obj.type = "未知物体";
+            
+            // 记录位姿信息
+            obj.pose = poses_msg->poses[i];
+            
+            // 转换位置到厘米单位显示
+            obj.x = obj.pose.position.x * 100.0; // 转换为厘米
+            obj.y = obj.pose.position.y * 100.0; // 转换为厘米
+            obj.z = obj.pose.position.z * 100.0; // 转换为厘米
+            
+            // 添加到检测列表
+            detected_objects_.push_back(obj);
+        }
+        
+        if (log_counter % 100 == 0) {
+            logMessage(QString("同步检测到 %1 个物体，准备更新UI").arg(detected_objects_.size()));
+        }
+        
+        // 在主线程中更新UI
+        QMetaObject::invokeMethod(this, "updateCameraViews", Qt::QueuedConnection);
+        QMetaObject::invokeMethod(this, "updateDetectionsTable", Qt::QueuedConnection);
+    } else {
+        // 即使不需要更新检测表，也要更新相机视图
+        QMetaObject::invokeMethod(this, "updateCameraViews", Qt::QueuedConnection);
+    }
 }
 
 // 修改updateJointInfo函数实现，使用正确的UI元素
