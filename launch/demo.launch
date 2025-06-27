@@ -24,7 +24,6 @@
   <arg name="yolo_conf" default="0.25" doc="YOLO检测置信度阈值"/>
   <arg name="path_planning" default="true" doc="是否启用路径规划"/>
   <arg name="camera_device" default="/dev/video0" doc="摄像头设备"/>
-  <arg name="simulation_mode" default="false" doc="是否使用模拟模式进行YOLO检测"/>
 
   <!-- 加载机械臂描述参数 -->
   <rosparam command="load" file="$(find arm_trajectory)/config/arm_params.yaml" />
@@ -55,7 +54,6 @@
     <param name="enabled" value="$(arg yolo_enabled)"/>
     <param name="model" value="$(arg yolo_model)"/>
     <param name="conf" value="$(arg yolo_conf)"/>
-    <param name="simulation_mode" value="$(arg simulation_mode)"/>
   </node>
 
   <!-- 条件启动：如果不在测试模式，则启动GUI和其他节点 -->
@@ -72,9 +70,6 @@
       <node name="arm_path_planner" pkg="arm_trajectory" type="path_planner.py" output="screen">
         <!-- 可以在这里添加参数覆盖默认值 -->
       </node>
-      
-      <!-- 视觉-机械臂桥接节点 -->
-      <node name="vision_arm_bridge" pkg="arm_trajectory" type="vision_arm_bridge.py" output="screen" />
     </group>
   </group>
 </launch> 

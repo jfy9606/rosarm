@@ -8,7 +8,6 @@
         <param name="conf" value="0.25" />
         <param name="iou_threshold" value="0.45" />
         <param name="same_class_only" value="false" />
-        <param name="simulation_mode" value="false" />
         <param name="image_topic" value="/stereo_camera/image_merged" />
     </node>
     

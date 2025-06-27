@@ -42,21 +42,19 @@ if user_site and user_site not in sys.path and os.path.exists(user_site):
 class YoloDetector:
     """YOLO目标检测器，用于检测图像中的物体"""
     
-    def __init__(self, model_name="yolov8n.pt", conf_threshold=0.25, simulation_mode=False):
+    def __init__(self, model_name="yolov8n.pt", conf_threshold=0.25):
         """
         初始化YOLOv8检测器
         
         Args:
             model_name: YOLO模型名称或路径
             conf_threshold: 置信度阈值
-            simulation_mode: 是否使用模拟模式
         """
         # 初始化ROS节点
         rospy.init_node('yolo_detector', anonymous=True)
         
         # 保存参数
         self.conf_threshold = conf_threshold
-        self.simulation_mode = simulation_mode
         self.model_name = model_name
         
         # 重叠检测合并参数
@@ -70,93 +68,51 @@ class YoloDetector:
         self.bridge = CvBridge()
         
         # 加载YOLO模型
-        if not self.simulation_mode:
-            try:
-                # 尝试加载模型
-                rospy.loginfo(f"正在加载YOLO模型: {model_name}")
-                
-                # 尝试在多个路径中查找模型
-                model_paths = [
-                    model_name,  # 直接使用提供的路径
-                    os.path.join(os.path.dirname(os.path.abspath(__file__)), model_name),  # 当前脚本目录
-                    os.path.join(os.path.expanduser('~'), '.local', 'lib', 'python3.8', 'site-packages', 'ultralytics', 'models', model_name),  # 安装目录
-                ]
-                
-                model_loaded = False
-                for path in model_paths:
-                    try:
-                        if os.path.exists(path):
-                            rospy.loginfo(f"找到模型路径: {path}")
-                            self.model = YOLO(path)
-                            model_loaded = True
-                            break
-                    except Exception as e:
-                        rospy.logwarn(f"在路径 {path} 加载模型失败: {e}")
-                
-                if not model_loaded:
-                    rospy.loginfo("尝试直接从ultralytics加载模型")
-                    self.model = YOLO(model_name)
-                    model_loaded = True
-                
-                rospy.loginfo(f"YOLO模型加载成功: {model_name}")
-                
-                # 获取类别名称
-                self.class_names = self.model.names
-                rospy.loginfo(f"加载了 {len(self.class_names)} 个类别")
-                
-                # 设置模型加载标志为True
-                self.model_loaded = True
-            except Exception as e:
-                rospy.logerr(f"加载YOLO模型失败: {str(e)}")
-                rospy.logwarn("切换到模拟模式")
-                self.simulation_mode = True
-                self.class_names = {0: 'person', 1: 'bicycle', 2: 'car', 3: 'motorcycle', 4: 'airplane', 5: 'bus', 
-                                  6: 'train', 7: 'truck', 8: 'boat', 9: 'traffic light', 10: 'fire hydrant', 
-                                  11: 'stop sign', 12: 'parking meter', 13: 'bench', 14: 'bird', 15: 'cat', 
-                                  16: 'dog', 17: 'horse', 18: 'sheep', 19: 'cow', 20: 'elephant', 21: 'bear', 
-                                  22: 'zebra', 23: 'giraffe', 24: 'backpack', 25: 'umbrella', 26: 'handbag', 
-                                  27: 'tie', 28: 'suitcase', 29: 'frisbee', 30: 'skis', 31: 'snowboard', 
-                                  32: 'sports ball', 33: 'kite', 34: 'baseball bat', 35: 'baseball glove', 
-                                  36: 'skateboard', 37: 'surfboard', 38: 'tennis racket', 39: 'bottle', 
-                                  40: 'wine glass', 41: 'cup', 42: 'fork', 43: 'knife', 44: 'spoon', 
-                                  45: 'bowl', 46: 'banana', 47: 'apple', 48: 'sandwich', 49: 'orange', 
-                                  50: 'broccoli', 51: 'carrot', 52: 'hot dog', 53: 'pizza', 54: 'donut', 
-                                  55: 'cake', 56: 'chair', 57: 'couch', 58: 'potted plant', 59: 'bed', 
-                                  60: 'dining table', 61: 'toilet', 62: 'tv', 63: 'laptop', 64: 'mouse', 
-                                  65: 'remote', 66: 'keyboard', 67: 'cell phone', 68: 'microwave', 
-                                  69: 'oven', 70: 'toaster', 71: 'sink', 72: 'refrigerator', 73: 'book', 
-                                  74: 'clock', 75: 'vase', 76: 'scissors', 77: 'teddy bear', 78: 'hair drier', 
-                                  79: 'toothbrush'}
-        else:
-            # 模拟模式下使用COCO类别
-            rospy.loginfo("使用模拟模式")
-            self.class_names = {0: 'person', 1: 'bicycle', 2: 'car', 3: 'motorcycle', 4: 'airplane', 5: 'bus', 
-                              6: 'train', 7: 'truck', 8: 'boat', 9: 'traffic light', 10: 'fire hydrant', 
-                              11: 'stop sign', 12: 'parking meter', 13: 'bench', 14: 'bird', 15: 'cat', 
-                              16: 'dog', 17: 'horse', 18: 'sheep', 19: 'cow', 20: 'elephant', 21: 'bear', 
-                              22: 'zebra', 23: 'giraffe', 24: 'backpack', 25: 'umbrella', 26: 'handbag', 
-                              27: 'tie', 28: 'suitcase', 29: 'frisbee', 30: 'skis', 31: 'snowboard', 
-                              32: 'sports ball', 33: 'kite', 34: 'baseball bat', 35: 'baseball glove', 
-                              36: 'skateboard', 37: 'surfboard', 38: 'tennis racket', 39: 'bottle', 
-                              40: 'wine glass', 41: 'cup', 42: 'fork', 43: 'knife', 44: 'spoon', 
-                              45: 'bowl', 46: 'banana', 47: 'apple', 48: 'sandwich', 49: 'orange', 
-                              50: 'broccoli', 51: 'carrot', 52: 'hot dog', 53: 'pizza', 54: 'donut', 
-                              55: 'cake', 56: 'chair', 57: 'couch', 58: 'potted plant', 59: 'bed', 
-                              60: 'dining table', 61: 'toilet', 62: 'tv', 63: 'laptop', 64: 'mouse', 
-                              65: 'remote', 66: 'keyboard', 67: 'cell phone', 68: 'microwave', 
-                              69: 'oven', 70: 'toaster', 71: 'sink', 72: 'refrigerator', 73: 'book', 
-                              74: 'clock', 75: 'vase', 76: 'scissors', 77: 'teddy bear', 78: 'hair drier', 
-                              79: 'toothbrush'}
-        
+        try:
+            # 尝试加载模型
+            rospy.loginfo(f"正在加载YOLO模型: {model_name}")
+            
+            # 尝试在多个路径中查找模型
+            model_paths = [
+                model_name,  # 直接使用提供的路径
+                os.path.join(os.path.dirname(os.path.abspath(__file__)), model_name),  # 当前脚本目录
+                os.path.join(os.path.expanduser('~'), '.local', 'lib', 'python3.8', 'site-packages', 'ultralytics', 'models', model_name),  # 安装目录
+            ]
+            
+            model_loaded = False
+            for path in model_paths:
+                try:
+                    if os.path.exists(path):
+                        rospy.loginfo(f"找到模型路径: {path}")
+                        self.model = YOLO(path)
+                        model_loaded = True
+                        break
+                except Exception as e:
+                    rospy.logwarn(f"在路径 {path} 加载模型失败: {e}")
+            
+            if not model_loaded:
+                rospy.loginfo("尝试直接从ultralytics加载模型")
+                self.model = YOLO(model_name)
+                model_loaded = True
+            
+            rospy.loginfo(f"YOLO模型加载成功: {model_name}")
+            
+            # 获取类别名称
+            self.class_names = self.model.names
+            rospy.loginfo(f"加载了 {len(self.class_names)} 个类别")
+            
+            # 设置模型加载标志为True
+            self.model_loaded = True
+        except Exception as e:
+            rospy.logerr(f"加载YOLO模型失败: {str(e)}")
+            self.model_loaded = False
+            
         # 创建OpenCV桥接器
         self.bridge = CvBridge()
         
-        # 初始化YOLO模型
-        self.model_loaded = False
+        # 打印Python路径以便调试
+        rospy.loginfo(f"Python路径: {sys.path}")
         
-                # 打印Python路径以便调试
-                rospy.loginfo(f"Python路径: {sys.path}")
-                
         # 上次日志记录时间
         self.last_log_time = rospy.Time.now()
         
@@ -172,22 +128,16 @@ class YoloDetector:
         self.detection_image_pub = rospy.Publisher('/detections/image', Image, queue_size=10)  # 确保这个发布器存在
         self.poses_pub = rospy.Publisher('/detections/poses', PoseArray, queue_size=10)
         
-        rospy.loginfo(f"YOLO目标检测器已初始化，检测状态: {'启用' if not self.simulation_mode else '禁用'}, 模式: {'模拟' if self.simulation_mode else '正常'}")
+        rospy.loginfo(f"YOLO目标检测器已初始化")
     
     def control_callback(self, msg):
         """处理控制消息"""
-        new_state = msg.data
-        if new_state != not self.simulation_mode:
-            self.simulation_mode = not new_state
-            rospy.loginfo(f"YOLO检测已{'启用' if not self.simulation_mode else '禁用'}")
+        # 这里可以保留控制回调，但不再处理模拟模式
+        enabled = msg.data
+        rospy.loginfo(f"YOLO检测状态更改为: {'启用' if enabled else '禁用'}")
     
     def image_callback(self, msg):
         """处理图像消息"""
-        if self.simulation_mode:
-            # 如果使用模拟模式，直接转发原始图像
-            self.detection_pub.publish(msg)
-            return
-            
         if not self.model_loaded:
             rospy.logerr("YOLO模型未加载，无法进行检测")
             self.detection_pub.publish(msg)
@@ -200,7 +150,7 @@ class YoloDetector:
             # 异常也需要限流，避免刷屏
             current_time = rospy.Time.now()
             if not hasattr(self, 'last_error_time') or (current_time - self.last_error_time).to_sec() > 10.0:
-            rospy.logerr(f"处理图像时出错: {str(e)}")
+                rospy.logerr(f"处理图像时出错: {str(e)}")
                 self.last_error_time = current_time
     
     def detect_objects(self, image):
@@ -213,83 +163,37 @@ class YoloDetector:
         Returns:
             detections: 检测结果列表，每个元素包含 [x1, y1, x2, y2, conf, class_id]
         """
-        if self.simulation_mode:
-            # 使用模拟的检测结果
-            return self.simulate_detections(image)
-        else:
-            # 使用实际的YOLO模型进行检测
-            try:
-                # 检查图像是否有效
-                if image is None or image.size == 0:
-                    rospy.logwarn("收到无效图像")
-                    return []
-                
-                # 静默检测，不输出任何日志
-                with open(os.devnull, 'w') as f:
-                    # 暂时将stdout重定向到null设备
-                    original_stdout = sys.stdout
-                    sys.stdout = f
-                    
-                    # 执行检测
-                    results = self.model(image, verbose=False)
-                    
-                    # 恢复stdout
-                    sys.stdout = original_stdout
-                
-                # 处理并合并检测结果
-                detections = self.process_detections(results, self.conf_threshold)
-                
-                return detections
-                
-            except Exception as e:
-                # 异常也需要限流，避免刷屏
-                current_time = rospy.Time.now()
-                if not hasattr(self, 'last_detect_error_time') or (current_time - self.last_detect_error_time).to_sec() > 10.0:
-                rospy.logerr(f"YOLO检测出错: {str(e)}")
-                    self.last_detect_error_time = current_time
-                # 出错时回退到模拟模式
-                return self.simulate_detections(image)
-    
-    def simulate_detections(self, image):
-        """
-        生成模拟的检测结果
-        
-        Args:
-            image: OpenCV格式的图像
+        # 使用实际的YOLO模型进行检测
+        try:
+            # 检查图像是否有效
+            if image is None or image.size == 0:
+                rospy.logwarn("收到无效图像")
+                return []
             
-        Returns:
-            detections: 模拟的检测结果列表
-        """
-        # 创建一些模拟的检测结果
-        height, width = image.shape[:2]
-        
-        # 模拟检测到的物体
-        detections = []
-        
-        # 模拟常见的COCO对象
-        common_objects = [39, 41, 64, 73, 67, 62, 0]  # 瓶子、杯子、鼠标、笔记本、手机等
-        
-        # 模拟检测到的物体1（在图像左侧）
-        if np.random.random() > 0.3:  # 70%的概率检测到
-            x1 = int(width * 0.1)
-            y1 = int(height * 0.4)
-            x2 = int(width * 0.3)
-            y2 = int(height * 0.6)
-            conf = np.random.uniform(0.6, 0.9)
-            class_id = np.random.choice(common_objects)  # 随机选择常见物体
-            detections.append([x1, y1, x2, y2, conf, class_id])
-        
-        # 模拟检测到的物体2（在图像右侧）
-        if np.random.random() > 0.5:  # 50%的概率检测到
-            x1 = int(width * 0.6)
-            y1 = int(height * 0.3)
-            x2 = int(width * 0.8)
-            y2 = int(height * 0.7)
-            conf = np.random.uniform(0.5, 0.8)
-            class_id = np.random.choice(common_objects)  # 随机选择常见物体
-            detections.append([x1, y1, x2, y2, conf, class_id])
-        
-        return detections
+            # 静默检测，不输出任何日志
+            with open(os.devnull, 'w') as f:
+                # 暂时将stdout重定向到null设备
+                original_stdout = sys.stdout
+                sys.stdout = f
+                
+                # 执行检测
+                results = self.model(image, verbose=False)
+                
+                # 恢复stdout
+                sys.stdout = original_stdout
+            
+            # 处理并合并检测结果
+            detections = self.process_detections(results, self.conf_threshold)
+            
+            return detections
+            
+        except Exception as e:
+            # 异常也需要限流，避免刷屏
+            current_time = rospy.Time.now()
+            if not hasattr(self, 'last_detect_error_time') or (current_time - self.last_detect_error_time).to_sec() > 10.0:
+                rospy.logerr(f"YOLO检测出错: {str(e)}")
+                self.last_detect_error_time = current_time
+            return []
     
     def draw_detections(self, image, detections):
         """
@@ -297,259 +201,241 @@ class YoloDetector:
         
         Args:
             image: OpenCV格式的图像
-            detections: 检测结果列表
+            detections: 检测结果列表，每个元素包含 [x1, y1, x2, y2, conf, class_id]
             
         Returns:
-            result_image: 绘制了检测框的图像
+            annotated_image: 带有检测框的图像
         """
-        result_image = image.copy()
+        # 创建图像副本
+        annotated_image = image.copy()
         
-        # 为不同类别设置不同颜色
-        colors = [
-            (0, 255, 0),    # 绿色
-            (0, 0, 255),    # 红色
-            (255, 0, 0),    # 蓝色
-            (255, 255, 0),  # 青色
-            (0, 255, 255),  # 黄色
-            (255, 0, 255),  # 紫色
-            (128, 0, 0),    # 深蓝色
-            (0, 128, 0),    # 深绿色
-            (0, 0, 128),    # 深红色
-            (128, 128, 0),  # 橄榄色
-            (128, 0, 128),  # 紫色
-            (0, 128, 128),  # 青绿色
-            (192, 192, 192),# 银色
-            (128, 128, 128),# 灰色
-            (64, 64, 64)    # 深灰色
-        ]
-        
+        # 遍历检测结果
         for det in detections:
             x1, y1, x2, y2, conf, class_id = det
             
-            # 转换为整数坐标
+            # 确保坐标是整数
             x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
             
-            # 获取类别名称和颜色
-            class_name = self.class_names[int(class_id)] if int(class_id) < len(self.class_names) else f"class{int(class_id)}"
-            color = colors[int(class_id) % len(colors)]
+            # 获取类别名称
+            class_id = int(class_id)
+            class_name = self.class_names[class_id] if class_id in self.class_names else f"class_{class_id}"
             
-            # 绘制边界框
-            cv2.rectangle(result_image, (x1, y1), (x2, y2), color, 2)
+            # 设置颜色（基于类别ID）
+            color = (int(255 * (class_id % 3 / 3.0)), 
+                     int(255 * ((class_id + 1) % 3 / 3.0)), 
+                     int(255 * ((class_id + 2) % 3 / 3.0)))
             
-            # 绘制半透明背景
-            overlay = result_image.copy()
-            cv2.rectangle(overlay, (x1, y1 - 30), (x1 + len(class_name) * 11 + 70, y1), color, -1)
-            cv2.addWeighted(overlay, 0.7, result_image, 0.3, 0, result_image)
+            # 绘制矩形框
+            cv2.rectangle(annotated_image, (x1, y1), (x2, y2), color, 2)
             
-            # 绘制类别名称和置信度
-            label = f"{class_name} {conf:.2f}"
-            cv2.putText(result_image, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+            # 标注类别名称和置信度
+            label = f"{class_name}: {conf:.2f}"
+            
+            # 获取文本框大小
+            (text_width, text_height), baseline = cv2.getTextSize(
+                label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)
+            
+            # 确保文本框在图像范围内
+            y1 = max(y1, text_height + baseline)
+            
+            # 绘制文本框背景
+            cv2.rectangle(
+                annotated_image, 
+                (x1, y1 - text_height - baseline),
+                (x1 + text_width, y1),
+                color, 
+                -1
+            )
+            
+            # 绘制文本
+            cv2.putText(
+                annotated_image,
+                label,
+                (x1, y1 - baseline),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (255, 255, 255),
+                2
+            )
         
-        return result_image
-    
+        return annotated_image
+
     def publish_poses(self, detections, header):
         """
-        发布检测到的物体位姿
+        发布检测到的物体的位姿
         
         Args:
-            detections: 检测结果列表
-            header: 图像消息头
+            detections: 检测结果列表，每个元素包含 [x1, y1, x2, y2, conf, class_id]
+            header: 图像消息的header，用于设置时间戳和坐标系
         """
+        # 创建姿态数组消息
         pose_array = PoseArray()
         pose_array.header = header
         
-        # 收集类别名称，添加到frame_id中
-        class_names = []
-        
-        # 如果没有检测到物体，发布空的PoseArray
-        if not detections:
-            rospy.loginfo("没有检测到物体，发布空的PoseArray")
-            self.poses_pub.publish(pose_array)
-            return
-        
+        # 遍历检测结果
         for det in detections:
             x1, y1, x2, y2, conf, class_id = det
             
-            # 计算物体中心点
-            center_x = (x1 + x2) / 2
-            center_y = (y1 + y2) / 2
+            # 计算矩形框中心坐标
+            center_x = (x1 + x2) / 2.0
+            center_y = (y1 + y2) / 2.0
             
-            # 估计深度（这里使用模拟值，实际应该从深度图或立体视觉获取）
-            # 假设深度与物体大小成反比
-            object_width = x2 - x1
-            object_height = y2 - y1
-            object_size = np.sqrt(object_width * object_height)
-            depth = 100.0 / (object_size / 100.0)  # 模拟深度值（厘米）
-            
-            # 创建位姿
+            # 创建姿态消息
             pose = Pose()
             
-            # 设置位置（假设相机坐标系：X向右，Y向下，Z向前）
-            # 将像素坐标转换为相机坐标系（简化版本）
-            image_width = 640  # 假设图像宽度
-            image_height = 480  # 假设图像高度
-            fx = 500.0  # 假设相机焦距
-            fy = 500.0
-            cx = image_width / 2
-            cy = image_height / 2
+            # 设置位置
+            pose.position.x = center_x / 100.0  # 转换到米单位（假设图像单位为像素）
+            pose.position.y = center_y / 100.0
+            pose.position.z = 0.0  # Z坐标设为0
             
-            # 计算相机坐标系中的位置
-            x = (center_x - cx) * depth / fx
-            y = (center_y - cy) * depth / fy
-            z = depth
-            
-            pose.position.x = x
-            pose.position.y = y
-            pose.position.z = z
-            
-            # 设置姿态（默认朝下）
+            # 设置方向（单位四元数，代表无旋转）
+            pose.orientation.x = 0.0
+            pose.orientation.y = 0.0
+            pose.orientation.z = 0.0
             pose.orientation.w = 1.0
             
+            # 将姿态添加到数组中
             pose_array.poses.append(pose)
             
-            # 获取类别名称并添加到列表
-            class_name = self.class_names[int(class_id)] if int(class_id) < len(self.class_names) else f"class{int(class_id)}"
-            class_names.append(class_name)
-        
-        # 将类别名称添加到frame_id
-        if class_names:
-            pose_array.header.frame_id = ','.join(class_names)
-            # 调试输出 - 显示检测到的物体类别
-            rospy.loginfo(f"发布检测结果: {len(class_names)}个物体 - {','.join(class_names)}")
-        
-        # 发布位姿数组
+        # 发布姿态数组
         self.poses_pub.publish(pose_array)
-        
-        # 调试输出 - 确认消息已发布
-        rospy.loginfo(f"已发布PoseArray消息，包含{len(pose_array.poses)}个物体位姿")
-
+            
     def process_detections(self, results, min_confidence=0.3):
         """
-        处理YOLO检测结果，提取位置信息
+        处理YOLO检测结果
         
         Args:
-            results: YOLO检测结果
+            results: YOLO检测结果对象
             min_confidence: 最小置信度阈值
             
         Returns:
-            检测结果列表，每个元素为 [x1, y1, x2, y2, conf, class_id]
+            detections: 检测结果列表，每个元素包含 [x1, y1, x2, y2, conf, class_id]
         """
-        # 检查结果是否有效
-        if results is None or len(results) == 0:
-            rospy.loginfo("没有检测到物体")
-            return []
-        
-        # 提取检测结果
-        boxes = results[0].boxes
-        
-        # 如果没有检测到物体，返回空列表
-        if len(boxes) == 0:
-            rospy.loginfo("没有检测到物体")
-            return []
-        
-        # 提取边界框、置信度和类别
         detections = []
-        for box in boxes:
-            # 获取边界框坐标
-            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+        
+        # 遍历所有检测结果
+        for result in results:
+            boxes = result.boxes
             
-            # 获取置信度
-            conf = box.conf[0].cpu().numpy()
-            
-            # 获取类别ID
-            class_id = int(box.cls[0].cpu().numpy())
-            
-            # 仅保留置信度高于阈值的检测结果
-            if conf >= min_confidence:
-                detections.append([x1, y1, x2, y2, conf, class_id])
+            # 遍历所有边界框
+            for box in boxes:
+                # 获取置信度
+                conf = float(box.conf)
+                
+                # 仅保留高于阈值的结果
+                if conf >= min_confidence:
+                    # 获取边界框坐标
+                    x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                    
+                    # 获取类别ID
+                    class_id = int(box.cls)
+                    
+                    # 将检测结果添加到列表中
+                    detections.append([x1, y1, x2, y2, conf, class_id])
         
         # 合并重叠的检测结果
-        merged_detections = self.merge_overlapping_detections(detections)
-        
-        # 记录检测和合并结果
-        rospy.loginfo(f"检测到 {len(detections)} 个物体，合并后 {len(merged_detections)} 个物体")
-        
-        return merged_detections
-    
+        detections = self.merge_overlapping_detections(detections)
+                
+        return detections
+            
     def merge_overlapping_detections(self, detections, iou_threshold=None, same_class_only=None):
         """
         合并重叠的检测结果
         
         Args:
-            detections: 检测结果列表，每个元素为 [x1, y1, x2, y2, conf, class_id]
-            iou_threshold: IoU阈值，高于此值的检测将被合并，默认使用类的参数
-            same_class_only: 是否只合并相同类别的检测结果，默认使用类的参数
+            detections: 检测结果列表，每个元素包含 [x1, y1, x2, y2, conf, class_id]
+            iou_threshold: IoU阈值，如果为None则使用默认值
+            same_class_only: 是否只合并相同类别的检测，如果为None则使用默认值
             
         Returns:
-            合并后的检测结果列表
+            merged_detections: 合并后的检测结果列表
         """
-        if len(detections) <= 1:
+        # 如果检测结果少于2个，直接返回
+        if len(detections) < 2:
             return detections
         
-        # 使用类参数或传入参数
-        if iou_threshold is None:
-            iou_threshold = self.iou_threshold
-        if same_class_only is None:
-            same_class_only = self.same_class_only
+        # 使用默认参数或传入的参数
+        iou_threshold = iou_threshold if iou_threshold is not None else self.iou_threshold
+        same_class_only = same_class_only if same_class_only is not None else self.same_class_only
         
-        # 记录合并参数
-        rospy.loginfo(f"合并重叠检测: IoU阈值={iou_threshold}, 仅相同类别={same_class_only}")
+        # 将检测结果转换为NumPy数组以便处理
+        dets = np.array(detections)
         
-        # 按置信度降序排序
-        detections.sort(key=lambda x: x[4], reverse=True)
+        # 按照置信度排序（降序）
+        indices = np.argsort(-dets[:, 4])
+        dets = dets[indices]
         
-        # 标记需要保留的检测结果
-        keep = [True] * len(detections)
+        # 创建保留标记数组
+        keep = np.ones(len(dets), dtype=bool)
         
-        # 合并重叠的检测结果
-        for i in range(len(detections)):
+        # 遍历检测结果
+        for i in range(len(dets) - 1):
+            # 如果当前检测已被标记为删除，跳过
             if not keep[i]:
                 continue
                 
-            # 获取当前检测结果
-            x1i, y1i, x2i, y2i, confi, class_i = detections[i]
-            area_i = (x2i - x1i) * (y2i - y1i)
+            # 获取当前检测的边界框和类别
+            box1 = dets[i, :4]
+            class1 = dets[i, 5]
             
-            # 与其他检测结果比较
-            for j in range(i + 1, len(detections)):
+            # 计算当前检测与后续检测的IoU
+            for j in range(i + 1, len(dets)):
+                # 如果后续检测已被标记为删除，跳过
                 if not keep[j]:
                     continue
                     
-                # 获取比较的检测结果
-                x1j, y1j, x2j, y2j, confj, class_j = detections[j]
+                # 获取后续检测的边界框和类别
+                box2 = dets[j, :4]
+                class2 = dets[j, 5]
                 
-                # 如果只合并相同类别的检测结果，且类别不同，则跳过
-                if same_class_only and class_i != class_j:
+                # 如果只合并相同类别的检测且类别不同，跳过
+                if same_class_only and class1 != class2:
                     continue
                 
-                # 计算交集
-                xx1 = max(x1i, x1j)
-                yy1 = max(y1i, y1j)
-                xx2 = min(x2i, x2j)
-                yy2 = min(y2i, y2j)
-                
-                # 计算交集面积
-                w = max(0, xx2 - xx1)
-                h = max(0, yy2 - yy1)
-                inter = w * h
-                
-                # 计算并集面积
-                area_j = (x2j - x1j) * (y2j - y1j)
-                union = area_i + area_j - inter
-                
                 # 计算IoU
-                iou = inter / union if union > 0 else 0
+                iou = self.calculate_iou(box1, box2)
                 
-                # 如果IoU大于阈值，合并检测结果（保留置信度高的）
+                # 如果IoU超过阈值，标记后续检测为删除
                 if iou > iou_threshold:
                     keep[j] = False
-                    rospy.loginfo(f"合并检测: 类别 {int(class_i)} 和 {int(class_j)}, IoU={iou:.2f}")
         
         # 返回保留的检测结果
-        merged = [detections[i] for i in range(len(detections)) if keep[i]]
-        rospy.loginfo(f"合并前: {len(detections)} 个检测, 合并后: {len(merged)} 个检测")
-        return merged
-
+        return dets[keep].tolist()
+    
+    def calculate_iou(self, box1, box2):
+        """
+        计算两个边界框的IoU（交并比）
+        
+        Args:
+            box1: 第一个边界框 [x1, y1, x2, y2]
+            box2: 第二个边界框 [x1, y1, x2, y2]
+            
+        Returns:
+            iou: IoU值，范围[0, 1]
+        """
+        # 计算交集矩形
+        x_left = max(box1[0], box2[0])
+        y_top = max(box1[1], box2[1])
+        x_right = min(box1[2], box2[2])
+        y_bottom = min(box1[3], box2[3])
+        
+        # 如果边界框没有重叠，返回0
+        if x_right < x_left or y_bottom < y_top:
+            return 0.0
+        
+        # 计算交集面积
+        intersection_area = (x_right - x_left) * (y_bottom - y_top)
+        
+        # 计算并集面积
+        box1_area = (box1[2] - box1[0]) * (box1[3] - box1[1])
+        box2_area = (box2[2] - box2[0]) * (box2[3] - box2[1])
+        union_area = box1_area + box2_area - intersection_area
+        
+        # 计算IoU
+        iou = intersection_area / union_area
+        
+        return iou
+    
     def detect_and_publish(self, image_msg):
         """
         检测图像中的物体并发布结果
@@ -558,55 +444,50 @@ class YoloDetector:
             image_msg: ROS图像消息
         """
         try:
-            # 将ROS图像转换为OpenCV格式
+            # 将ROS图像消息转换为OpenCV格式
             cv_image = self.bridge.imgmsg_to_cv2(image_msg, "bgr8")
             
             # 检测物体
             detections = self.detect_objects(cv_image)
             
-            # 记录检测结果
-            if len(detections) > 0:
-                class_names = [self.class_names[int(det[5])] if int(det[5]) < len(self.class_names) else f"class{int(det[5])}" for det in detections]
-                rospy.loginfo(f"检测到 {len(detections)} 个物体: {', '.join(class_names)}")
-            else:
-                rospy.loginfo("未检测到物体")
-            
-            # 绘制检测结果
+            # 在图像上绘制检测结果
             annotated_image = self.draw_detections(cv_image, detections)
             
-            # 发布检测结果图像
-            detection_image_msg = self.bridge.cv2_to_imgmsg(annotated_image, "bgr8")
-            detection_image_msg.header = image_msg.header
-            self.detection_image_pub.publish(detection_image_msg)
+            # 将OpenCV图像转换回ROS图像消息
+            detection_msg = self.bridge.cv2_to_imgmsg(annotated_image, "bgr8")
+            detection_msg.header = image_msg.header
             
-            # 发布物体位姿
+            # 发布检测结果图像
+            self.detection_pub.publish(detection_msg)
+            
+            # 发布姿态数据
             self.publish_poses(detections, image_msg.header)
             
+        except CvBridgeError as e:
+            rospy.logerr(f"CV桥接错误: {str(e)}")
         except Exception as e:
-            # 限制错误日志频率
-            current_time = rospy.Time.now()
-            if not hasattr(self, 'last_error_time') or (current_time - self.last_error_time).to_sec() > 5.0:
-                rospy.logerr(f"检测和发布过程中出错: {str(e)}")
-                self.last_error_time = current_time
+            rospy.logerr(f"处理图像和发布结果时出错: {str(e)}")
 
 def main():
-    """主函数"""
     try:
-        # 获取ROS参数
+        # 获取YOLO模型名称
         model_name = rospy.get_param('~model', 'yolov8n.pt')
-        conf_threshold = rospy.get_param('~conf', 0.25)
-        simulation_mode = rospy.get_param('~simulation_mode', False)
         
-        # 创建YOLOv8检测器
-        detector = YoloDetector(model_name, conf_threshold, simulation_mode)
-    
-        # 启动ROS节点
+        # 获取置信度阈值
+        conf_threshold = rospy.get_param('~conf', 0.25)
+        
+        # 创建并启动检测器
+        detector = YoloDetector(model_name, conf_threshold)
+        
+        # 进入ROS主循环
         rospy.spin()
-    
+        
     except rospy.ROSInterruptException:
-        rospy.loginfo("YOLO检测器节点已关闭")
-    except Exception as e:
-        rospy.logerr(f"YOLO检测器节点出错: {str(e)}")
+        rospy.loginfo("YOLO检测节点已关闭")
+        pass
 
 if __name__ == '__main__':
-    main() 
+    try:
+        main()
+    except Exception as e:
+        rospy.logerr(f"YOLO检测节点出现异常: {str(e)}") 

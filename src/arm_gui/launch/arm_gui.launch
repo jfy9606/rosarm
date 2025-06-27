@@ -7,7 +7,6 @@
   <arg name="with_arm_controller" default="true" />
   <arg name="with_path_planner" default="true" />
   <arg name="with_yolo_controller" default="true" />
-  <arg name="simulation_mode" default="false" doc="是否使用模拟模式进行YOLO检测"/>
   <arg name="camera_device" default="/dev/video0" doc="摄像头设备"/>
   
   <!-- 启动摄像头节点 (仅当不使用立体视觉时) -->
@@ -39,7 +38,6 @@
     <param name="enabled" value="true" />
     <param name="model" value="yolov8n.pt" />
     <param name="conf" value="0.25" />
-    <param name="simulation_mode" value="$(arg simulation_mode)" />
   </node>
   
   <!-- 启动路径规划节点 -->
