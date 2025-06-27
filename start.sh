@@ -109,11 +109,6 @@ while [[ $# -gt 0 ]]; do
             COMMAND_MODE=true
             shift 2
             ;;
-        -t|--test)
-            TEST_MODE=true
-            COMMAND_MODE=true
-            shift
-            ;;
         -h|--help)
             show_help
             ;;
@@ -137,7 +132,7 @@ launch_full_system() {
     if [ -n "$YOLO_MODEL" ]; then
         echo -e "${CYAN}使用自定义YOLOv8模型: $YOLO_MODEL${NC}"
     else
-        echo -e "${CYAN}使用默认YOLOv8s模型${NC}"
+        echo -e "${CYAN}使用默认YOLOv8n模型${NC}"
     fi
     echo -e "${CYAN}检测置信度阈值: $YOLO_THRESHOLD${NC}"
     
@@ -155,20 +150,9 @@ launch_full_system() {
     $LAUNCH_CMD
 }
 
-# 测试摄像头
-test_camera() {
-    echo -e "${GREEN}测试摄像头...${NC}"
-    # 使用Python直接测试摄像头
-    python3 src/stereo_vision/scripts/camera_direct.py --device 0 --width $WIDTH --height $HEIGHT --fps $FPS
-}
-
 # 根据命令行参数启动
 launch_system() {
-    if [ "$TEST_MODE" = true ]; then
-        test_camera
-    else
-        launch_full_system
-    fi
+    launch_full_system
 }
 
 # 显示简化菜单（如果没有命令行参数）
@@ -177,8 +161,7 @@ show_menu() {
     echo -e "${GREEN}机械臂视觉控制系统启动菜单${NC}"
     echo -e "${BLUE}=====================================${NC}"
     echo -e "${YELLOW}1. 启动视觉控制系统${NC}"
-    echo -e "${YELLOW}2. 测试摄像头${NC}"
-    echo -e "${YELLOW}3. 配置参数${NC}"
+    echo -e "${YELLOW}2. 配置参数${NC}"
     echo -e "${YELLOW}0. 退出${NC}"
     echo -e "${BLUE}=====================================${NC}"
     echo -e "${CYAN}注意: 系统包含路径规划和3D视图功能${NC}"
@@ -192,9 +175,6 @@ show_menu() {
             launch_full_system
             ;;
         2)
-            test_camera
-            ;;
-        3)
             configure_params
             ;;
         0)
