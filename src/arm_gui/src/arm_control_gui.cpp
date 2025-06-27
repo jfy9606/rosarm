@@ -11,6 +11,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QComboBox>
+#include <QSizePolicy>
 
 #include <sensor_msgs/JointState.h>
 #include <std_msgs/String.h>
@@ -48,54 +49,18 @@ ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     // 初始化GUI连接
     initializeGUI();
     
-    // 初始化关节控制连接
-    initializeJointControlConnections();
+    // 设置DH参数和关节限制
+    setupDHParameters();
+    setupJointLimits();
     
-    // 初始化ROS
+    // 初始化ROS通信
     initializeROS();
     
-    // 初始化OpenGL
-    initializeOpenGL();
+    // 更新GUI以显示初始关节值
+    updateGUIJointValues();
     
-    // 添加日志
-    logMessage("控制界面初始化完成");
-    
-    // 设置相机图像显示区域
-    ui->cameraView->setScaledContents(false);
-    ui->cameraView->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
-    
-    // 设置鼠标追踪，以便实现图像点击选择物体
-    ui->cameraView->setMouseTracking(true);
-    ui->cameraView->installEventFilter(this);
-    
-    // 初始化3D场景
-    scene_3d_renderer_ = new Scene3DRenderer(ui->openGLView);
-    ui->openGLView->setLayout(new QHBoxLayout());
-    ui->openGLView->layout()->addWidget(scene_3d_renderer_);
-    
-    // 连接3D场景物体选择信号
-    connect(scene_3d_renderer_, &Scene3DRenderer::objectSelected, this, &ArmControlGUI::on3DViewObjectSelected);
-    
-    // 设置相机参数
-    setupCameraParameters();
-    
-    // 订阅ROS话题
-    setupROSSubscriptions();
-    
-    // 打印订阅的话题信息
-    ROS_INFO("GUI已订阅摄像头话题:");
-    ROS_INFO(" - /stereo_camera/image_merged (合成双目图像)");
-    ROS_INFO(" - /camera/image_raw (原始摄像头图像)");
-    ROS_INFO(" - /stereo_camera/detection_image");
-    ROS_INFO(" - /yolo_detection/image");
-    ROS_INFO(" - /yolo_detection/poses");
-    
-    // 输出调试信息到GUI日志
-    logMessage("已订阅图像和检测结果话题，等待数据...");
-    logMessage("3D视图已准备就绪，可通过鼠标右键旋转视角，滚轮缩放");
-    
-    // 设置窗口标题
-    setWindowTitle("机械臂控制面板");
+    // 记录初始化完成信息
+    logMessage("机械臂控制GUI初始化完成");
 }
 
 ArmControlGUI::~ArmControlGUI()
@@ -144,152 +109,99 @@ bool ArmControlGUI::eventFilter(QObject* watched, QEvent* event)
 // 初始化函数实现
 void ArmControlGUI::initializeGUI()
 {
-    // 连接菜单操作
-    connect(ui->actionOpen_Task_Sequence, &QAction::triggered, this, &ArmControlGUI::onOpenTaskSequence);
-    connect(ui->actionSave_Task_Sequence, &QAction::triggered, this, &ArmControlGUI::onSaveTaskSequence);
-    connect(ui->actionExit, &QAction::triggered, this, &ArmControlGUI::onExitApplication);
-    connect(ui->actionRobot_Settings, &QAction::triggered, this, &ArmControlGUI::onRobotSettings);
-    connect(ui->actionAbout, &QAction::triggered, this, &ArmControlGUI::onAbout);
+    // 设置窗口标题
+    setWindowTitle("机械臂控制面板");
     
-    // 连接末端执行器控制按钮
-    connect(ui->moveToPositionButton, &QPushButton::clicked, this, &ArmControlGUI::onMoveToPositionClicked);
-    connect(ui->homeButton, &QPushButton::clicked, this, &ArmControlGUI::onHomeButtonClicked);
+    // 安装事件过滤器
+    this->installEventFilter(this);
     
-    // 连接吸附控制
+    // 设置状态栏
+    statusBar()->showMessage("系统就绪");
+    
+    // 初始化日志显示区
+    ui->logTextEdit->setReadOnly(true);
+    
+    // 设置关节控制范围
+    ui->joint1_slider->setRange(-180, 180);
+    ui->joint2_slider->setRange(0, 50);
+    ui->joint3_slider->setRange(-90, 90);
+    ui->joint4_slider->setRange(0, 180);
+    ui->joint6_slider->setRange(5, 15);
+    
+    ui->joint1_spin->setRange(-180.0, 180.0);
+    ui->joint2_spin->setRange(0.0, 50.0);
+    ui->joint3_spin->setRange(-90.0, 90.0);
+    ui->joint4_spin->setRange(0.0, 180.0);
+    ui->joint6_spin->setRange(5.0, 15.0);
+    
+    // 设置吸盘功率滑块范围
+    ui->vacuumPowerSlider->setRange(0, 100);
+    ui->vacuumPowerSlider->setValue(100);
+    
+    // 设置关节控制连接
+    connect(ui->joint1_slider, &QSlider::valueChanged, this, &ArmControlGUI::onJoint1SliderChanged);
+    connect(ui->joint2_slider, &QSlider::valueChanged, this, &ArmControlGUI::onJoint2SliderChanged);
+    connect(ui->joint3_slider, &QSlider::valueChanged, this, &ArmControlGUI::onJoint3SliderChanged);
+    connect(ui->joint4_slider, &QSlider::valueChanged, this, &ArmControlGUI::onJoint4SliderChanged);
+    connect(ui->joint6_slider, &QSlider::valueChanged, this, &ArmControlGUI::onJoint6SliderChanged);
+    
+    connect(ui->joint1_spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ArmControlGUI::onJoint1SpinChanged);
+    connect(ui->joint2_spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ArmControlGUI::onJoint2SpinChanged);
+    connect(ui->joint3_spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ArmControlGUI::onJoint3SpinChanged);
+    connect(ui->joint4_spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ArmControlGUI::onJoint4SpinChanged);
+    connect(ui->joint6_spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ArmControlGUI::onJoint6SpinChanged);
+    
+    // 设置吸盘控制连接
     connect(ui->vacuumPowerSlider, &QSlider::valueChanged, this, &ArmControlGUI::onVacuumPowerSliderChanged);
     connect(ui->vacuumOnButton, &QPushButton::clicked, this, &ArmControlGUI::onVacuumOnButtonClicked);
     connect(ui->vacuumOffButton, &QPushButton::clicked, this, &ArmControlGUI::onVacuumOffButtonClicked);
     
-    // 连接UI文件中定义的路径规划控件
-    connect(ui->scanObjectsButton, &QPushButton::clicked, this, &ArmControlGUI::onScanObjectsClicked);
-    connect(ui->executePathButton, &QPushButton::clicked, this, &ArmControlGUI::onExecutePathClicked);
-    connect(ui->visualizeWorkspaceButton, &QPushButton::clicked, this, &ArmControlGUI::onVisualizeWorkspaceClicked);
+    // 连接笛卡尔坐标移动按钮
+    connect(ui->moveToPositionButton, &QPushButton::clicked, this, &ArmControlGUI::onMoveToPositionClicked);
     
-    // 保存placement_area_combo_指针，以便在路径规划中使用
-    placement_area_combo_ = ui->placement_area_combo;
-    placement_area_combo_->clear();
-    placement_area_combo_->addItem("区域1", "area_1");
-    placement_area_combo_->addItem("区域2", "area_2");
-    placement_area_combo_->addItem("区域3", "area_3");
-    
-    // 创建控制模式选择下拉框
-    control_mode_combo_ = new QComboBox(this);
-    control_mode_combo_->addItem("关节控制模式", static_cast<int>(ArmControlMode::JOINT_CONTROL));
-    control_mode_combo_->addItem("笛卡尔控制模式", static_cast<int>(ArmControlMode::CARTESIAN_CONTROL));
-    control_mode_combo_->addItem("视觉伺服模式", static_cast<int>(ArmControlMode::VISUAL_SERVO));
-    
-    // 默认选择关节控制模式
-    control_mode_combo_->setCurrentIndex(0);
-    current_control_mode_ = ArmControlMode::JOINT_CONTROL;
-    
-    // 连接模式切换信号
-    connect(control_mode_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged), [this](int index) {
-        current_control_mode_ = static_cast<ArmControlMode>(control_mode_combo_->itemData(index).toInt());
-        logMessage(QString("切换到%1").arg(control_mode_combo_->currentText()));
-    });
-    
-    // 添加控制模式选择到顶部工具栏
-    QLabel* modeLabel = new QLabel("控制模式: ");
-    ui->toolBar->addWidget(modeLabel);
-    ui->toolBar->addWidget(control_mode_combo_);
-    
-    // 创建YOLO检测控制
-    QGroupBox* visionGroup = new QGroupBox("视觉检测");
-    QVBoxLayout* visionLayout = new QVBoxLayout(visionGroup);
-    
-    // YOLO检测开关已移除
-    
-    QLabel* infoLabel = new QLabel("使用机械臂末端摄像头进行检测");
-    infoLabel->setWordWrap(true);
-    visionLayout->addWidget(infoLabel);
-    
-    // 将视觉控制组添加到controlWidget的布局中
-    QVBoxLayout* controlLayout = qobject_cast<QVBoxLayout*>(ui->controlWidget->layout());
-    if (controlLayout) {
-        controlLayout->addWidget(visionGroup);
-    }
-    
-    // 连接检测表格的单元格点击信号
+    // 设置检测物体表格
+    QStringList headers;
+    headers << "ID" << "类型" << "X(cm)" << "Y(cm)" << "Z(cm)" << "操作";
+    ui->detectionsTable->setColumnCount(headers.size());
+    ui->detectionsTable->setHorizontalHeaderLabels(headers);
+    ui->detectionsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     connect(ui->detectionsTable, &QTableWidget::cellClicked, this, &ArmControlGUI::onDetectionsTableCellClicked);
     
-    // 设置检测结果表格
-    ui->detectionsTable->setColumnCount(6);
-    ui->detectionsTable->setHorizontalHeaderLabels({"ID", "类型", "X", "Y", "Z", "操作"});
-    ui->detectionsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    // 设置相机图像显示区域
+    ui->cameraView->setScaledContents(false);
+    ui->cameraView->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
     
-    // 设置相机视图鼠标追踪
+    // 设置鼠标追踪，以便实现图像点击选择物体
     ui->cameraView->setMouseTracking(true);
     ui->cameraView->installEventFilter(this);
     
-    // 添加日志
-    logMessage("控制界面初始化完成，使用机械臂末端双目摄像头");
-    logMessage("YOLO检测器已加载，使用YOLOv8n模型");
+    // 初始化3D场景
+    scene_3d_renderer_ = new Scene3DRenderer(ui->openGLView);
+    ui->openGLView->setLayout(new QHBoxLayout());
+    ui->openGLView->layout()->addWidget(scene_3d_renderer_);
     
-    // 创建检测结果状态标签
-    QLabel* detectionStatusLabel = new QLabel("未启用物体检测");
-    detectionStatusLabel->setObjectName("detectionStatusLabel");
+    // 连接3D场景物体选择信号
+    connect(scene_3d_renderer_, &Scene3DRenderer::objectSelected, this, &ArmControlGUI::on3DViewObjectSelected);
     
-    // 创建检测图像视图
-    QLabel* detectionView = new QLabel();
-    detectionView->setObjectName("detectionView");
-    detectionView->setMinimumSize(QSize(320, 240));
-    detectionView->setAlignment(Qt::AlignCenter);
-    detectionView->setText("检测图像将显示在此处");
+    // 设置相机参数
+    setupCameraParameters();
     
-    // 添加检测状态标签和检测图像视图到布局中
-    QVBoxLayout* detectionLayout = new QVBoxLayout();
-    detectionLayout->addWidget(detectionStatusLabel);
-    detectionLayout->addWidget(detectionView);
+    // 添加信息到日志
+    logMessage("GUI初始化完成");
     
-    // 将检测布局添加到界面中
-    QVBoxLayout* rightLayout = qobject_cast<QVBoxLayout*>(ui->detectionsDisplay->layout());
-    if (!rightLayout) {
-        rightLayout = new QVBoxLayout(ui->detectionsDisplay);
-        ui->detectionsDisplay->setLayout(rightLayout);
-    }
-    rightLayout->addLayout(detectionLayout);
-
-    // 初始化YOLO检测开关复选框
-    // YOLO检测开关已移除
-
-    // 初始化放置区域下拉框
-    placement_area_combo_ = new QComboBox(this);
-    placement_area_combo_->addItem("区域A", "area_a");
-    placement_area_combo_->addItem("区域B", "area_b");
-    placement_area_combo_->addItem("区域C", "area_c");
-    ui->toolBar->addWidget(new QLabel("放置区域:", this));
-    ui->toolBar->addWidget(placement_area_combo_);
+    // 设置更新定时器
+    updateTimer = new QTimer(this);
+    connect(updateTimer, &QTimer::timeout, this, &ArmControlGUI::onUpdateGUI);
+    updateTimer->start(100);  // 每100ms更新一次
     
-    // 初始化控制模式选择
-    control_mode_combo_ = new QComboBox(this);
-    control_mode_combo_->addItem("关节控制", static_cast<int>(ArmControlMode::JOINT_CONTROL));
-    control_mode_combo_->addItem("笛卡尔控制", static_cast<int>(ArmControlMode::CARTESIAN_CONTROL));
-    control_mode_combo_->addItem("视觉伺服", static_cast<int>(ArmControlMode::VISUAL_SERVO));
-    ui->toolBar->addWidget(new QLabel("控制模式:", this));
-    ui->toolBar->addWidget(control_mode_combo_);
+    // 默认控制模式
+    current_control_mode_ = ArmControlMode::JOINT_CONTROL;
     
-    // 连接控制模式选择信号
-    connect(control_mode_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged), 
-            [this](int index) {
-                current_control_mode_ = static_cast<ArmControlMode>(
-                    control_mode_combo_->itemData(index).toInt());
-                updateUI();
-            });
+    // 默认选项
+    selected_object_index_ = -1;
     
-    // 设置默认控制模式
-    control_mode_combo_->setCurrentIndex(0); // 默认使用关节控制模式
-    
-    // 连接笛卡尔控制"移动到位置"按钮
-    QPushButton* moveToPositionButton = ui->centralwidget->findChild<QPushButton*>("moveToPositionButton1");
-    if (moveToPositionButton) {
-        connect(moveToPositionButton, &QPushButton::clicked, this, &ArmControlGUI::onMoveToPositionClicked);
-    } else {
-        // 尝试查找原始名称
-        moveToPositionButton = ui->centralwidget->findChild<QPushButton*>("moveToPositionButton");
-        if (moveToPositionButton) {
-            connect(moveToPositionButton, &QPushButton::clicked, this, &ArmControlGUI::onMoveToPositionClicked);
-        }
-    }
+    // 初始化末端位置显示
+    updateEndEffectorPose();
 }
 
 void ArmControlGUI::initializeJointControlConnections()
@@ -315,45 +227,53 @@ void ArmControlGUI::initializeJointControlConnections()
 
 void ArmControlGUI::initializeROS()
 {
-    // 设置DH参数 (基于examples/path/main.m)
-    // a1 = 13, a2 = 13, a3 = 25, d2 = [0, 43], d5 = [5, 15]
-    dh_params_.resize(6);
-    // [type, d, theta, a, alpha]
-    // type: 0=revolute, 1=prismatic
-    dh_params_[0] = std::make_tuple(2, 0.0, 0.0, 0.0, 0.0);     // 底座旋转关节
-    dh_params_[1] = std::make_tuple(1, 0.0, 0.0, 0.0, 0.0);     // 伸缩关节
-    dh_params_[2] = std::make_tuple(2, 0.0, 0.0, 0.4, 0.0);     // 肩部关节
-    dh_params_[3] = std::make_tuple(2, 0.0, 0.0, 0.4, 0.0);     // 肘部关节
-    dh_params_[4] = std::make_tuple(2, 0.0, 0.0, 0.0, 90.0);    // 末端旋转关节
-    dh_params_[5] = std::make_tuple(1, 0.0, 0.0, 0.0, 0.0);     // 末端伸缩关节
+    // 设置发布器
+    joint_command_pub_ = nh_.advertise<sensor_msgs::JointState>("/arm1/joint_command", 10);
+    gripper_cmd_pub_ = nh_.advertise<std_msgs::Bool>("/arm1/gripper_command", 10);
+    vacuum_cmd_pub_ = nh_.advertise<std_msgs::Bool>("/arm1/vacuum_command", 10);
+    vacuum_power_pub_ = nh_.advertise<std_msgs::Float64>("/arm1/vacuum_power", 10);
+    arm_command_pub_ = nh_.advertise<std_msgs::String>("/arm_commands", 10);
     
-    // 初始化关节限制
-    joint_limits_.resize(6);
-    joint_limits_[0] = std::make_pair(-180.0, 180.0);  // 底座旋转
-    joint_limits_[1] = std::make_pair(0.0, 43.0);      // 伸缩
-    joint_limits_[2] = std::make_pair(-90.0, 90.0);    // 肩部
-    joint_limits_[3] = std::make_pair(0.0, 180.0);     // 肘部
-    joint_limits_[4] = std::make_pair(-180.0, 180.0);  // 末端旋转
-    joint_limits_[5] = std::make_pair(5.0, 15.0);      // 末端伸缩
-
-    // 初始化订阅者和发布者
-    joint_state_sub_ = nh_.subscribe("/arm1/joint_states", 1, &ArmControlGUI::jointStateCallback, this);
+    // 设置电机控制发布器
+    motor_order_pub_ = nh_.advertise<liancheng_socket::MotorOrder>("Controller_motor_order", 10);
     
-    joint_command_pub_ = nh_.advertise<sensor_msgs::JointState>("/arm1/joint_command", 1);
-    arm_command_pub_ = nh_.advertise<std_msgs::String>("/arm_command", 1);
-    vacuum_command_pub_ = nh_.advertise<std_msgs::Bool>("/arm1/vacuum_command", 1);
-    vacuum_power_pub_ = nh_.advertise<std_msgs::Float64>("/arm1/vacuum_power", 1);
-    gripper_cmd_pub_ = nh_.advertise<std_msgs::Bool>("/arm1/gripper_command", 1);
-    servo_control_pub_ = nh_.advertise<servo_wrist::SerControl>("/arm1/servo_control", 1);
-    motor_order_pub_ = nh_.advertise<liancheng_socket::MotorOrder>("/motor_orders", 1);
-    relay_order_pub_ = nh_.advertise<std_msgs::String>("/relay_orders", 1);
+    // 设置继电器控制发布器
+    relay_order_pub_ = nh_.advertise<std_msgs::String>("RelayOrder", 10);
     
-    // 更新GUI以显示初始关节值
-    updateGUIJointValues();
+    // 设置舵机控制发布器
+    servo_control_pub_ = nh_.advertise<servo_wrist::SerControl>("servo_control_topic", 10);
     
-    // 记录初始化完成信息
-    ROS_INFO("ROS接口初始化完成");
-    logMessage("ROS接口初始化完成");
+    // 订阅关节状态
+    joint_state_sub_ = nh_.subscribe("/arm1/joint_states", 10, &ArmControlGUI::jointStateCallback, this);
+    
+    // 订阅合成立体图像
+    stereo_merged_sub_ = nh_.subscribe("/stereo_camera/image_merged", 1, &ArmControlGUI::stereoMergedCallback, this);
+    
+    // 订阅检测图像
+    detection_image_sub_ = nh_.subscribe("/detections/image", 1, &ArmControlGUI::detectionImageCallback, this);
+    
+    // 订阅检测位姿
+    detection_poses_sub_ = nh_.subscribe("/detections/poses", 1, &ArmControlGUI::detectionPosesCallback, this);
+    
+    // 订阅YOLO状态
+    yolo_status_sub_ = nh_.subscribe("/yolo/status", 1, &ArmControlGUI::yoloStatusCallback, this);
+    
+    // 设置同步订阅器用于同步处理检测图像和位姿
+    detection_image_sub_filter_ = new message_filters::Subscriber<sensor_msgs::Image>(nh_, "/detections/image", 1);
+    detection_poses_sub_filter_ = new message_filters::Subscriber<geometry_msgs::PoseArray>(nh_, "/detections/poses", 1);
+    
+    // 创建同步器
+    object_detection_sync_ = new message_filters::Synchronizer<SyncPolicy>(
+        SyncPolicy(10), *detection_image_sub_filter_, *detection_poses_sub_filter_);
+    
+    // 注册回调函数
+    object_detection_sync_->registerCallback(boost::bind(&ArmControlGUI::objectDetectionCallback, this, _1, _2));
+    
+    // 设置YOLO控制客户端
+    yolo_control_client_ = nh_.serviceClient<std_srvs::SetBool>("/yolo_detector/enable");
+    
+    // 记录日志
+    logMessage("ROS通信初始化完成");
 }
 
 void ArmControlGUI::initializeOpenGL()
@@ -623,212 +543,338 @@ void ArmControlGUI::sendPickObjectCommand(int object_index)
 // 关节控制槽实现
 void ArmControlGUI::onJoint1SliderChanged(int value)
 {
+    // 阻止UI自动更新导致回弹
+    ui->joint1_slider->blockSignals(true);
+    ui->joint1_spin->blockSignals(true);
+    
+    // 更新UI值
     ui->joint1_spin->setValue(value);
+    
+    // 存储当前值
     current_joint_values_[0] = value * M_PI / 180.0; // 转换为弧度
     
-    // 参照示例动作实现，使用底盘电机实现旋转
-    // 底座旋转对应舵机ID 1，位置范围映射到舵机范围
-    // 增大运动范围，使控制更加明显
-    int servo_position = map(value, -180, 180, 400, 2600);
+    // 使用示例动作代码中的电机控制值范围
+    // 底座旋转电机控制 - 映射到1000-2000范围
+    int motor_pos = map(value, -180, 180, 1000, 2000);
     
-    // 直接使用电机控制命令而不是舵机命令
-    int motor_pos = map(value, -180, 180, -50, 50); // 映射到电机位置范围
+    // 发送电机控制命令
     sendMotorOrder(1, 11, 0, 0, 0, true, motor_pos, 30);
+    
+    // 等待命令执行完成
     QApplication::processEvents();
     
-    // 仍然发送舵机命令以保持兼容性
-    sendServoCommand(1, servo_position);
+    // 记录日志
+    logMessage(QString("关节1(底座)调整到: %1度，电机位置:%2").arg(value).arg(motor_pos));
     
-    // 发送关节命令
-    sendJointCommand(current_joint_values_);
-    
-    logMessage(QString("关节1(底座)调整到: %1度").arg(value));
+    // 恢复信号
+    ui->joint1_slider->blockSignals(false);
+    ui->joint1_spin->blockSignals(false);
 }
 
 void ArmControlGUI::onJoint2SliderChanged(int value)
 {
+    // 阻止UI自动更新导致回弹
+    ui->joint2_slider->blockSignals(true);
+    ui->joint2_spin->blockSignals(true);
+    
+    // 更新UI值
     ui->joint2_spin->setValue(value);
+    
+    // 存储当前值
     current_joint_values_[1] = value;
-    sendJointCommand(current_joint_values_);
+    
+    // 关节2电机控制 - 映射到1000-2000范围
+    int motor_pos = map(value, 0, 50, 1000, 2000);
+    
+    // 发送电机控制命令
+    sendMotorOrder(1, 12, 0, 0, 0, true, motor_pos, 30);
+    
+    // 等待命令执行完成
+    QApplication::processEvents();
+    
+    // 记录日志
+    logMessage(QString("关节2(伸缩)调整到: %1单位，电机位置:%2").arg(value).arg(motor_pos));
+    
+    // 恢复信号
+    ui->joint2_slider->blockSignals(false);
+    ui->joint2_spin->blockSignals(false);
 }
 
 void ArmControlGUI::onJoint3SliderChanged(int value)
 {
+    // 阻止UI自动更新导致回弹
+    ui->joint3_slider->blockSignals(true);
+    ui->joint3_spin->blockSignals(true);
+    
+    // 更新UI值
     ui->joint3_spin->setValue(value);
+    
+    // 存储当前值
     current_joint_values_[2] = value * M_PI / 180.0; // 转换为弧度
     
-    // 参照示例动作实现，结合电机控制和舵机控制
-    // 肩部关节对应舵机ID 2，位置范围映射到舵机范围
-    // 增大运动范围，使控制更加明显
-    int servo_position = map(value, -90, 90, 400, 2600);
-    
-    // 使用进给电机控制机械臂肩部，参考示例动作2的实现
-    // 根据角度值映射到进给电机位置
-    int motor_pos = map(value, -90, 90, -1500, 1500);
+    // 肩部关节电机控制 - 映射到1000-2000范围
+    int motor_pos = map(value, -90, 90, 1000, 2000);
     
     // 使用示例动作中的电机控制序列，先准备电机
     sendMotorOrder(2, 100, 100, 0, 0, false, motor_pos, 10);
     QApplication::processEvents();
-    ros::Duration(0.1).sleep();
     
     // 设置位置模式
     sendMotorOrder(2, 0, 100, 0, 0, true, motor_pos, 10);
     QApplication::processEvents();
-    ros::Duration(0.1).sleep();
     
     // 执行移动
     sendMotorOrder(2, 99, 100, 0, 0, false, motor_pos, 10);
     QApplication::processEvents();
     
-    // 仍然发送舵机命令以保持兼容性
-    sendServoCommand(2, servo_position);
+    // 记录日志
+    logMessage(QString("关节3(肩部)调整到: %1度，电机位置:%2").arg(value).arg(motor_pos));
     
-    // 发送关节命令
-    sendJointCommand(current_joint_values_);
-    
-    logMessage(QString("关节3(肩部)调整到: %1度").arg(value));
+    // 恢复信号
+    ui->joint3_slider->blockSignals(false);
+    ui->joint3_spin->blockSignals(false);
 }
 
 void ArmControlGUI::onJoint4SliderChanged(int value)
 {
+    // 阻止UI自动更新导致回弹
+    ui->joint4_slider->blockSignals(true);
+    ui->joint4_spin->blockSignals(true);
+    
+    // 更新UI值
     ui->joint4_spin->setValue(value);
+    
+    // 存储当前值
     current_joint_values_[3] = value * M_PI / 180.0; // 转换为弧度
     
-    // 参照示例动作实现，结合电机控制和舵机控制
-    // 肘部关节对应舵机ID 3，位置范围映射到舵机范围
-    // 增大运动范围，使控制更加明显
-    int servo_position = map(value, 0, 180, 400, 2600);
-    
-    // 参考示例动作1中的夹持电机控制
-    // 根据角度值映射到夹持电机位置
-    int motor_pos = map(value, 0, 180, -25, 25);
+    // 肘部关节电机控制 - 映射到1000-2000范围
+    int motor_pos = map(value, 0, 180, 1000, 2000);
     
     // 使用示例动作中的夹持电机控制方式
-    sendMotorOrder(1, 11, 0, 0, 0, true, motor_pos, 30);
+    sendMotorOrder(1, 13, 0, 0, 0, true, motor_pos, 30);
     QApplication::processEvents();
     
-    // 仍然发送舵机命令以保持兼容性
-    sendServoCommand(3, servo_position);
+    // 记录日志
+    logMessage(QString("关节4(肘部)调整到: %1度，电机位置:%2").arg(value).arg(motor_pos));
     
-    // 发送关节命令
-    sendJointCommand(current_joint_values_);
-    
-    logMessage(QString("关节4(肘部)调整到: %1度").arg(value));
+    // 恢复信号
+    ui->joint4_slider->blockSignals(false);
+    ui->joint4_spin->blockSignals(false);
 }
 
 void ArmControlGUI::onJoint6SliderChanged(int value)
 {
+    // 阻止UI自动更新导致回弹
+    ui->joint6_slider->blockSignals(true);
+    ui->joint6_spin->blockSignals(true);
+    
+    // 更新UI值
     ui->joint6_spin->setValue(value);
+    
+    // 存储当前值
     current_joint_values_[5] = value;
-    sendJointCommand(current_joint_values_);
+    
+    // 末端伸缩电机控制 - 映射到1000-2000范围
+    int motor_pos = map(value, 5, 15, 1000, 2000);
+    
+    // 发送电机控制命令
+    sendMotorOrder(1, 14, 0, 0, 0, true, motor_pos, 30);
+    QApplication::processEvents();
+    
+    // 记录日志
+    logMessage(QString("关节6(末端)调整到: %1单位，电机位置:%2").arg(value).arg(motor_pos));
+    
+    // 恢复信号
+    ui->joint6_slider->blockSignals(false);
+    ui->joint6_spin->blockSignals(false);
 }
 
 void ArmControlGUI::onJoint1SpinChanged(double value)
 {
+    // 阻止UI自动更新导致回弹
+    ui->joint1_slider->blockSignals(true);
+    ui->joint1_spin->blockSignals(true);
+    
+    // 更新滑块值
     ui->joint1_slider->setValue(static_cast<int>(value));
+    
+    // 存储当前值
     current_joint_values_[0] = value * M_PI / 180.0; // 转换为弧度
-    sendJointCommand(current_joint_values_);
+    
+    // 底座旋转电机控制 - 映射到1000-2000范围
+    int motor_pos = map(static_cast<int>(value), -180, 180, 1000, 2000);
+    
+    // 发送电机控制命令
+    sendMotorOrder(1, 11, 0, 0, 0, true, motor_pos, 30);
+    QApplication::processEvents();
+    
+    // 记录日志
+    logMessage(QString("关节1(底座)调整到: %1度，电机位置:%2").arg(value).arg(motor_pos));
+    
+    // 恢复信号
+    ui->joint1_slider->blockSignals(false);
+    ui->joint1_spin->blockSignals(false);
 }
 
 void ArmControlGUI::onJoint2SpinChanged(double value)
 {
+    // 阻止UI自动更新导致回弹
+    ui->joint2_slider->blockSignals(true);
+    ui->joint2_spin->blockSignals(true);
+    
+    // 更新滑块值
     ui->joint2_slider->setValue(static_cast<int>(value));
+    
+    // 存储当前值
     current_joint_values_[1] = value;
-    sendJointCommand(current_joint_values_);
+    
+    // 关节2电机控制 - 映射到1000-2000范围
+    int motor_pos = map(static_cast<int>(value), 0, 50, 1000, 2000);
+    
+    // 发送电机控制命令
+    sendMotorOrder(1, 12, 0, 0, 0, true, motor_pos, 30);
+    QApplication::processEvents();
+    
+    // 记录日志
+    logMessage(QString("关节2(伸缩)调整到: %1单位，电机位置:%2").arg(value).arg(motor_pos));
+    
+    // 恢复信号
+    ui->joint2_slider->blockSignals(false);
+    ui->joint2_spin->blockSignals(false);
 }
 
 void ArmControlGUI::onJoint3SpinChanged(double value)
 {
+    // 阻止UI自动更新导致回弹
+    ui->joint3_slider->blockSignals(true);
+    ui->joint3_spin->blockSignals(true);
+    
+    // 更新滑块值
     ui->joint3_slider->setValue(static_cast<int>(value));
+    
+    // 存储当前值
     current_joint_values_[2] = value * M_PI / 180.0; // 转换为弧度
-    sendJointCommand(current_joint_values_);
+    
+    // 肩部关节电机控制 - 映射到1000-2000范围
+    int motor_pos = map(static_cast<int>(value), -90, 90, 1000, 2000);
+    
+    // 使用示例动作中的电机控制序列
+    sendMotorOrder(2, 100, 100, 0, 0, false, motor_pos, 10);
+    QApplication::processEvents();
+    
+    sendMotorOrder(2, 0, 100, 0, 0, true, motor_pos, 10);
+    QApplication::processEvents();
+    
+    sendMotorOrder(2, 99, 100, 0, 0, false, motor_pos, 10);
+    QApplication::processEvents();
+    
+    // 记录日志
+    logMessage(QString("关节3(肩部)调整到: %1度，电机位置:%2").arg(value).arg(motor_pos));
+    
+    // 恢复信号
+    ui->joint3_slider->blockSignals(false);
+    ui->joint3_spin->blockSignals(false);
 }
 
 void ArmControlGUI::onJoint4SpinChanged(double value)
 {
+    // 阻止UI自动更新导致回弹
+    ui->joint4_slider->blockSignals(true);
+    ui->joint4_spin->blockSignals(true);
+    
+    // 更新滑块值
     ui->joint4_slider->setValue(static_cast<int>(value));
+    
+    // 存储当前值
     current_joint_values_[3] = value * M_PI / 180.0; // 转换为弧度
-    sendJointCommand(current_joint_values_);
+    
+    // 肘部关节电机控制 - 映射到1000-2000范围
+    int motor_pos = map(static_cast<int>(value), 0, 180, 1000, 2000);
+    
+    // 发送电机控制命令
+    sendMotorOrder(1, 13, 0, 0, 0, true, motor_pos, 30);
+    QApplication::processEvents();
+    
+    // 记录日志
+    logMessage(QString("关节4(肘部)调整到: %1度，电机位置:%2").arg(value).arg(motor_pos));
+    
+    // 恢复信号
+    ui->joint4_slider->blockSignals(false);
+    ui->joint4_spin->blockSignals(false);
 }
 
 void ArmControlGUI::onJoint6SpinChanged(double value)
 {
+    // 阻止UI自动更新导致回弹
+    ui->joint6_slider->blockSignals(true);
+    ui->joint6_spin->blockSignals(true);
+    
+    // 更新滑块值
     ui->joint6_slider->setValue(static_cast<int>(value));
+    
+    // 存储当前值
     current_joint_values_[5] = value;
-    sendJointCommand(current_joint_values_);
+    
+    // 末端伸缩电机控制 - 映射到1000-2000范围
+    int motor_pos = map(static_cast<int>(value), 5, 15, 1000, 2000);
+    
+    // 发送电机控制命令
+    sendMotorOrder(1, 14, 0, 0, 0, true, motor_pos, 30);
+    QApplication::processEvents();
+    
+    // 记录日志
+    logMessage(QString("关节6(末端)调整到: %1单位，电机位置:%2").arg(value).arg(motor_pos));
+    
+    // 恢复信号
+    ui->joint6_slider->blockSignals(false);
+    ui->joint6_spin->blockSignals(false);
 }
 
 // 末端执行器控制槽实现
 void ArmControlGUI::onMoveToPositionClicked()
 {
-    // 获取XYZ坐标值（厘米单位）
-    // 尝试查找控件，如果不存在则使用默认值
-    double x = 30.0; // 默认值 30cm
-    double y = 0.0;  // 默认值 0cm
-    double z = 20.0; // 默认值 20cm
+    // 使用findChild查找坐标输入控件
+    QDoubleSpinBox* xSpin = ui->centralwidget->findChild<QDoubleSpinBox*>("xSpinBox");
+    QDoubleSpinBox* ySpin = ui->centralwidget->findChild<QDoubleSpinBox*>("ySpinBox");
+    QDoubleSpinBox* zSpin = ui->centralwidget->findChild<QDoubleSpinBox*>("zSpinBox");
     
-    QDoubleSpinBox* xSpin = ui->centralwidget->findChild<QDoubleSpinBox*>("x_spin");
-    QDoubleSpinBox* ySpin = ui->centralwidget->findChild<QDoubleSpinBox*>("y_spin");
-    QDoubleSpinBox* zSpin = ui->centralwidget->findChild<QDoubleSpinBox*>("z_spin");
+    // 如果找不到控件，使用默认值
+    double x = xSpin ? xSpin->value() : 0.0;
+    double y = ySpin ? ySpin->value() : 0.0;
+    double z = zSpin ? zSpin->value() : 10.0;
     
-    if (xSpin) x = xSpin->value();
-    if (ySpin) y = ySpin->value();
-    if (zSpin) z = zSpin->value();
+    // 记录操作
+    logMessage(QString("移动到坐标: (%1, %2, %3)").arg(x).arg(y).arg(z));
     
-    // 记录日志
-    logMessage(QString("移动到笛卡尔坐标位置: X=%1, Y=%2, Z=%3 cm").arg(x).arg(y).arg(z));
+    // 将XYZ值映射到电机位置范围(1000-2000)
+    int motor_x = map(static_cast<int>(x), -50, 50, 1000, 2000); // X对应底座旋转
+    int motor_z = map(static_cast<int>(z), 0, 50, 1000, 2000);   // Z对应竖直伸缩
+    int motor_y = map(static_cast<int>(y), 0, 50, 1000, 2000);   // Y对应前后伸缩
     
-    // 创建位置目标消息（米单位）
-    geometry_msgs::Pose target_pose;
-    target_pose.position.x = x / 100.0;  // 厘米转换为米
-    target_pose.position.y = y / 100.0;  // 厘米转换为米
-    target_pose.position.z = z / 100.0;  // 厘米转换为米
-    
-    // 设置朝向（默认保持垂直向下）
-    target_pose.orientation.x = 0.0;
-    target_pose.orientation.y = 0.0;
-    target_pose.orientation.z = 0.0;
-    target_pose.orientation.w = 1.0;
-    
-    // 在发送ROS命令前，先使用电机控制进行简单的位置移动
-    // 这使得操控效果更加明显
-    
-    // 1. 计算底座旋转角度 (围绕Z轴)
-    double theta1 = atan2(y, x); // 弧度
-    int base_angle = static_cast<int>(theta1 * 180.0 / M_PI); // 度
-    
-    // 2. 计算肩部角度 (根据高度)
-    double distance_xy = sqrt(x*x + y*y);
-    double theta3 = atan2(z - 20.0, distance_xy); // 假设基础高度为20cm
-    int shoulder_angle = static_cast<int>(theta3 * 180.0 / M_PI);
-    
-    // 3. 限制在有效范围内
-    base_angle = std::max(-180, std::min(base_angle, 180));
-    shoulder_angle = std::max(-90, std::min(shoulder_angle, 90));
-    
-    // 4. 控制底座电机
-    int motor_pos_base = map(base_angle, -180, 180, -50, 50);
-    sendMotorOrder(1, 11, 0, 0, 0, true, motor_pos_base, 30);
+    // 先控制底座旋转(X轴映射)
+    sendMotorOrder(1, 11, 0, 0, 0, true, motor_x, 30);
+    logMessage(QString("底座旋转电机位置: %1").arg(motor_x));
     QApplication::processEvents();
     
-    // 5. 控制肩部进给电机
-    int motor_pos_shoulder = map(shoulder_angle, -90, 90, -1500, 1500);
-    sendMotorOrder(2, 100, 100, 0, 0, false, motor_pos_shoulder, 10);
-    QApplication::processEvents();
-    sendMotorOrder(2, 0, 100, 0, 0, true, motor_pos_shoulder, 10);
-    QApplication::processEvents();
-    sendMotorOrder(2, 99, 100, 0, 0, false, motor_pos_shoulder, 10);
+    // 控制Z轴高度(肩部电机)
+    sendMotorOrder(2, 100, 100, 0, 0, false, motor_z, 10);
     QApplication::processEvents();
     
-    // 发布目标位置消息
-    std_msgs::String cmd_msg;
-    cmd_msg.data = "move_to " + std::to_string(x/100.0) + " " + 
-                   std::to_string(y/100.0) + " " + std::to_string(z/100.0);
-    arm_command_pub_.publish(cmd_msg);
+    sendMotorOrder(2, 0, 100, 0, 0, true, motor_z, 10);
+    QApplication::processEvents();
     
-    // 更新当前控制模式
-    current_control_mode_ = ArmControlMode::CARTESIAN_CONTROL;
-    updateUI();
+    sendMotorOrder(2, 99, 100, 0, 0, false, motor_z, 10);
+    logMessage(QString("竖直伸缩电机位置: %1").arg(motor_z));
+    QApplication::processEvents();
+    
+    // 控制Y轴前后伸缩
+    sendMotorOrder(1, 12, 0, 0, 0, true, motor_y, 30);
+    logMessage(QString("前后伸缩电机位置: %1").arg(motor_y));
+    QApplication::processEvents();
+    
+    // 更新当前末端位置
+    current_end_position_ = QVector3D(x, y, z);
+    updateEndEffectorPose();
 }
 
 void ArmControlGUI::onHomeButtonClicked()
@@ -1072,161 +1118,68 @@ void ArmControlGUI::jointStateCallback(const sensor_msgs::JointState::ConstPtr& 
 
 void ArmControlGUI::detectionImageCallback(const sensor_msgs::Image::ConstPtr& msg)
 {
-    try {
-        // 将ROS图像转换为OpenCV图像
-        cv_bridge::CvImageConstPtr cv_ptr = cv_bridge::toCvShare(msg, "bgr8");
-        cv::Mat detection_image = cv_ptr->image.clone();
-        
-        // 记录收到的图像信息
-        ROS_INFO("收到检测图像: 尺寸=%dx%d, 通道=%d", 
-                detection_image.cols, detection_image.rows, detection_image.channels());
-        
-        // 转换为QImage
-        QImage image;
-        if (detection_image.channels() == 3) {
-            cv::cvtColor(detection_image, detection_image, cv::COLOR_BGR2RGB);
-            image = QImage(detection_image.data, detection_image.cols, detection_image.rows,
-                          detection_image.step, QImage::Format_RGB888);
-        } else {
-            image = QImage(detection_image.data, detection_image.cols, detection_image.rows,
-                          detection_image.step, QImage::Format_Grayscale8);
-        }
-        
-        // 保存检测结果图像
-        current_camera_image_ = image.copy();
-        
-        // 在图像上添加检测物体的标记
-        if (!detected_objects_.empty()) {
-            QPainter painter(&current_camera_image_);
-            painter.setPen(QPen(Qt::green, 2));
-            painter.setFont(QFont("Arial", 12));
-            
-            for (const auto& obj : detected_objects_) {
-                // 将3D位置转换为图像坐标
-                double img_x = (obj.x / 100.0 + 0.5) * current_camera_image_.width();  // 厘米转米再转像素
-                double img_y = (0.5 - obj.y / 100.0) * current_camera_image_.height(); // 厘米转米再转像素
-                
-                // 确保坐标在图像范围内
-                if (img_x >= 0 && img_x < current_camera_image_.width() &&
-                    img_y >= 0 && img_y < current_camera_image_.height()) {
-                    
-                    // 绘制圆圈标记物体位置
-                    painter.drawEllipse(QPointF(img_x, img_y), 10, 10);
-                    
-                    // 添加文本标签
-                    painter.drawText(QPointF(img_x + 15, img_y), QString::fromStdString(obj.id));
-                }
-            }
-            
-            ROS_INFO("在检测图像上标记了 %zu 个物体", detected_objects_.size());
-        }
-        
-        // 更新UI
-        QMetaObject::invokeMethod(this, "updateCameraViews", Qt::QueuedConnection);
-        
-        // 确保检测表格也被更新
-        QMetaObject::invokeMethod(this, "updateDetectionsTable", Qt::QueuedConnection);
-        
-        // 记录日志
-        static int frame_count = 0;
-        frame_count++;
-        if (frame_count % 30 == 0) {  // 每30帧记录一次
-            ROS_INFO("已接收检测图像: 帧 %d, 尺寸 %dx%d", 
-                    frame_count, image.width(), image.height());
-        }
-    } catch (cv_bridge::Exception& e) {
-        ROS_ERROR("检测图像回调中的cv_bridge异常: %s", e.what());
-    } catch (std::exception& e) {
-        ROS_ERROR("检测图像回调中的标准异常: %s", e.what());
+    // 收到检测图像
+    logMessage(QString("收到检测图像: 尺寸=%1x%2, 通道=%3").arg(msg->width).arg(msg->height).arg(msg->encoding == "rgb8" ? 3 : 1));
+    
+    // 将ROS图像消息转换为OpenCV图像
+    cv_bridge::CvImageConstPtr cv_ptr;
+    try
+    {
+        cv_ptr = cv_bridge::toCvShare(msg, sensor_msgs::image_encodings::RGB8);
     }
+    catch (cv_bridge::Exception& e)
+    {
+        ROS_ERROR("cv_bridge exception: %s", e.what());
+        return;
+    }
+    
+    // 转换为QImage用于显示
+    current_camera_image_ = cvMatToQImage(cv_ptr->image);
+    
+    // 在主线程中更新UI
+    QMetaObject::invokeMethod(this, "updateCameraViews", Qt::QueuedConnection);
+    QMetaObject::invokeMethod(this, "updateDetectionsTable", Qt::QueuedConnection);
 }
 
 void ArmControlGUI::detectionPosesCallback(const geometry_msgs::PoseArray::ConstPtr& msg)
 {
-    // 记录收到消息的信息
-    ROS_INFO("收到检测位姿消息: %zu 个物体, frame_id=%s", 
-            msg->poses.size(), msg->header.frame_id.c_str());
+    // 收到检测位姿消息
+    int num_objects = msg->poses.size();
+    logMessage(QString("收到检测位姿消息: %1 个物体, frame_id=%2").arg(num_objects).arg(QString::fromStdString(msg->header.frame_id)));
     
-    // 没有检测到物体，清空表格并返回
-    if (msg->poses.empty()) {
-        ROS_INFO("检测位姿为空，清空表格");
+    if (num_objects == 0)
+    {
+        // 如果没有检测到物体，清空检测列表
+        logMessage("检测位姿为空，清空表格");
+        detected_objects_.clear();
         QMetaObject::invokeMethod(this, "updateDetectionsTable", Qt::QueuedConnection);
         return;
     }
     
-    // 清空之前的检测结果
+    // 清空旧的检测结果
     detected_objects_.clear();
     
-    // 检查是否有附加信息（通常应该包含类别名称），当前假设这些信息在frames_id中
-    bool has_object_ids = false;
-    std::vector<std::string> class_names;
-    
-    if (!msg->header.frame_id.empty()) {
-        // 尝试解析frame_id中可能包含的类别信息
-        try {
-            // 假设frame_id格式是 "class1,class2,class3,..."
-            std::string frame_id = msg->header.frame_id;
-            std::istringstream ss(frame_id);
-            std::string token;
-            
-            while (std::getline(ss, token, ',')) {
-                if (!token.empty()) {
-                    class_names.push_back(token);
-                }
-            }
-            
-            has_object_ids = !class_names.empty();
-            
-            if (has_object_ids) {
-                ROS_INFO("成功解析类别信息: %zu 个类别", class_names.size());
-            }
-        } catch (const std::exception& e) {
-            ROS_WARN("解析物体类别信息失败: %s", e.what());
-            has_object_ids = false;
-        }
-    }
-    
-    // 处理所有物体
-    for (size_t i = 0; i < msg->poses.size(); ++i) {
+    // 处理检测到的每个物体
+    for (size_t i = 0; i < msg->poses.size(); ++i)
+    {
         DetectedObject obj;
+        obj.id = "obj_" + std::to_string(i+1);
+        obj.type = "未知物体";
         
-        // 设置物体ID和类型
-        if (has_object_ids && i < class_names.size()) {
-            obj.id = class_names[i];
-            obj.type = class_names[i]; // 使用类别名作为类型
-        } else {
-            obj.id = "object_" + std::to_string(i);
-            
-            // 根据Z轴高度猜测物体类型
-            float height = msg->poses[i].position.z;
-            if (height < 0.05) {
-                obj.type = "低物体";
-            } else if (height < 0.15) {
-                obj.type = "中物体";
-            } else {
-                obj.type = "高物体";
-            }
-        }
-        
-        // 将3D位置转换为厘米单位用于显示
-        double scale = 100.0; // 转换为厘米
-        obj.x = msg->poses[i].position.x * scale;
-        obj.y = msg->poses[i].position.y * scale;
-        obj.z = msg->poses[i].position.z * scale;
-        
-        // 保存原始位姿
+        // 记录位姿信息
         obj.pose = msg->poses[i];
-        detected_objects_.push_back(obj);
         
-        // 记录成功添加的物体
-        ROS_INFO("添加检测物体到表格: %s [%.2f, %.2f, %.2f]", 
-                obj.id.c_str(), obj.x, obj.y, obj.z);
+        // 转换位置到厘米单位显示
+        obj.x = obj.pose.position.x * 100.0; // 转换为厘米
+        obj.y = obj.pose.position.y * 100.0; // 转换为厘米
+        obj.z = obj.pose.position.z * 100.0; // 转换为厘米
+        
+        // 添加到检测列表
+        detected_objects_.push_back(obj);
     }
     
-    ROS_INFO("检测到 %zu 个物体，准备更新UI", detected_objects_.size());
-    
-    // 使用单一调用更新UI，避免重复更新
-    QMetaObject::invokeMethod(this, "updateUI", Qt::QueuedConnection);
+    // 在主线程中更新检测表格
+    QMetaObject::invokeMethod(this, "updateDetectionsTable", Qt::QueuedConnection);
 }
 
 // GUI更新函数实现
@@ -1459,45 +1412,82 @@ void ArmControlGUI::sendVacuumCommand(bool on, int power)
 
 void ArmControlGUI::sendPickCommand(const std::string& object_id)
 {
-    // 在实际拾取物体前，首先查找该物体是否在检测列表中
-    bool found = false;
-    DetectedObject target_obj;
+    logMessage(QString("准备抓取对象: %1").arg(QString::fromStdString(object_id)));
     
-    for (const auto& obj : detected_objects_) {
-        if (obj.id == object_id) {
-            target_obj = obj;
+    // 查找要抓取的物体
+    geometry_msgs::Pose target_pose;
+    bool found = false;
+    
+    for (const auto& obj : detected_objects_)
+    {
+        if (obj.id == object_id)
+        {
+            target_pose = obj.pose;
             found = true;
+            
+            // 转换检测到的物体位置到机械臂坐标系(单位厘米)
+            // 显示转换后的坐标
+            double x = obj.x;
+            double y = obj.y;
+            double z = obj.z;
+            
+            logMessage(QString("物体位置: X=%1, Y=%2, Z=%3").arg(x).arg(y).arg(z));
+            
+            // 映射到电机范围(1000-2000)
+            int motor_x = map(static_cast<int>(x), -50, 50, 1000, 2000);  // 底座旋转
+            int motor_z = map(static_cast<int>(z), 0, 50, 1000, 2000);    // 竖直高度
+            int motor_y = map(static_cast<int>(y), 0, 50, 1000, 2000);    // 前后伸缩
+            
+            // 1. 先控制底座旋转到目标位置
+            logMessage("步骤1: 旋转底座到目标位置");
+            sendMotorOrder(1, 11, 0, 0, 0, true, motor_x, 30);
+            QApplication::processEvents();
+            
+            // 2. 控制肩部电机调整高度
+            logMessage("步骤2: 调整机械臂高度");
+            sendMotorOrder(2, 100, 100, 0, 0, false, motor_z, 10);
+            QApplication::processEvents();
+            
+            sendMotorOrder(2, 0, 100, 0, 0, true, motor_z, 10);
+            QApplication::processEvents();
+            
+            sendMotorOrder(2, 99, 100, 0, 0, false, motor_z, 10);
+            QApplication::processEvents();
+            
+            // 3. 控制伸缩到目标位置
+            logMessage("步骤3: 伸展机械臂到目标位置");
+            sendMotorOrder(1, 12, 0, 0, 0, true, motor_y, 30);
+            QApplication::processEvents();
+            
+            // 4. 打开吸盘
+            logMessage("步骤4: 打开吸盘抓取物体");
+            sendVacuumCommand(true, vacuum_power_);
+            QApplication::processEvents();
+            
+            // 5. 抬升物体 (提高Z轴高度)
+            logMessage("步骤5: 抬升物体");
+            int lift_pos = map(10, 0, 50, 1000, 2000);  // 固定高度10cm
+            sendMotorOrder(2, 100, 100, 0, 0, false, lift_pos, 10);
+            QApplication::processEvents();
+            
+            sendMotorOrder(2, 0, 100, 0, 0, true, lift_pos, 10);
+            QApplication::processEvents();
+            
+            sendMotorOrder(2, 99, 100, 0, 0, false, lift_pos, 10);
+            QApplication::processEvents();
+            
             break;
         }
     }
     
-    // 如果找到了物体，使用统一的坐标系和尺度
-    if (found) {
-        // 创建统一的命令，确保与其他控制模式使用相同的单位和尺度
-        std_msgs::String cmd_msg;
-        
-        // 从物体位置和朝向构建命令，统一使用米为单位
-        // 确保与三维坐标控制使用相同的尺度
-        double x = target_obj.x / 100.0; // 从cm转换为m
-        double y = target_obj.y / 100.0;
-        double z = target_obj.z / 100.0;
-        
-        cmd_msg.data = "pick arm1 " + object_id + " " + 
-                       std::to_string(x) + " " + 
-                       std::to_string(y) + " " + 
-                       std::to_string(z);
-        arm_command_pub_.publish(cmd_msg);
-        
-        logMessage(QString("拾取物体: %1，坐标: (%2, %3, %4)米").arg(
-            QString::fromStdString(object_id)).arg(x).arg(y).arg(z));
+    if (!found)
+    {
+        logMessage("找不到指定ID的物体！");
+        return;
     }
-    else {
-        // 如果没有找到物体，使用基本命令
-        std_msgs::String cmd_msg;
-        cmd_msg.data = "pick arm1 " + object_id;
-        arm_command_pub_.publish(cmd_msg);
-        logMessage(QString("拾取未知物体: %1").arg(QString::fromStdString(object_id)));
-    }
+    
+    // 更新当前位置状态
+    updateJointInfo();
 }
 
 void ArmControlGUI::sendPlaceCommand(double x, double y, double z)
@@ -1579,6 +1569,7 @@ void ArmControlGUI::logMessage(const QString& message)
 // 电机控制函数
 void ArmControlGUI::sendMotorOrder(uint8_t station_num, uint8_t form, int16_t vel, uint16_t vel_ac, uint16_t vel_de, bool pos_mode, int32_t pos, uint16_t pos_thr)
 {
+    // 创建电机控制消息
     liancheng_socket::MotorOrder msg;
     msg.header.stamp = ros::Time::now();
     msg.station_num.push_back(station_num);
@@ -1590,18 +1581,34 @@ void ArmControlGUI::sendMotorOrder(uint8_t station_num, uint8_t form, int16_t ve
     msg.pos.push_back(pos);
     msg.pos_thr.push_back(pos_thr);
     
+    // 发布消息到正确的话题
     motor_order_pub_.publish(msg);
-    logMessage(QString("发送电机命令: 站点=%1, 位置=%2").arg(station_num).arg(pos));
+    
+    // 记录操作
+    logMessage(QString("发送电机命令: 站点=%1, 表单=%2, 速度=%3, 位置=%4")
+              .arg(station_num).arg(form).arg(vel).arg(pos));
+    
+    // 等待命令执行完成
+    ros::Duration(0.01).sleep();
 }
 
 void ArmControlGUI::sendRelayOrder(const std::string& command)
 {
+    // 创建继电器控制消息
     std_msgs::String msg;
     msg.data = command;
+    
+    // 发布到正确的话题
     relay_order_pub_.publish(msg);
     
     // 记录操作
-    logMessage(QString("发送继电器命令: %1").arg(command.c_str()));
+    logMessage(QString("发送继电器命令: %1 (吸附=%2, 螺丝=%3)")
+              .arg(command.c_str())
+              .arg(command[0] == '1' ? "开" : "关")
+              .arg(command[1] == '1' ? "开" : "关"));
+    
+    // 等待命令执行完成
+    ros::Duration(0.01).sleep();
 }
 
 // 修改为简单的状态回调函数
@@ -1663,145 +1670,51 @@ void ArmControlGUI::onVisualizeWorkspaceClicked()
 void ArmControlGUI::objectDetectionCallback(const sensor_msgs::Image::ConstPtr& img_msg, 
                                          const geometry_msgs::PoseArray::ConstPtr& poses_msg)
 {
-    try {
-        // 处理检测图像
-        cv_bridge::CvImageConstPtr cv_ptr = cv_bridge::toCvShare(img_msg, "bgr8");
-        cv::Mat detection_image = cv_ptr->image.clone();
-        
-        // 记录收到的图像和位姿信息
-        ROS_INFO("收到同步检测数据: 图像=%dx%d, 位姿=%zu个", 
-                 detection_image.cols, detection_image.rows, poses_msg->poses.size());
-        
-            // 处理所有检测结果
-    ROS_INFO("处理物体检测结果");
+    // 记录接收到的同步数据
+    logMessage(QString("收到同步检测数据: 图像=%1x%2, 位姿=%3个").arg(img_msg->width).arg(img_msg->height).arg(poses_msg->poses.size()));
     
-    // 处理前先清除之前的检测结果
-    detected_objects_.clear();
-        
-        // 检查是否有附加信息（通常应该包含类别名称），当前假设这些信息在frames_id中
-        bool has_object_ids = false;
-        if (!poses_msg->header.frame_id.empty()) {
-            // 尝试解析frame_id中可能包含的类别信息
-            try {
-                // 假设frame_id格式是 "class1,class2,class3,..."
-                std::string frame_id = poses_msg->header.frame_id;
-                std::istringstream ss(frame_id);
-                std::string token;
-                std::vector<std::string> class_names;
-                
-                while (std::getline(ss, token, ',')) {
-                    if (!token.empty()) {
-                        class_names.push_back(token);
-                    }
-                }
-                
-                has_object_ids = !class_names.empty() && class_names.size() == poses_msg->poses.size();
-                
-                // 如果成功解析类别信息，直接使用它们
-                if (has_object_ids) {
-                    ROS_INFO("成功解析类别信息: %zu 个类别", class_names.size());
-        for (size_t i = 0; i < poses_msg->poses.size(); ++i) {
-            DetectedObject obj;
-                        obj.id = class_names[i];  // 使用传递过来的类别名称
-                        obj.type = class_names[i];  // 使用类别名称作为物体类型
-                        
-                        // 将3D位置转换为厘米单位用于显示
-                        double scale = 100.0; // 转换为厘米
-                        obj.x = poses_msg->poses[i].position.x * scale;
-                        obj.y = poses_msg->poses[i].position.y * scale;
-                        obj.z = poses_msg->poses[i].position.z * scale;
-                        
-                        // 保存原始位姿
-            obj.pose = poses_msg->poses[i];
-            detected_objects_.push_back(obj);
-                        
-                        // 记录成功添加的物体
-                        ROS_INFO("添加检测物体到表格: %s [%.2f, %.2f, %.2f]", 
-                                 obj.id.c_str(), obj.x, obj.y, obj.z);
-                    }
-                }
-            } catch (const std::exception& e) {
-                ROS_WARN("解析物体类别信息失败: %s", e.what());
-                has_object_ids = false;
-            }
-        }
-        
-        // 如果无法从frame_id中获取类别信息，使用默认物体命名方式
-        if (!has_object_ids) {
-            // 使用自定义物品名称而不是object_*
-            // 为每个检测分配一个更有意义的名称和类型
-            const std::vector<std::string> item_names = {
-                "水杯", "鼠标", "键盘", "手机", "书本", 
-                "笔", "剪刀", "USB盘", "眼镜", "钥匙", 
-                "螺丝刀", "玩具", "橡皮擦", "胶带", "标签"
-            };
-            
-            for (size_t i = 0; i < poses_msg->poses.size(); ++i) {
-                DetectedObject obj;
-                
-                // 根据物体位置特征决定类型名称
-                float height = poses_msg->poses[i].position.z;
-                
-                std::string type_name;
-                if (height < 0.05) {
-                    type_name = "低矮物品";
-                } else if (height < 0.15) {
-                    type_name = "中等物品";
-                } else {
-                    type_name = "高大物品";
-                }
-                
-                // 根据索引分配名称，如果超出范围则使用通用名称
-                if (i < item_names.size()) {
-                    obj.id = item_names[i];
-                } else {
-                    obj.id = "物品_" + std::to_string(i+1);
-                }
-                
-                obj.type = type_name;
-                
-                // 将3D位置转换为厘米单位用于显示
-                double scale = 100.0; // 转换为厘米
-                obj.x = poses_msg->poses[i].position.x * scale;
-                obj.y = poses_msg->poses[i].position.y * scale;
-                obj.z = poses_msg->poses[i].position.z * scale;
-                
-                // 保存原始位姿
-                obj.pose = poses_msg->poses[i];
-                detected_objects_.push_back(obj);
-                
-                // 记录成功添加的物体
-                ROS_INFO("添加物体到表格: %s [%.2f, %.2f, %.2f]", 
-                         obj.id.c_str(), obj.x, obj.y, obj.z);
-            }
-        }
-        
-        // 转换为QImage并保存
-        QImage detected_image;
-        if (detection_image.channels() == 3) {
-            cv::cvtColor(detection_image, detection_image, cv::COLOR_BGR2RGB);
-            detected_image = QImage(detection_image.data, detection_image.cols, detection_image.rows,
-                                   detection_image.step, QImage::Format_RGB888);
-        } else {
-            detected_image = QImage(detection_image.data, detection_image.cols, detection_image.rows,
-                                   detection_image.step, QImage::Format_Grayscale8);
-        }
-        
-        // 保存为当前图像以显示
-        current_camera_image_ = detected_image.copy();
-        
-        // 记录检测到的物体数量
-        ROS_INFO("同步检测到 %zu 个物体，准备更新UI", detected_objects_.size());
-        
-        // 更新UI
-        QMetaObject::invokeMethod(this, "updateCameraViews", Qt::QueuedConnection);
-        QMetaObject::invokeMethod(this, "updateDetectionsTable", Qt::QueuedConnection);
-        QMetaObject::invokeMethod(this, "updateUI", Qt::QueuedConnection);
-    } catch (cv_bridge::Exception& e) {
-        ROS_ERROR("物体检测回调中的cv_bridge异常: %s", e.what());
-    } catch (std::exception& e) {
-        ROS_ERROR("物体检测回调中的标准异常: %s", e.what());
+    // 处理图像数据
+    cv_bridge::CvImageConstPtr cv_ptr;
+    try
+    {
+        cv_ptr = cv_bridge::toCvShare(img_msg, sensor_msgs::image_encodings::RGB8);
     }
+    catch (cv_bridge::Exception& e)
+    {
+        ROS_ERROR("cv_bridge exception: %s", e.what());
+        return;
+    }
+    
+    // 转换为QImage
+    current_camera_image_ = cvMatToQImage(cv_ptr->image);
+    
+    // 处理位姿数据
+    logMessage("处理物体检测结果");
+    detected_objects_.clear();
+    
+    for (size_t i = 0; i < poses_msg->poses.size(); ++i)
+    {
+        DetectedObject obj;
+        obj.id = "obj_" + std::to_string(i+1);
+        obj.type = "未知物体";
+        
+        // 记录位姿信息
+        obj.pose = poses_msg->poses[i];
+        
+        // 转换位置到厘米单位显示
+        obj.x = obj.pose.position.x * 100.0; // 转换为厘米
+        obj.y = obj.pose.position.y * 100.0; // 转换为厘米
+        obj.z = obj.pose.position.z * 100.0; // 转换为厘米
+        
+        // 添加到检测列表
+        detected_objects_.push_back(obj);
+    }
+    
+    logMessage(QString("同步检测到 %1 个物体，准备更新UI").arg(detected_objects_.size()));
+    
+    // 在主线程中更新UI
+    QMetaObject::invokeMethod(this, "updateCameraViews", Qt::QueuedConnection);
+    QMetaObject::invokeMethod(this, "updateDetectionsTable", Qt::QueuedConnection);
 }
 
 // 修改updateJointInfo函数实现，使用正确的UI元素
@@ -2053,6 +1966,7 @@ void ArmControlGUI::sendGripperCommand(bool open)
 // 添加舵机控制函数实现
 void ArmControlGUI::sendServoCommand(int servo_id, int position, int velocity, int acceleration)
 {
+    // 创建舵机控制消息
     servo_wrist::SerControl msg;
     msg.servo_id = servo_id;
     msg.target_position = position;
@@ -2062,7 +1976,12 @@ void ArmControlGUI::sendServoCommand(int servo_id, int position, int velocity, i
     // 发布舵机控制消息
     servo_control_pub_.publish(msg);
     
-    logMessage(QString("发送舵机命令: ID=%1, 位置=%2, 速度=%3").arg(servo_id).arg(position).arg(velocity));
+    // 记录操作
+    logMessage(QString("发送舵机命令: ID=%1, 位置=%2, 速度=%3, 加速度=%4")
+              .arg(servo_id).arg(position).arg(velocity).arg(acceleration));
+    
+    // 等待命令执行完成
+    ros::Duration(0.01).sleep();
 }
 
 // 添加辅助函数用于映射范围
@@ -2246,4 +2165,37 @@ void ArmControlGUI::setupROSSubscriptions()
     
     // 日志消息
     logMessage("已订阅ROS话题，等待数据...");
+}
+
+// 设置DH参数
+void ArmControlGUI::setupDHParameters()
+{
+    // 设置DH参数 (基于examples/path/main.m)
+    // a1 = 13, a2 = 13, a3 = 25, d2 = [0, 43], d5 = [5, 15]
+    dh_params_.resize(6);
+    // [type, d, theta, a, alpha]
+    // type: 0=revolute, 1=prismatic
+    dh_params_[0] = std::make_tuple(2, 0.0, 0.0, 0.0, 0.0);     // 底座旋转关节
+    dh_params_[1] = std::make_tuple(1, 0.0, 0.0, 0.0, 0.0);     // 伸缩关节
+    dh_params_[2] = std::make_tuple(2, 0.0, 0.0, 0.4, 0.0);     // 肩部关节
+    dh_params_[3] = std::make_tuple(2, 0.0, 0.0, 0.4, 0.0);     // 肘部关节
+    dh_params_[4] = std::make_tuple(2, 0.0, 0.0, 0.0, 90.0);    // 末端旋转关节
+    dh_params_[5] = std::make_tuple(1, 0.0, 0.0, 0.0, 0.0);     // 末端伸缩关节
+    
+    logMessage("DH参数设置完成");
+}
+
+// 设置关节限制
+void ArmControlGUI::setupJointLimits()
+{
+    // 初始化关节限制
+    joint_limits_.resize(6);
+    joint_limits_[0] = std::make_pair(-180.0, 180.0);  // 底座旋转
+    joint_limits_[1] = std::make_pair(0.0, 43.0);      // 伸缩
+    joint_limits_[2] = std::make_pair(-90.0, 90.0);    // 肩部
+    joint_limits_[3] = std::make_pair(0.0, 180.0);     // 肘部
+    joint_limits_[4] = std::make_pair(-180.0, 180.0);  // 末端旋转
+    joint_limits_[5] = std::make_pair(5.0, 15.0);      // 末端伸缩
+    
+    logMessage("关节限制设置完成");
 }

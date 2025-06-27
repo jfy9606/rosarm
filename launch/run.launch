@@ -6,18 +6,28 @@
   <arg name="resolution_width" default="1280" doc="摄像头分辨率宽度" />
   <arg name="resolution_height" default="480" doc="摄像头分辨率高度" />
   <arg name="fps" default="30" doc="摄像头帧率" />
+  <arg name="serial_port" default="/dev/ttyUSB0" doc="电机控制串口" />
+  <arg name="servo_port" default="/dev/ttyUSB1" doc="舵机控制串口" />
 
   <!-- 核心功能节点 -->
   
+  <!-- 电机控制节点 -->
+  <node name="talker" pkg="liancheng_socket" type="talk_test" output="screen">
+  </node>
+  
   <!-- 串口通信节点 -->
   <node name="serial" pkg="liancheng_socket" type="liancheng_serial" output="screen">
-    <!-- Ensure this node uses ttyUSB0 -->
-    <param name="port" value="/dev/ttyUSB0" />
+    <param name="port" value="$(arg serial_port)" />
+    <param name="baud_rate" value="115200" />
   </node>
   
   <!-- 舵机控制节点 -->
-  <node name="servo" pkg="servo_wrist" type="wrist_ctrl" args="/dev/ttyUSB1" output="screen">
+  <node name="servo" pkg="servo_wrist" type="wrist_ctrl" args="$(arg servo_port)" output="screen">
     <!-- 舵机串口参数 -->
+  </node>
+  
+  <!-- 继电器控制节点 -->
+  <node name="relay" pkg="relay" type="listener" output="screen">
   </node>
   
   <!-- 摄像头节点 -->

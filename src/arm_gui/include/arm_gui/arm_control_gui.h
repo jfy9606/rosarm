@@ -211,8 +211,6 @@ private:
     // UI相关
     Ui::ArmControlMainWindow* ui;
     QTimer* updateTimer;
-    QComboBox* placement_area_combo_;
-    QComboBox* control_mode_combo_;
     
     // 控制模式
     ArmControlMode current_control_mode_;
@@ -304,6 +302,8 @@ private:
     void initializeMembers();
     void setupROSSubscriptions();
     void setupCameraParameters();
+    void setupDHParameters();
+    void setupJointLimits();
 
     // 更新函数
     void updateJointControlWidgets();
