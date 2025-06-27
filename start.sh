@@ -115,6 +115,7 @@ detect_ports() {
     # 2. 定义一个函数来测试串口是否是舵机控制串口
     test_servo_port() {
         local port="$1"
+        local device_type=""
         echo -e "${CYAN}测试串口 ${port}...${NC}"
         
         # 保存原始串口权限
@@ -123,68 +124,128 @@ detect_ports() {
         # 设置串口权限
         sudo chmod 666 "$port" 2>/dev/null
         
-        # 尝试与舵机通信 (使用stty设置波特率，然后发送简单查询)
-        {
-            stty -F "$port" 1000000 -echo raw
-            # 短暂延迟
-            sleep 0.2
-            # 尝试发送无害的命令并读取响应
-            # 这里使用timeout命令限制等待时间
-            timeout 0.5 cat "$port" > "$SERVO_DETECTION_LOG" &
-            local cat_pid=$!
+        # 测试两种可能的波特率
+        local baud_rates=("1000000" "115200")
+        local device_types=("舵机控制器(1M波特率)" "电机控制器(115200波特率)")
+        
+        for i in "${!baud_rates[@]}"; do
+            local baud=${baud_rates[$i]}
+            local device=${device_types[$i]}
             
-            # 发送简单查询命令 (SC舵机的简单查询格式)
-            # 0xFF 0xFD ID 0x01 0x00 CHKSUM (5个字节的查询命令)
-            echo -en '\xFF\xFD\x01\x01\x00\xFF' > "$port"
-            sleep 0.3
+            echo -e "${CYAN}尝试以 ${baud} 波特率测试 ${port}...${NC}"
             
-            # 尝试停止cat进程
-            kill -9 $cat_pid 2>/dev/null
-        } &>/dev/null
+            # 尝试与设备通信
+            {
+                # 设置串口参数
+                stty -F "$port" $baud -echo raw
+                # 短暂延迟
+                sleep 0.2
+                
+                # 创建响应日志文件
+                local log_file="$TEMP_DIR/device_${baud}_detection.log"
+                
+                # 尝试发送无害的命令并读取响应
+                # 这里使用timeout命令限制等待时间
+                timeout 0.5 cat "$port" > "$log_file" &
+                local cat_pid=$!
+                
+                # 根据波特率发送对应的查询命令
+                if [ "$baud" == "1000000" ]; then
+                    # SCS舵机的查询命令 (0xFF 0xFD ID 0x01 0x00 CHKSUM)
+                    echo -en '\xFF\xFD\x01\x01\x00\xFF' > "$port"
+                else
+                    # 电机控制器的查询命令 (使用简单的读取状态命令)
+                    # 这里使用的是基本查询命令，需要根据实际协议调整
+                    echo -en '\x03\x0b\x00\x00\x01' > "$port"
+                fi
+                
+                sleep 0.3
+                
+                # 尝试停止cat进程
+                kill -9 $cat_pid 2>/dev/null
+                
+                # 检查是否有响应数据
+                local response_size=$(wc -c < "$log_file")
+                
+                if [ "$response_size" -gt 0 ]; then
+                    echo -e "${GREEN}串口 ${port} 在 ${baud} 波特率下有响应 (${response_size} 字节)${NC}"
+                    # 记录设备类型
+                    device_type="$device"
+                    # 根据波特率设置不同的返回值
+                    if [ "$baud" == "1000000" ]; then
+                        DETECTED_DEVICE_TYPE="servo"
+                    else
+                        DETECTED_DEVICE_TYPE="motor"
+                    fi
+                    break
+                fi
+            } &>/dev/null
+        done
         
         # 恢复原始权限
         sudo chmod "$original_perm" "$port" 2>/dev/null
         
-        # 检查是否有特定的响应模式
-        # 舵机通常会返回一个特定格式的响应数据
-        local response_size=$(wc -c < "$SERVO_DETECTION_LOG")
-        
-        # 如果有数据返回，可能是舵机 (这里简化判断逻辑)
-        if [ "$response_size" -gt 0 ]; then
-            echo -e "${GREEN}串口 ${port} 有响应数据 (${response_size} 字节)${NC}"
+        if [ -n "$device_type" ]; then
+            echo -e "${GREEN}在 ${port} 检测到 ${device_type}！${NC}"
             return 0
         else
-            echo -e "${YELLOW}串口 ${port} 无响应数据${NC}"
+            echo -e "${YELLOW}串口 ${port} 无响应${NC}"
             return 1
         fi
     }
     
     # 3. 遍历所有串口进行测试
     DETECTED_SERVO_PORT=""
+    DETECTED_MOTOR_PORT=""
+    DETECTED_DEVICE_TYPE=""
     
-    # 首先测试USB设备 (通常舵机控制器连接到USB)
+    # 首先测试USB设备 (通常设备控制器连接到USB)
     for port in ${USB_PORTS}; do
         if test_servo_port "$port"; then
-            DETECTED_SERVO_PORT="$port"
-            echo -e "${GREEN}在 ${port} 检测到舵机控制器！${NC}"
-            break
+            if [ "$DETECTED_DEVICE_TYPE" == "servo" ]; then
+                DETECTED_SERVO_PORT="$port"
+                echo -e "${GREEN}已将 ${port} 标识为舵机控制器${NC}"
+            elif [ "$DETECTED_DEVICE_TYPE" == "motor" ]; then
+                DETECTED_MOTOR_PORT="$port"
+                echo -e "${GREEN}已将 ${port} 标识为电机控制器${NC}"
+            fi
+            
+            # 如果已经找到舵机端口，继续检查剩余端口寻找电机端口
+            if [ -n "$DETECTED_SERVO_PORT" ] && [ -z "$DETECTED_MOTOR_PORT" ]; then
+                continue
+            # 如果已经找到电机端口，继续检查剩余端口寻找舵机端口
+            elif [ -z "$DETECTED_SERVO_PORT" ] && [ -n "$DETECTED_MOTOR_PORT" ]; then
+                continue
+            # 如果两种端口都已找到，可以停止搜索
+            elif [ -n "$DETECTED_SERVO_PORT" ] && [ -n "$DETECTED_MOTOR_PORT" ]; then
+                break
+            fi
         fi
     done
     
-    # 如果在USB设备中未找到，测试ACM设备
-    if [ -z "$DETECTED_SERVO_PORT" ] && [ -n "${ACM_PORTS}" ]; then
+    # 如果在USB设备中未找全部端口，测试ACM设备
+    if [ -z "$DETECTED_SERVO_PORT" ] || [ -z "$DETECTED_MOTOR_PORT" ] && [ -n "${ACM_PORTS}" ]; then
         for port in ${ACM_PORTS}; do
             if test_servo_port "$port"; then
-                DETECTED_SERVO_PORT="$port"
-                echo -e "${GREEN}在 ${port} 检测到舵机控制器！${NC}"
-                break
+                if [ "$DETECTED_DEVICE_TYPE" == "servo" ] && [ -z "$DETECTED_SERVO_PORT" ]; then
+                    DETECTED_SERVO_PORT="$port"
+                    echo -e "${GREEN}已将 ${port} 标识为舵机控制器${NC}"
+                elif [ "$DETECTED_DEVICE_TYPE" == "motor" ] && [ -z "$DETECTED_MOTOR_PORT" ]; then
+                    DETECTED_MOTOR_PORT="$port"
+                    echo -e "${GREEN}已将 ${port} 标识为电机控制器${NC}"
+                fi
+                
+                # 如果两种端口都已找到，可以停止搜索
+                if [ -n "$DETECTED_SERVO_PORT" ] && [ -n "$DETECTED_MOTOR_PORT" ]; then
+                    break
+                fi
             fi
         done
     fi
     
     # 4. 如果自动检测失败，提供手动选择
-    if [ -z "$DETECTED_SERVO_PORT" ]; then
-        echo -e "${YELLOW}未自动检测到舵机控制器${NC}"
+    if [ -z "$DETECTED_SERVO_PORT" ] || [ -z "$DETECTED_MOTOR_PORT" ]; then
+        echo -e "${YELLOW}未自动检测到舵机或电机控制器${NC}"
         echo -e "${YELLOW}请从以下串口中手动选择:${NC}"
         
         # 显示编号的串口列表
@@ -196,17 +257,36 @@ detect_ports() {
             i=$((i+1))
         done
         
-        # 用户选择
-        echo -ne "${GREEN}请输入串口编号 (1-$((i-1)), 或按Enter跳过): ${NC}"
-        read -r port_choice
+        # 舵机端口选择
+        if [ -z "$DETECTED_SERVO_PORT" ]; then
+            echo -ne "${GREEN}请选择舵机控制串口 (1-$((i-1)), 或按Enter跳过): ${NC}"
+            read -r port_choice
+            
+            # 验证输入
+            if [[ "$port_choice" =~ ^[0-9]+$ ]] && [ "$port_choice" -ge 1 ] && [ "$port_choice" -lt "$i" ]; then
+                DETECTED_SERVO_PORT="${ports_array[$port_choice]}"
+                echo -e "${GREEN}已选择 ${DETECTED_SERVO_PORT} 作为舵机控制串口${NC}"
+            else
+                # 默认使用第一个串口
+                DETECTED_SERVO_PORT=$(echo ${ALL_PORTS} | awk '{print $1}')
+                echo -e "${YELLOW}使用默认串口: ${DETECTED_SERVO_PORT} 作为舵机控制串口${NC}"
+            fi
+        fi
         
-        # 验证输入
-        if [[ "$port_choice" =~ ^[0-9]+$ ]] && [ "$port_choice" -ge 1 ] && [ "$port_choice" -lt "$i" ]; then
-            DETECTED_SERVO_PORT="${ports_array[$port_choice]}"
-        else
-            # 默认使用第一个串口
-            DETECTED_SERVO_PORT=$(echo ${ALL_PORTS} | awk '{print $1}')
-            echo -e "${YELLOW}使用默认串口: ${DETECTED_SERVO_PORT}${NC}"
+        # 电机端口选择
+        if [ -z "$DETECTED_MOTOR_PORT" ]; then
+            echo -ne "${GREEN}请选择电机控制串口 (1-$((i-1)), 或按Enter跳过): ${NC}"
+            read -r port_choice
+            
+            # 验证输入
+            if [[ "$port_choice" =~ ^[0-9]+$ ]] && [ "$port_choice" -ge 1 ] && [ "$port_choice" -lt "$i" ]; then
+                DETECTED_MOTOR_PORT="${ports_array[$port_choice]}"
+                echo -e "${GREEN}已选择 ${DETECTED_MOTOR_PORT} 作为电机控制串口${NC}"
+            else
+                # 默认使用第一个串口
+                DETECTED_MOTOR_PORT=$(echo ${ALL_PORTS} | awk '{print $1}')
+                echo -e "${YELLOW}使用默认串口: ${DETECTED_MOTOR_PORT} 作为电机控制串口${NC}"
+            fi
         fi
     fi
     
@@ -214,8 +294,8 @@ detect_ports() {
     rm -rf "$TEMP_DIR"
     
     # 6. 更新launch文件配置
-    if [ -n "$DETECTED_SERVO_PORT" ]; then
-        echo -e "${GREEN}将使用 ${DETECTED_SERVO_PORT} 作为舵机控制串口${NC}"
+    if [ -n "$DETECTED_SERVO_PORT" ] && [ -n "$DETECTED_MOTOR_PORT" ]; then
+        echo -e "${GREEN}将使用 ${DETECTED_SERVO_PORT} 作为舵机控制串口，${DETECTED_MOTOR_PORT} 作为电机控制串口${NC}"
         
         # 更新launch文件中的串口配置
         LAUNCH_FILE="$WORKSPACE_DIR/src/arm_trajectory/launch/visual_servo.launch"
@@ -226,15 +306,23 @@ detect_ports() {
             # 更新串口配置
             sed -i "s|<arg name=\"servo_port\" default=\"/dev/ttyUSB[0-9]*\"|<arg name=\"servo_port\" default=\"${DETECTED_SERVO_PORT}\"|g" "${LAUNCH_FILE}"
             sed -i "s|<arg name=\"servo_port\" default=\"/dev/ttyACM[0-9]*\"|<arg name=\"servo_port\" default=\"${DETECTED_SERVO_PORT}\"|g" "${LAUNCH_FILE}"
+            sed -i "s|<arg name=\"motor_port\" default=\"/dev/ttyUSB[0-9]*\"|<arg name=\"motor_port\" default=\"${DETECTED_MOTOR_PORT}\"|g" "${LAUNCH_FILE}"
+            sed -i "s|<arg name=\"motor_port\" default=\"/dev/ttyACM[0-9]*\"|<arg name=\"motor_port\" default=\"${DETECTED_MOTOR_PORT}\"|g" "${LAUNCH_FILE}"
             
             echo -e "${GREEN}已更新 ${LAUNCH_FILE} 中的串口配置${NC}"
+            echo -e "${YELLOW}按任意键继续...${NC}"
+            read -r -n 1
             return 0
         else
             echo -e "${YELLOW}未找到launch文件: ${LAUNCH_FILE}${NC}"
+            echo -e "${YELLOW}按任意键继续...${NC}"
+            read -r -n 1
             return 1
         fi
     else
         echo -e "${RED}未找到可用的串口设备${NC}"
+        echo -e "${YELLOW}按任意键继续...${NC}"
+        read -r -n 1
         return 1
     fi
 }
@@ -296,9 +384,6 @@ if [ -f "$WORKSPACE_DIR/devel/setup.bash" ]; then
 else
     echo -e "${YELLOW}警告: 未找到工作空间的setup.bash文件，将使用系统ROS环境${NC}"
 fi
-
-# 自动检测串口设备
-detect_ports
 
 # 设置日志配置
 setup_log_config
@@ -383,40 +468,44 @@ launch_system() {
 
 # 显示简化菜单（如果没有命令行参数）
 show_menu() {
-    echo -e "${BLUE}=====================================${NC}"
-    echo -e "${GREEN}机械臂视觉控制系统启动菜单${NC}"
-    echo -e "${BLUE}=====================================${NC}"
-    echo -e "${YELLOW}1. 启动视觉控制系统${NC}"
-    echo -e "${YELLOW}2. 配置参数${NC}"
-    echo -e "${YELLOW}0. 退出${NC}"
-    echo -e "${BLUE}=====================================${NC}"
-    echo -e "${CYAN}功能说明:${NC}"
-    echo -e "${CYAN}- 系统使用机械臂末端双目摄像头${NC}"
-    echo -e "${CYAN}- 支持直接输入三维坐标控制机械臂末端位置${NC}"
-    echo -e "${CYAN}- 支持使用YOLO检测物体并移动到物体位置${NC}"
-    echo -e "${BLUE}=====================================${NC}"
-    echo -ne "${GREEN}请选择: ${NC}"
-    read -r choice
-    
-    case $choice in
-        1)
-            launch_full_system
-            ;;
-        2)
-            configure_params
-            ;;
-        0)
-            echo -e "${GREEN}退出程序${NC}"
-            exit 0
-            ;;
-        *)
-            echo -e "${RED}无效选择，请重试${NC}"
-            ;;
-    esac
-    
-    echo -e "${YELLOW}按任意键返回菜单...${NC}"
-    read -r -n 1
-    show_menu
+    while true; do
+        clear
+        echo -e "${BLUE}=====================================${NC}"
+        echo -e "${GREEN}机械臂视觉控制系统启动菜单${NC}"
+        echo -e "${BLUE}=====================================${NC}"
+        echo -e "${YELLOW}1. 启动视觉控制系统${NC}"
+        echo -e "${YELLOW}2. 检测串口设备${NC}"
+        echo -e "${YELLOW}3. 配置参数${NC}"
+        echo -e "${YELLOW}0. 退出${NC}"
+        echo -e "${BLUE}=====================================${NC}"
+        echo -e "${CYAN}功能说明:${NC}"
+        echo -e "${CYAN}- 系统使用机械臂末端双目摄像头${NC}"
+        echo -e "${CYAN}- 支持直接输入三维坐标控制机械臂末端位置${NC}"
+        echo -e "${CYAN}- 支持使用YOLO检测物体并移动到物体位置${NC}"
+        echo -e "${BLUE}=====================================${NC}"
+        echo -ne "${GREEN}请选择: ${NC}"
+        read -r choice
+        
+        case $choice in
+            1)
+                launch_full_system
+                ;;
+            2)
+                detect_ports
+                ;;
+            3)
+                configure_params
+                ;;
+            0)
+                echo -e "${GREEN}退出程序${NC}"
+                exit 0
+                ;;
+            *)
+                echo -e "${RED}无效选择，请重试${NC}"
+                sleep 1
+                ;;
+        esac
+    done
 }
 
 # 配置参数
@@ -442,6 +531,9 @@ configure_params() {
     echo -e "${BLUE}=====================================${NC}"
     echo -e "${GREEN}配置已更新${NC}"
     echo -e "${BLUE}=====================================${NC}"
+    
+    echo -e "${YELLOW}按任意键返回菜单...${NC}"
+    read -r -n 1
 }
 
 # 主程序入口点

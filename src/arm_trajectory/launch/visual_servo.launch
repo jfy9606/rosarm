@@ -1,6 +1,7 @@
 <launch>
     <!-- 参数设置 -->
-    <arg name="servo_port" default="/dev/ttyUSB0" doc="舵机控制串口" />
+    <arg name="servo_port" default="/dev/ttyUSB0" doc="舵机控制串口（波特率1000000）" />
+    <arg name="motor_port" default="/dev/ttyUSB0" doc="电机控制串口（波特率115200）" />
     <arg name="camera_index" default="0" doc="摄像头索引" />
     <arg name="yolo_enabled" default="true" doc="是否启用YOLO目标检测" />
     <arg name="yolo_model_path" default="" doc="自定义YOLOv8模型路径" />
@@ -13,6 +14,12 @@
     <!-- 启动舵机控制节点 -->
     <node name="servo" pkg="servo_wrist" type="wrist_ctrl" args="$(arg servo_port)" output="screen">
         <param name="baudrate" value="1000000" />
+    </node>
+    
+    <!-- 启动电机控制节点 -->
+    <node name="motor_control" pkg="liancheng_socket" type="liancheng_serial" output="screen">
+        <param name="port" value="$(arg motor_port)" />
+        <param name="baud_rate" value="115200" />
     </node>
     
     <!-- 启动YOLO目标检测节点 -->
