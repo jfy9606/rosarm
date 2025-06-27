@@ -7,17 +7,18 @@
   <arg name="with_arm_controller" default="true" />
   <arg name="with_path_planner" default="true" />
   <arg name="with_yolo_controller" default="true" />
-  <arg name="with_vision_arm_bridge" default="true" />
   <arg name="simulation_mode" default="false" doc="是否使用模拟模式进行YOLO检测"/>
   <arg name="camera_device" default="/dev/video0" doc="摄像头设备"/>
   
-  <!-- 启动摄像头节点 -->
-  <node name="camera_node" pkg="stereo_vision" type="camera_node.py" output="screen">
-    <param name="device" value="$(arg camera_device)" />
-    <param name="width" value="640" />
-    <param name="height" value="480" />
-    <param name="fps" value="30" />
-  </node>
+  <!-- 启动摄像头节点 (仅当不使用立体视觉时) -->
+  <group unless="$(arg with_stereo_vision)">
+    <node name="gui_camera_node" pkg="stereo_vision" type="camera_node.py" output="screen">
+      <param name="device" value="$(arg camera_device)" />
+      <param name="width" value="640" />
+      <param name="height" value="480" />
+      <param name="fps" value="30" />
+    </node>
+  </group>
   
   <!-- 启动立体视觉节点 -->
   <group if="$(arg with_stereo_vision)">
@@ -52,12 +53,6 @@
   <group if="$(arg with_trajectory_planner)">
     <node pkg="arm_trajectory" type="trajectory_bridge_node.py" name="arm_trajectory_bridge_gui" output="screen">
       <!-- 改名以避免冲突 -->
-    </node>
-  </group>
-  
-  <!-- 启动视觉-机械臂桥接节点 -->
-  <group if="$(arg with_vision_arm_bridge)">
-    <node pkg="arm_trajectory" type="vision_arm_bridge.py" name="vision_arm_bridge" output="screen">
     </node>
   </group>
   

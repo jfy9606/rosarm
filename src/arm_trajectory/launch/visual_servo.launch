@@ -33,7 +33,7 @@
     </node>
     
     <!-- 启动机械臂控制节点 -->
-    <include file="$(find arm_gui)/launch/arm_control.launch" />
+    <include file="$(find arm_gui)/launch/arm_gui.launch" />
     
     <!-- 启动RViz可视化 -->
     <node name="rviz" pkg="rviz" type="rviz" args="-d $(find arm_gui)/rviz/arm_vision.rviz" />
