@@ -398,6 +398,12 @@ class YoloDetector:
         # 收集类别名称，添加到frame_id中
         class_names = []
         
+        # 如果没有检测到物体，发布空的PoseArray
+        if not detections:
+            rospy.loginfo("没有检测到物体，发布空的PoseArray")
+            self.poses_pub.publish(pose_array)
+            return
+        
         for det in detections:
             x1, y1, x2, y2, conf, class_id = det
             
@@ -445,9 +451,14 @@ class YoloDetector:
         # 将类别名称添加到frame_id
         if class_names:
             pose_array.header.frame_id = ','.join(class_names)
+            # 调试输出 - 显示检测到的物体类别
+            rospy.loginfo(f"发布检测结果: {len(class_names)}个物体 - {','.join(class_names)}")
         
         # 发布位姿数组
         self.poses_pub.publish(pose_array)
+        
+        # 调试输出 - 确认消息已发布
+        rospy.loginfo(f"已发布PoseArray消息，包含{len(pose_array.poses)}个物体位姿")
 
 def main():
     """主函数"""

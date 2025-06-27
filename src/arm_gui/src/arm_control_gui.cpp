@@ -1042,6 +1042,16 @@ void ArmControlGUI::detectionImageCallback(const sensor_msgs::Image::ConstPtr& m
         cv_bridge::CvImageConstPtr cv_ptr = cv_bridge::toCvShare(msg, "bgr8");
         cv::Mat detection_image = cv_ptr->image.clone();
         
+        // 记录收到的图像信息
+        ROS_INFO("收到检测图像: 尺寸=%dx%d, 通道=%d", 
+                detection_image.cols, detection_image.rows, detection_image.channels());
+        
+        // 如果YOLO检测未启用，则不处理图像
+        if (!yolo_detection_enabled_) {
+            ROS_INFO("YOLO检测未启用，忽略检测图像");
+            return;
+        }
+        
         // 转换为QImage
         QImage image;
         if (detection_image.channels() == 3) {
@@ -1056,8 +1066,37 @@ void ArmControlGUI::detectionImageCallback(const sensor_msgs::Image::ConstPtr& m
         // 保存YOLOv8检测结果图像
         current_camera_image_ = image.copy();
         
+        // 在图像上添加检测物体的标记
+        if (!detected_objects_.empty()) {
+            QPainter painter(&current_camera_image_);
+            painter.setPen(QPen(Qt::green, 2));
+            painter.setFont(QFont("Arial", 12));
+            
+            for (const auto& obj : detected_objects_) {
+                // 将3D位置转换为图像坐标
+                double img_x = (obj.x / 100.0 + 0.5) * current_camera_image_.width();  // 厘米转米再转像素
+                double img_y = (0.5 - obj.y / 100.0) * current_camera_image_.height(); // 厘米转米再转像素
+                
+                // 确保坐标在图像范围内
+                if (img_x >= 0 && img_x < current_camera_image_.width() &&
+                    img_y >= 0 && img_y < current_camera_image_.height()) {
+                    
+                    // 绘制圆圈标记物体位置
+                    painter.drawEllipse(QPointF(img_x, img_y), 10, 10);
+                    
+                    // 添加文本标签
+                    painter.drawText(QPointF(img_x + 15, img_y), QString::fromStdString(obj.id));
+                }
+            }
+            
+            ROS_INFO("在检测图像上标记了 %zu 个物体", detected_objects_.size());
+        }
+        
         // 更新UI
         QMetaObject::invokeMethod(this, "updateCameraViews", Qt::QueuedConnection);
+        
+        // 确保检测表格也被更新
+        QMetaObject::invokeMethod(this, "updateDetectionsTable", Qt::QueuedConnection);
         
         // 记录日志
         static int frame_count = 0;
@@ -1078,8 +1117,13 @@ void ArmControlGUI::detectionPosesCallback(const geometry_msgs::PoseArray::Const
     // 处理物体位置数据
     detected_objects_.clear();
     
+    // 记录收到消息的信息
+    ROS_INFO("收到检测位姿消息: %zu 个物体, frame_id=%s", 
+            msg->poses.size(), msg->header.frame_id.c_str());
+    
     // 没有检测到物体，清空表格并返回
     if (msg->poses.empty()) {
+        ROS_INFO("检测位姿为空，清空表格");
         QMetaObject::invokeMethod(this, "updateDetectionsTable", Qt::QueuedConnection);
         return;
     }
@@ -1108,6 +1152,7 @@ void ArmControlGUI::detectionPosesCallback(const geometry_msgs::PoseArray::Const
             
             // 如果成功解析类别信息，直接使用它们
             if (has_object_ids) {
+                ROS_INFO("成功解析类别信息: %zu 个类别", class_names.size());
                 for (size_t i = 0; i < msg->poses.size(); ++i) {
                     DetectedObject obj;
                     obj.id = class_names[i];  // 使用传递过来的类别名称
@@ -1123,8 +1168,8 @@ void ArmControlGUI::detectionPosesCallback(const geometry_msgs::PoseArray::Const
                     obj.pose = msg->poses[i];
                     detected_objects_.push_back(obj);
                     
-                    // 记录成功添加的物体（仅用于调试）
-                    ROS_DEBUG("添加检测物体到表格: %s [%.2f, %.2f, %.2f]", 
+                    // 记录成功添加的物体
+                    ROS_INFO("添加检测物体到表格: %s [%.2f, %.2f, %.2f]", 
                              obj.id.c_str(), obj.x, obj.y, obj.z);
                 }
             }
@@ -1136,6 +1181,7 @@ void ArmControlGUI::detectionPosesCallback(const geometry_msgs::PoseArray::Const
     
     // 如果无法从frame_id中获取类别信息，使用默认物体命名方式
     if (!has_object_ids) {
+        ROS_INFO("使用默认物体命名方式");
         for (size_t i = 0; i < msg->poses.size(); ++i) {
             DetectedObject obj;
             obj.id = "object_" + std::to_string(i);  // 通用对象名
@@ -1160,8 +1206,8 @@ void ArmControlGUI::detectionPosesCallback(const geometry_msgs::PoseArray::Const
             obj.pose = msg->poses[i];
             detected_objects_.push_back(obj);
             
-            // 记录成功添加的物体（仅用于调试）
-            ROS_DEBUG("添加通用物体到表格: %s [%.2f, %.2f, %.2f]", 
+            // 记录成功添加的物体
+            ROS_INFO("添加通用物体到表格: %s [%.2f, %.2f, %.2f]", 
                      obj.id.c_str(), obj.x, obj.y, obj.z);
         }
     }
@@ -1169,8 +1215,11 @@ void ArmControlGUI::detectionPosesCallback(const geometry_msgs::PoseArray::Const
     // 确保在主线程中更新UI，立即更新表格
     QMetaObject::invokeMethod(this, "updateDetectionsTable", Qt::QueuedConnection);
     
-    // 记录检测到的物体数量（仅用于调试）
-    ROS_DEBUG("检测到 %zu 个物体，已更新表格", detected_objects_.size());
+    // 记录检测到的物体数量
+    ROS_INFO("检测到 %zu 个物体，已更新表格", detected_objects_.size());
+    
+    // 强制更新UI
+    QMetaObject::invokeMethod(this, "updateUI", Qt::QueuedConnection);
 }
 
 // GUI更新函数实现
@@ -1258,8 +1307,14 @@ void ArmControlGUI::updateCameraViews()
 {
     // 检查是否有有效图像
     if (current_camera_image_.isNull()) {
+        ROS_WARN("updateCameraViews: 当前图像为空，无法更新相机视图");
         return;
     }
+    
+    // 记录图像更新
+    ROS_INFO("更新相机视图: 图像尺寸=%dx%d, 检测到 %zu 个物体", 
+             current_camera_image_.width(), current_camera_image_.height(), 
+             detected_objects_.size());
     
     // 创建用于显示的图像副本
     QImage display_image = current_camera_image_.copy();
@@ -1271,99 +1326,113 @@ void ArmControlGUI::updateCameraViews()
     QString resolution_text = QString("%1 x %2").arg(display_image.width()).arg(display_image.height());
     painter.drawText(10, display_image.height() - 10, resolution_text);
     
+    // 检查是否启用了YOLO检测
+    if (yolo_detection_enabled_) {
+        // 在图像顶部添加检测状态信息
+        QString status_text = QString("YOLO检测: 启用 (%1 个物体)").arg(detected_objects_.size());
+        painter.setPen(Qt::green);
+        painter.setFont(QFont("Arial", 12, QFont::Bold));
+        painter.drawText(10, 20, status_text);
+    } else {
+        // 在图像顶部添加检测状态信息
+        QString status_text = "YOLO检测: 禁用";
+        painter.setPen(Qt::red);
+        painter.setFont(QFont("Arial", 12, QFont::Bold));
+        painter.drawText(10, 20, status_text);
+    }
+    
     // 绘制检测到的物体
     if (yolo_detection_enabled_ && !detected_objects_.empty()) {
-    for (size_t i = 0; i < detected_objects_.size(); ++i) {
-        const DetectedObject& obj = detected_objects_[i];
+        ROS_INFO("在相机视图上绘制 %zu 个检测物体", detected_objects_.size());
+        
+        for (size_t i = 0; i < detected_objects_.size(); ++i) {
+            const DetectedObject& obj = detected_objects_[i];
             
-            // 使用物体在相机坐标系中的原始位置
-            QVector3D obj_camera(obj.x / 100.0f, obj.y / 100.0f, obj.z / 100.0f);
-        
-        // 将3D位置投影到图像平面
-            QPoint obj_image = QPoint(
-                static_cast<int>(obj_camera.x() / obj_camera.z() * camera_intrinsic_(0, 0) + camera_intrinsic_(0, 2)),
-                static_cast<int>(obj_camera.y() / obj_camera.z() * camera_intrinsic_(1, 1) + camera_intrinsic_(1, 2))
-            );
+            // 将物体坐标转换为图像坐标
+            float img_x = (obj.x / 100.0f + 0.5f) * display_image.width();  // 厘米转米再转像素
+            float img_y = (0.5f - obj.y / 100.0f) * display_image.height(); // 厘米转米再转像素
             
-            // 确保点在图像范围内
-            if (obj_image.x() < 0 || obj_image.x() >= display_image.width() ||
-                obj_image.y() < 0 || obj_image.y() >= display_image.height() ||
-                obj_camera.z() <= 0.0f) {
-                continue; // 不在视野内的物体不显示
-            }
-        
-        // 设置画笔颜色和宽度
-        if (static_cast<int>(i) == selected_object_index_) {
-            painter.setPen(QPen(Qt::yellow, 3));
-        } else {
-            painter.setPen(QPen(Qt::red, 2));
-        }
-        
-        // 计算矩形大小（基于物体距离）
-            // 距离越远，框越小
-            float distance_factor = 0.5f / obj_camera.z();
-            int box_size = static_cast<int>(40 * distance_factor);
-            box_size = std::max(20, std::min(80, box_size)); // 限制大小范围
-            
-            QRect rect(obj_image.x() - box_size/2, obj_image.y() - box_size/2, box_size, box_size);
-                    
-            // 绘制矩形框
-            painter.drawRect(rect);
-        
-            // 设置字体和颜色
-            QFont font = painter.font();
-            font.setBold(true);
-            font.setPointSize(10);
-            painter.setFont(font);
-        
-            if (static_cast<int>(i) == selected_object_index_) {
-                painter.setPen(QPen(Qt::yellow));
+            // 确保坐标在图像范围内
+            if (img_x >= 0 && img_x < display_image.width() && 
+                img_y >= 0 && img_y < display_image.height()) {
+                
+                // 设置画笔颜色和宽度
+                if (static_cast<int>(i) == selected_object_index_) {
+                    painter.setPen(QPen(Qt::yellow, 3));
+                } else {
+                    painter.setPen(QPen(Qt::red, 2));
+                }
+                
+                // 计算矩形大小
+                int box_size = 60;  // 固定大小
+                
+                QRect rect(img_x - box_size/2, img_y - box_size/2, box_size, box_size);
+                
+                // 绘制矩形框
+                painter.drawRect(rect);
+                
+                // 设置字体和颜色
+                QFont font = painter.font();
+                font.setBold(true);
+                font.setPointSize(10);
+                painter.setFont(font);
+                
+                if (static_cast<int>(i) == selected_object_index_) {
+                    painter.setPen(QPen(Qt::yellow));
+                } else {
+                    painter.setPen(QPen(Qt::white));
+                }
+                
+                // 准备文本 - 使用物体实际名称
+                QString text = QString::fromStdString(obj.id);
+                
+                // 获取文本尺寸
+                QFontMetrics fm(font);
+                QRect text_rect = fm.boundingRect(text);
+                
+                // 绘制背景
+                QRect background_rect(
+                    img_x - text_rect.width()/2 - 2,
+                    img_y - box_size/2 - text_rect.height() - 4,
+                    text_rect.width() + 4,
+                    text_rect.height() + 4
+                );
+                
+                painter.fillRect(background_rect, QColor(0, 0, 0, 128));
+                
+                // 绘制物体名称
+                painter.drawText(
+                    img_x - text_rect.width()/2,
+                    img_y - box_size/2 - 4,
+                    text
+                );
+                
+                // 绘制类型信息
+                QString type_text = QString::fromStdString(obj.type);
+                QRect type_rect = fm.boundingRect(type_text);
+                
+                QRect type_bg_rect(
+                    img_x - type_rect.width()/2 - 2,
+                    img_y + box_size/2 + 2,
+                    type_rect.width() + 4,
+                    type_rect.height() + 4
+                );
+                
+                painter.fillRect(type_bg_rect, QColor(0, 0, 0, 128));
+                
+                painter.drawText(
+                    img_x - type_rect.width()/2,
+                    img_y + box_size/2 + type_rect.height() + 2,
+                    type_text
+                );
+                
+                // 记录绘制的物体
+                ROS_INFO("绘制物体 %zu: %s [%.1f, %.1f] → 图像坐标 [%.1f, %.1f]", 
+                         i, obj.id.c_str(), obj.x, obj.y, img_x, img_y);
             } else {
-                painter.setPen(QPen(Qt::white));
+                ROS_WARN("物体 %zu: %s [%.1f, %.1f] 坐标超出图像范围", 
+                         i, obj.id.c_str(), obj.x, obj.y);
             }
-        
-            // 准备文本 - 使用物体实际名称
-            QString text = QString::fromStdString(obj.id);
-        
-            // 获取文本尺寸
-            QFontMetrics fm(font);
-            QRect text_rect = fm.boundingRect(text);
-        
-            // 绘制背景
-            QRect background_rect(
-                obj_image.x() - text_rect.width()/2 - 2,
-                obj_image.y() - box_size/2 - text_rect.height() - 4,
-                text_rect.width() + 4,
-                text_rect.height() + 4
-            );
-        
-            painter.fillRect(background_rect, QColor(0, 0, 0, 128));
-        
-            // 绘制物体名称
-            painter.drawText(
-                obj_image.x() - text_rect.width()/2,
-                obj_image.y() - box_size/2 - 4,
-                text
-            );
-            
-            // 绘制类型信息而非距离
-            QString type_text = QString::fromStdString(obj.type);
-            QRect type_rect = fm.boundingRect(type_text);
-            
-            QRect type_bg_rect(
-                obj_image.x() - type_rect.width()/2 - 2,
-                obj_image.y() + box_size/2 + 2,
-                type_rect.width() + 4,
-                type_rect.height() + 4
-            );
-            
-            painter.fillRect(type_bg_rect, QColor(0, 0, 0, 128));
-            
-            painter.drawText(
-                obj_image.x() - type_rect.width()/2,
-                obj_image.y() + box_size/2 + type_rect.height() + 2,
-                type_text
-            );
         }
     }
     
@@ -1385,11 +1454,10 @@ void ArmControlGUI::updateCameraViews()
     
     // 设置显示
     ui->cameraView->setPixmap(pixmap);
+    ui->cameraView->update();
     
-    // 更新检测表格
-    if (yolo_detection_enabled_ && !detected_objects_.empty()) {
-        updateDetectionsTable();
-    }
+    // 记录相机视图更新完成
+    ROS_INFO("相机视图更新完成: 显示尺寸=%dx%d", pixmap.width(), pixmap.height());
 }
 
 // 操作函数实现
@@ -1999,6 +2067,13 @@ void ArmControlGUI::updateDetectionsTable()
 {
     // 获取表格控件
     QTableWidget* table = ui->detectionsTable;
+    if (!table) {
+        ROS_ERROR("无法获取检测表格控件");
+        return;
+    }
+    
+    // 记录调用信息
+    ROS_INFO("更新检测表格: %zu 个物体", detected_objects_.size());
     
     // 保存当前选中的行
     int currentRow = table->currentRow();
@@ -2053,6 +2128,27 @@ void ArmControlGUI::updateDetectionsTable()
                 }
             }
         }
+        
+        // 记录添加到表格的物体
+        ROS_INFO("表格行 %zu: %s [%.1f, %.1f, %.1f]", 
+                i, obj.id.c_str(), obj.x, obj.y, obj.z);
+    }
+    
+    // 如果检测到的物体数量为0，添加一个提示行
+    if (detected_objects_.empty()) {
+        table->setRowCount(1);
+        QTableWidgetItem* msgItem = new QTableWidgetItem("未检测到物体");
+        msgItem->setFlags(msgItem->flags() & ~Qt::ItemIsEditable); // 设为只读
+        table->setItem(0, 0, msgItem);
+        
+        // 合并单元格显示提示信息
+        table->setSpan(0, 0, 1, 5);
+        
+        // 灰色字体，居中显示
+        msgItem->setForeground(QBrush(Qt::gray));
+        msgItem->setTextAlignment(Qt::AlignCenter);
+        
+        ROS_INFO("表格显示'未检测到物体'提示");
     }
     
     // 恢复表格信号
@@ -2065,6 +2161,19 @@ void ArmControlGUI::updateDetectionsTable()
     
     // 自动调整列宽以适应内容
     table->resizeColumnsToContents();
+    
+    // 确保表格可见
+    table->show();
+    table->update();
+    
+    // 更新3D场景中的物体
+    updateSceneObjects();
+    
+    // 记录表格更新完成
+    ROS_INFO("检测表格更新完成，行数: %d", table->rowCount());
+    
+    // 强制刷新UI
+    table->parentWidget()->update();
 }
 
 // 添加缺失的按钮点击处理函数
@@ -2140,7 +2249,31 @@ void ArmControlGUI::on_example3Button_clicked()
 
 void ArmControlGUI::updateUI()
 {
+    // 更新GUI组件
     onUpdateGUI();
+    
+    // 更新检测表格
+    static int update_count = 0;
+    update_count++;
+    
+    // 每5次更新检查一次检测表格
+    if (update_count % 5 == 0) {
+        // 检查是否启用了YOLO检测
+        if (yolo_detection_enabled_) {
+            // 记录表格更新尝试
+            ROS_INFO("UI更新: 尝试更新检测表格 (检测已启用)");
+            
+            // 更新检测表格
+            updateDetectionsTable();
+        } else {
+            // 如果检测未启用，但表格不为空，则清空表格
+            if (!detected_objects_.empty()) {
+                ROS_INFO("UI更新: 检测未启用，清空表格");
+                detected_objects_.clear();
+                updateDetectionsTable();
+            }
+        }
+    }
 }
 
 void ArmControlGUI::sendGripperCommand(bool open)
