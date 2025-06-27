@@ -8,7 +8,7 @@
     
     <!-- 如果需要，启动摄像头 -->
     <group if="$(arg use_camera)">
-        <node name="camera_node" pkg="stereo_vision" type="camera_node.py" output="screen">
+        <node name="planning_test_camera_node" pkg="stereo_vision" type="camera_node.py" output="screen">
             <param name="device" value="/dev/video0" />
             <param name="width" value="640" />
             <param name="height" value="480" />

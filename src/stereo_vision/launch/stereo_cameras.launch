@@ -9,7 +9,7 @@
     <arg name="pixel_format" default="mjpeg" /> <!-- 支持 yuyv, mjpeg 等 -->
 
     <!-- 启动摄像头节点 -->
-    <node pkg="stereo_vision" type="camera_node.py" name="camera_node" output="screen">
+    <node pkg="stereo_vision" type="camera_node.py" name="stereo_camera_node" output="screen">
         <param name="device" value="$(arg camera_device)" />
         <param name="width" value="$(arg image_width)" />
         <param name="height" value="$(arg image_height)" />

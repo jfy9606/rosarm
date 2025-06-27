@@ -29,7 +29,7 @@
   <rosparam command="load" file="$(find arm_trajectory)/config/arm_params.yaml" />
 
   <!-- 启动摄像头节点 - 使用OV4689双目摄像头 -->
-  <node name="camera_node" pkg="stereo_vision" type="camera_node.py" output="screen">
+  <node name="demo_camera_node" pkg="stereo_vision" type="camera_node.py" output="screen">
     <param name="device" value="$(arg camera_device)" />
     <param name="width" value="1280" />
     <param name="height" value="480" />
