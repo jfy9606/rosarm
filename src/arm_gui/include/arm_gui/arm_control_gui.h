@@ -333,6 +333,18 @@ private:
     
     // 中继控制命令
     void sendRelayOrder(const std::string& command);
+
+    // 添加摄像头错误处理相关变量
+    QTimer camera_reconnect_timer_; // 摄像头重连定时器
+    int stereo_camera_error_count_; // 摄像头错误计数
+    bool is_camera_available_;      // 摄像头是否可用
+    int available_camera_index_;    // 可用的摄像头索引
+    
+    // 添加摄像头错误处理函数
+    void handleCameraError(const std::string& error_msg);
+    void createPlaceholderImage();
+    void attemptCameraReconnect();
+    bool findAvailableCamera();
 };
 
 #endif // ARM_CONTROL_GUI_H 

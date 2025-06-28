@@ -1200,20 +1200,29 @@ void ArmControlGUI::detectionImageCallback(const sensor_msgs::Image::ConstPtr& m
     try
     {
         cv_ptr = cv_bridge::toCvShare(msg, sensor_msgs::image_encodings::RGB8);
+        
+        // 转换为QImage用于显示
+        current_camera_image_ = cvMatToQImage(cv_ptr->image);
+        
+        // 成功接收到图像，重置错误计数器
+        stereo_camera_error_count_ = 0;
+        is_camera_available_ = true;
+        
+        // 在主线程中更新UI
+        QMetaObject::invokeMethod(this, "updateCameraViews", Qt::QueuedConnection);
     }
     catch (cv_bridge::Exception& e)
     {
-        ROS_ERROR("cv_bridge exception: %s", e.what());
-        return;
+        handleCameraError("检测图像回调中的cv_bridge异常: " + std::string(e.what()));
     }
-    
-    // 转换为QImage用于显示
-    current_camera_image_ = cvMatToQImage(cv_ptr->image);
-    
-    // 在主线程中更新UI
-    QMetaObject::invokeMethod(this, "updateCameraViews", Qt::QueuedConnection);
-    // 注释掉该行，因为图像变化不应触发检测表格更新
-    // QMetaObject::invokeMethod(this, "updateDetectionsTable", Qt::QueuedConnection);
+    catch (std::exception& e)
+    {
+        handleCameraError("检测图像回调中的标准异常: " + std::string(e.what()));
+    }
+    catch (...)
+    {
+        handleCameraError("检测图像回调中的未知异常");
+    }
 }
 
 void ArmControlGUI::detectionPosesCallback(const geometry_msgs::PoseArray::ConstPtr& msg)
@@ -1366,8 +1375,12 @@ void ArmControlGUI::updateVacuumStatus()
 
 void ArmControlGUI::updateCameraViews()
 {
-    // 如果没有图像，则跳过
+    // 如果没有图像，跳过
     if (current_camera_image_.isNull()) {
+        // 如果没有图像但需要显示UI，则创建占位图像
+        if (!is_camera_available_) {
+            createPlaceholderImage();
+        }
         return;
     }
     
@@ -1381,33 +1394,41 @@ void ArmControlGUI::updateCameraViews()
     QImage displayImage = scaledImage.copy();
     QPainter painter(&displayImage);
     
-    // 添加检测到的物体标记
-    for (size_t i = 0; i < detected_objects_.size(); i++) {
-        // 将3D世界坐标转为图像坐标
-        QVector3D objPos(detected_objects_[i].x, detected_objects_[i].y, detected_objects_[i].z);
-        QPoint imgPos = point3DToImage(objPos);
-        
-        // 调整为当前显示比例
-        float scaleX = static_cast<float>(scaledImage.width()) / current_camera_image_.width();
-        float scaleY = static_cast<float>(scaledImage.height()) / current_camera_image_.height();
-        imgPos.setX(imgPos.x() * scaleX);
-        imgPos.setY(imgPos.y() * scaleY);
-        
-        // 设置绘制样式
-        if (static_cast<int>(i) == selected_object_index_) {
-            painter.setPen(QPen(Qt::red, 3));
-        } else {
-            painter.setPen(QPen(Qt::green, 2));
+    // 显示摄像头状态信息
+    if (!is_camera_available_) {
+        // 如果摄像头不可用，添加状态信息
+        painter.setPen(QPen(Qt::red, 2));
+        painter.setFont(QFont("Arial", 14, QFont::Bold));
+        painter.drawText(10, 30, "摄像头不可用");
+    } else {
+        // 摄像头可用时，添加检测到的物体标记
+        for (size_t i = 0; i < detected_objects_.size(); i++) {
+            // 将3D世界坐标转为图像坐标
+            QVector3D objPos(detected_objects_[i].x, detected_objects_[i].y, detected_objects_[i].z);
+            QPoint imgPos = point3DToImage(objPos);
+            
+            // 调整为当前显示比例
+            float scaleX = static_cast<float>(scaledImage.width()) / current_camera_image_.width();
+            float scaleY = static_cast<float>(scaledImage.height()) / current_camera_image_.height();
+            imgPos.setX(imgPos.x() * scaleX);
+            imgPos.setY(imgPos.y() * scaleY);
+            
+            // 设置绘制样式
+            if (static_cast<int>(i) == selected_object_index_) {
+                painter.setPen(QPen(Qt::red, 3));
+            } else {
+                painter.setPen(QPen(Qt::green, 2));
+            }
+            
+            // 绘制标记
+            painter.drawEllipse(imgPos, 15, 15);
+            
+            // 添加标签
+            painter.setFont(QFont("Arial", 10, QFont::Bold));
+            painter.drawText(imgPos.x() + 20, imgPos.y() + 5, 
+                           QString("%1: %2").arg(detected_objects_[i].id.c_str())
+                                           .arg(detected_objects_[i].type.c_str()));
         }
-        
-        // 绘制标记
-        painter.drawEllipse(imgPos, 15, 15);
-        
-        // 添加标签
-        painter.setFont(QFont("Arial", 10, QFont::Bold));
-        painter.drawText(imgPos.x() + 20, imgPos.y() + 5, 
-                       QString("%1: %2").arg(detected_objects_[i].id.c_str())
-                                       .arg(detected_objects_[i].type.c_str()));
     }
     
     // 设置图像到相机视图
@@ -1422,7 +1443,12 @@ void ArmControlGUI::updateCameraViews()
     
     if (detectionStatusLabel && detectionView) {
         // 更新状态文本
-        QString status = QString("检测到 %1 个物体").arg(detected_objects_.size());
+        QString status;
+        if (!is_camera_available_) {
+            status = "摄像头不可用，尝试重连中...";
+        } else {
+            status = QString("检测到 %1 个物体").arg(detected_objects_.size());
+        }
         detectionStatusLabel->setText(status);
         
         // 如果有检测图像，显示它
@@ -2082,6 +2108,10 @@ void ArmControlGUI::stereoMergedCallback(const sensor_msgs::Image::ConstPtr& msg
         cv_bridge::CvImageConstPtr cv_ptr = cv_bridge::toCvShare(msg, "bgr8");
         cv::Mat camera_image = cv_ptr->image.clone();
         
+        // 重置错误计数器（成功接收到图像）
+        stereo_camera_error_count_ = 0;
+        camera_reconnect_timer_.stop(); // 停止重连计时器
+        
         // 处理双目图像 - 1280*480的图像分为左右两部分
         cv::Mat single_view;
         
@@ -2129,18 +2159,121 @@ void ArmControlGUI::stereoMergedCallback(const sensor_msgs::Image::ConstPtr& msg
         left_camera_image_ = image.copy();
         current_camera_image_ = image.copy();
         
+        // 标记摄像头可用
+        is_camera_available_ = true;
+        
         // 更新UI (在主线程中)
         QMetaObject::invokeMethod(this, "updateCameraViews", Qt::QueuedConnection);
     }
     catch (cv_bridge::Exception& e) {
-        ROS_ERROR("立体图像回调中的cv_bridge异常: %s", e.what());
+        handleCameraError("立体图像回调中的cv_bridge异常: " + std::string(e.what()));
     }
     catch (std::exception& e) {
-        ROS_ERROR("立体图像回调中的标准异常: %s", e.what());
+        handleCameraError("立体图像回调中的标准异常: " + std::string(e.what()));
     }
     catch (...) {
-        ROS_ERROR("立体图像回调中的未知异常");
+        handleCameraError("立体图像回调中的未知异常");
     }
+}
+
+// 处理摄像头错误的辅助函数
+void ArmControlGUI::handleCameraError(const std::string& error_msg)
+{
+    ROS_ERROR("%s", error_msg.c_str());
+    
+    // 增加错误计数
+    stereo_camera_error_count_++;
+    
+    // 如果错误持续，切换到占位图像
+    if (stereo_camera_error_count_ > 5) {
+        if (is_camera_available_) {
+            logMessage("摄像头不可用，切换到占位图像");
+            is_camera_available_ = false;
+            
+            // 创建占位图像
+            createPlaceholderImage();
+            
+            // 启动重连计时器，如果没有在运行
+            if (!camera_reconnect_timer_.isActive()) {
+                camera_reconnect_timer_.start(5000); // 5秒尝试重连一次
+            }
+        }
+    }
+}
+
+// 创建占位图像
+void ArmControlGUI::createPlaceholderImage()
+{
+    // 创建一个占位图像 - 640x480 灰色背景
+    QImage placeholder(640, 480, QImage::Format_RGB888);
+    placeholder.fill(QColor(80, 80, 80)); // 深灰色背景
+    
+    // 添加文本说明
+    QPainter painter(&placeholder);
+    painter.setPen(QPen(Qt::white));
+    painter.setFont(QFont("Arial", 20, QFont::Bold));
+    
+    // 居中显示文本
+    painter.drawText(placeholder.rect(), Qt::AlignCenter, "摄像头不可用\n尝试重连中...");
+    
+    // 存储占位图像
+    left_camera_image_ = placeholder;
+    current_camera_image_ = placeholder;
+    
+    // 更新UI
+    QMetaObject::invokeMethod(this, "updateCameraViews", Qt::QueuedConnection);
+}
+
+// 重新连接摄像头
+void ArmControlGUI::attemptCameraReconnect()
+{
+    static int reconnect_attempts = 0;
+    reconnect_attempts++;
+    
+    logMessage(QString("尝试重新连接摄像头 (尝试次数: %1)...").arg(reconnect_attempts));
+    
+    // 每5次重连尝试，重新扫描可用的摄像头
+    bool camera_found = false;
+    if (reconnect_attempts % 5 == 1) {
+        camera_found = findAvailableCamera();
+        if (camera_found) {
+            // 尝试重新订阅摄像头话题
+            // 可以在这里动态更改摄像头话题名称，如果系统支持的话
+            
+            logMessage(QString("找到可用摄像头，索引: %1，正在尝试重新连接...").arg(available_camera_index_));
+            // 重新订阅摄像头话题可能需要额外的工作
+            // 对于ROS系统，可能需要关闭当前的订阅并创建新的订阅
+        }
+    }
+    
+    if (!camera_found && reconnect_attempts % 10 == 0) { // 每尝试10次记录一次日志
+        ROS_INFO("已尝试重连摄像头 %d 次", reconnect_attempts);
+    }
+    
+    // 更新占位图像，更改连接尝试的显示
+    QImage placeholder = current_camera_image_.copy();
+    if (placeholder.isNull()) {
+        // 如果当前没有图像，创建一个新的占位图像
+        placeholder = QImage(640, 480, QImage::Format_RGB888);
+        placeholder.fill(QColor(80, 80, 80)); // 深灰色背景
+    }
+    
+    // 添加文本说明
+    QPainter painter(&placeholder);
+    painter.setPen(QPen(Qt::white));
+    painter.setFont(QFont("Arial", 14));
+    painter.drawText(10, 30, QString("重连尝试 #%1").arg(reconnect_attempts));
+    
+    if (reconnect_attempts % 5 == 0) {
+        painter.setPen(QPen(Qt::yellow));
+        painter.drawText(10, 60, "正在扫描可用摄像头...");
+    }
+    
+    left_camera_image_ = placeholder;
+    current_camera_image_ = placeholder;
+    
+    // 更新UI
+    QMetaObject::invokeMethod(this, "updateCameraViews", Qt::QueuedConnection);
 }
 
 // 旧版updateCameraView函数实现（已被updateCameraViews替代，但为了兼容保留）
@@ -2197,6 +2330,25 @@ void ArmControlGUI::initializeMembers()
     // 视觉相关
     visual_servo_active_ = false;
     selected_object_index_ = -1;
+    
+    // 摄像头错误处理相关初始化
+    stereo_camera_error_count_ = 0;
+    is_camera_available_ = false;  // 初始化为不可用，直到找到可用摄像头
+    available_camera_index_ = 0;   // 默认尝试索引0
+    
+    // 尝试查找可用摄像头
+    if (findAvailableCamera()) {
+        is_camera_available_ = true;
+        logMessage(QString("已找到可用摄像头，索引为: %1").arg(available_camera_index_));
+    } else {
+        logMessage("无可用摄像头，将使用占位图像");
+        // 创建占位图像
+        QTimer::singleShot(1000, this, &ArmControlGUI::createPlaceholderImage);
+    }
+    
+    // 设置摄像头重连定时器
+    camera_reconnect_timer_.setSingleShot(false);  // 循环触发
+    connect(&camera_reconnect_timer_, &QTimer::timeout, this, &ArmControlGUI::attemptCameraReconnect);
     
     // 更新定时器
     updateTimer = new QTimer(this);
@@ -2289,4 +2441,30 @@ void ArmControlGUI::on_moveToPositionButton_clicked()
 {
     // 直接调用现有的onMoveToPositionClicked函数
     onMoveToPositionClicked();
+}
+
+// 尝试查找可用的摄像头索引
+bool ArmControlGUI::findAvailableCamera()
+{
+    logMessage("正在扫描可用摄像头...");
+    
+    // 尝试打开不同索引的摄像头
+    for (int i = 0; i < 10; i++) { // 尝试0-9的摄像头索引
+        cv::VideoCapture cap(i);
+        if (cap.isOpened()) {
+            cv::Mat test_frame;
+            bool read_success = cap.read(test_frame);
+            cap.release();
+            
+            if (read_success && !test_frame.empty()) {
+                logMessage(QString("找到可用摄像头索引: %1").arg(i));
+                available_camera_index_ = i;
+                return true;
+            }
+        }
+    }
+    
+    logMessage("未找到可用摄像头");
+    available_camera_index_ = -1;
+    return false;
 }

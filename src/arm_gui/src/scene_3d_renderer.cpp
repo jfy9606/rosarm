@@ -367,12 +367,12 @@ void Scene3DRenderer::renderRobot()
     
     try {
         // 从关节值中提取关节角度
-        float theta1 = robot_joints_[0];         // 底座旋转角度 (弧度)
-        float d2 = robot_joints_[1] / 100.0f;    // 伸缩关节长度 (米)
-        float theta3 = robot_joints_[2];         // 肩部关节角度 (弧度)
-        float theta4 = robot_joints_[3];         // 肘部关节角度 (弧度)
-        float theta5 = robot_joints_[4];         // 固定关节角度 (弧度，通常为π/2)
-        float d6 = robot_joints_[5] / 100.0f;    // 末端伸缩长度 (米)
+        float theta1 = static_cast<float>(robot_joints_[0]);         // 底座旋转角度 (弧度)
+        float d2 = static_cast<float>(robot_joints_[1] / 100.0f);    // 伸缩关节长度 (米)
+        float theta3 = static_cast<float>(robot_joints_[2]);         // 肩部关节角度 (弧度)
+        float theta4 = static_cast<float>(robot_joints_[3]);         // 肘部关节角度 (弧度)
+        float theta5 = static_cast<float>(robot_joints_[4]);         // 固定关节角度 (弧度，通常为π/2)
+        float d6 = static_cast<float>(robot_joints_[5] / 100.0f);    // 末端伸缩长度 (米)
         
         // 防止值无效
         if (std::isnan(theta1) || std::isnan(d2) || std::isnan(theta3) || std::isnan(theta4) || std::isnan(theta5) || std::isnan(d6)) {
@@ -381,14 +381,17 @@ void Scene3DRenderer::renderRobot()
             d2 = 0.0f;
             theta3 = 0.0f;
             theta4 = 0.0f;
-            theta5 = M_PI/2.0f;
+            theta5 = static_cast<float>(M_PI/2.0);
             d6 = 0.05f;
         }
         
-        // 限制值的范围
+        // 限制值的范围，确保所有参数类型一致
+        const float PI_HALF_F = static_cast<float>(M_PI/2.0);
+        const float PI_F = static_cast<float>(M_PI);
+        
         d2 = std::max(0.0f, std::min(0.43f, d2));
-        theta3 = std::max(-M_PI/2.0f, std::min(M_PI/2.0f, theta3));
-        theta4 = std::max(0.0f, std::min(M_PI, theta4));
+        theta3 = std::max(-PI_HALF_F, std::min(PI_HALF_F, theta3));
+        theta4 = std::max(0.0f, std::min(PI_F, theta4));
         d6 = std::max(0.05f, std::min(0.15f, d6));
         
         // 设置材质颜色

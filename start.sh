@@ -75,6 +75,8 @@ fix_permissions() {
     fi
     
     echo -e "${BLUE}=====================================${NC}"
+    echo -e "${GREEN}权限修复完成，按任意键继续...${NC}"
+    read -r -n 1
 }
 
 # 自动检测串口设备
@@ -96,6 +98,9 @@ detect_ports() {
     if [ "${PORT_COUNT}" -eq 0 ]; then
         echo -e "${RED}未检测到任何串口设备${NC}"
         echo -e "${YELLOW}请检查USB连接或设备驱动${NC}"
+        # 添加按键继续
+        echo -e "${YELLOW}按任意键继续...${NC}"
+        read -r -n 1
         return 1
     fi
     
@@ -119,7 +124,7 @@ detect_ports() {
         echo -e "${CYAN}测试串口 ${port}...${NC}"
         
         # 保存原始串口权限
-        local original_perm=$(stat -c %a "$port")
+        local original_perm=$(stat -c %a "$port" 2>/dev/null)
         
         # 设置串口权限
         sudo chmod 666 "$port" 2>/dev/null
@@ -137,7 +142,7 @@ detect_ports() {
             # 尝试与设备通信
             {
                 # 设置串口参数
-                stty -F "$port" $baud -echo raw
+                stty -F "$port" $baud -echo raw 2>/dev/null
                 # 短暂延迟
                 sleep 0.2
                 
@@ -146,17 +151,17 @@ detect_ports() {
                 
                 # 尝试发送无害的命令并读取响应
                 # 这里使用timeout命令限制等待时间
-                timeout 0.5 cat "$port" > "$log_file" &
+                timeout 0.5 cat "$port" > "$log_file" 2>/dev/null &
                 local cat_pid=$!
                 
                 # 根据波特率发送对应的查询命令
                 if [ "$baud" == "1000000" ]; then
                     # SCS舵机的查询命令 (0xFF 0xFD ID 0x01 0x00 CHKSUM)
-                    echo -en '\xFF\xFD\x01\x01\x00\xFF' > "$port"
+                    echo -en '\xFF\xFD\x01\x01\x00\xFF' > "$port" 2>/dev/null
                 else
                     # 电机控制器的查询命令 (使用简单的读取状态命令)
                     # 这里使用的是基本查询命令，需要根据实际协议调整
-                    echo -en '\x03\x0b\x00\x00\x01' > "$port"
+                    echo -en '\x03\x0b\x00\x00\x01' > "$port" 2>/dev/null
                 fi
                 
                 sleep 0.3
@@ -165,7 +170,7 @@ detect_ports() {
                 kill -9 $cat_pid 2>/dev/null
                 
                 # 检查是否有响应数据
-                local response_size=$(wc -c < "$log_file")
+                local response_size=$(wc -c < "$log_file" 2>/dev/null || echo "0")
                 
                 if [ "$response_size" -gt 0 ]; then
                     echo -e "${GREEN}串口 ${port} 在 ${baud} 波特率下有响应 (${response_size} 字节)${NC}"
@@ -179,11 +184,13 @@ detect_ports() {
                     fi
                     break
                 fi
-            } &>/dev/null
+            } 2>/dev/null || true
         done
         
         # 恢复原始权限
-        sudo chmod "$original_perm" "$port" 2>/dev/null
+        if [ -n "$original_perm" ]; then
+            sudo chmod "$original_perm" "$port" 2>/dev/null
+        fi
         
         if [ -n "$device_type" ]; then
             echo -e "${GREEN}在 ${port} 检测到 ${device_type}！${NC}"
@@ -291,7 +298,7 @@ detect_ports() {
     fi
     
     # 5. 清理临时文件
-    rm -rf "$TEMP_DIR"
+    rm -rf "$TEMP_DIR" 2>/dev/null
     
     # 6. 更新launch文件配置
     if [ -n "$DETECTED_SERVO_PORT" ] && [ -n "$DETECTED_MOTOR_PORT" ]; then
@@ -301,13 +308,13 @@ detect_ports() {
         LAUNCH_FILE="$WORKSPACE_DIR/src/arm_trajectory/launch/visual_servo.launch"
         if [ -f "${LAUNCH_FILE}" ]; then
             # 备份原始文件
-            cp "${LAUNCH_FILE}" "${LAUNCH_FILE}.bak"
+            cp "${LAUNCH_FILE}" "${LAUNCH_FILE}.bak" 2>/dev/null
             
             # 更新串口配置
-            sed -i "s|<arg name=\"servo_port\" default=\"/dev/ttyUSB[0-9]*\"|<arg name=\"servo_port\" default=\"${DETECTED_SERVO_PORT}\"|g" "${LAUNCH_FILE}"
-            sed -i "s|<arg name=\"servo_port\" default=\"/dev/ttyACM[0-9]*\"|<arg name=\"servo_port\" default=\"${DETECTED_SERVO_PORT}\"|g" "${LAUNCH_FILE}"
-            sed -i "s|<arg name=\"motor_port\" default=\"/dev/ttyUSB[0-9]*\"|<arg name=\"motor_port\" default=\"${DETECTED_MOTOR_PORT}\"|g" "${LAUNCH_FILE}"
-            sed -i "s|<arg name=\"motor_port\" default=\"/dev/ttyACM[0-9]*\"|<arg name=\"motor_port\" default=\"${DETECTED_MOTOR_PORT}\"|g" "${LAUNCH_FILE}"
+            sed -i "s|<arg name=\"servo_port\" default=\"/dev/ttyUSB[0-9]*\"|<arg name=\"servo_port\" default=\"${DETECTED_SERVO_PORT}\"|g" "${LAUNCH_FILE}" 2>/dev/null
+            sed -i "s|<arg name=\"servo_port\" default=\"/dev/ttyACM[0-9]*\"|<arg name=\"servo_port\" default=\"${DETECTED_SERVO_PORT}\"|g" "${LAUNCH_FILE}" 2>/dev/null
+            sed -i "s|<arg name=\"motor_port\" default=\"/dev/ttyUSB[0-9]*\"|<arg name=\"motor_port\" default=\"${DETECTED_MOTOR_PORT}\"|g" "${LAUNCH_FILE}" 2>/dev/null
+            sed -i "s|<arg name=\"motor_port\" default=\"/dev/ttyACM[0-9]*\"|<arg name=\"motor_port\" default=\"${DETECTED_MOTOR_PORT}\"|g" "${LAUNCH_FILE}" 2>/dev/null
             
             echo -e "${GREEN}已更新 ${LAUNCH_FILE} 中的串口配置${NC}"
             echo -e "${YELLOW}按任意键继续...${NC}"
@@ -360,9 +367,6 @@ EOF
     echo -e "${GREEN}已创建日志配置文件: ${LOG_CONFIG_FILE}${NC}"
     echo -e "${BLUE}=====================================${NC}"
 }
-
-# 执行权限修复
-fix_permissions
 
 # 检查ROS环境
 if [ -z "$ROS_DISTRO" ]; then
@@ -476,6 +480,7 @@ show_menu() {
         echo -e "${YELLOW}1. 启动视觉控制系统${NC}"
         echo -e "${YELLOW}2. 检测串口设备${NC}"
         echo -e "${YELLOW}3. 配置参数${NC}"
+        echo -e "${YELLOW}4. 修复系统权限${NC}"
         echo -e "${YELLOW}0. 退出${NC}"
         echo -e "${BLUE}=====================================${NC}"
         echo -e "${CYAN}功能说明:${NC}"
@@ -495,6 +500,9 @@ show_menu() {
                 ;;
             3)
                 configure_params
+                ;;
+            4)
+                fix_permissions
                 ;;
             0)
                 echo -e "${GREEN}退出程序${NC}"
