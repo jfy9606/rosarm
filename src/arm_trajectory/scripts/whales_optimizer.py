@@ -56,9 +56,8 @@ def forward_kinematics_dh(joint_values, dh_params=None):
 class WhaleOptimizer:
     """
     鲸鱼优化算法 (Whale Optimization Algorithm, WOA)
-    基于examples/path/001fkine&ifineC+中的实现优化
     """
-    def __init__(self, num_whales=30, dim=6, max_iter=100, lb=None, ub=None, robot=None, target_T=None):
+    def __init__(self, num_whales=30, dim=6, max_iter=100, lb=None, ub=None, **kwargs):
         """
         初始化优化器
         
@@ -68,8 +67,7 @@ class WhaleOptimizer:
             max_iter: 最大迭代次数
             lb: 下界 [θ1_min, d2_min, θ3_min, θ4_min, θ5_min, d6_min]
             ub: 上界 [θ1_max, d2_max, θ3_max, θ4_max, θ5_max, d6_max]
-            robot: 机器人模型 (如果为None则使用默认DH参数)
-            target_T: 目标变换矩阵
+            **kwargs: 额外参数，兼容不同调用方式
         """
         self.num_whales = num_whales
         self.dim = dim
@@ -86,13 +84,14 @@ class WhaleOptimizer:
         else:
             self.ub = np.array(ub)
         
-        self.robot = robot
-        self.target_T = target_T
+        self.target_T = None
         
         # 初始化最优解
         self.best_position = None
         self.best_fitness = float('inf')
         self.fitness_history = []
+        
+        rospy.loginfo("WhaleOptimizer初始化完成")
     
     def calculate_fitness(self, position):
         """
@@ -105,13 +104,11 @@ class WhaleOptimizer:
         Returns:
             fitness: 适应度值 (越小越好)
         """
+        if self.target_T is None:
+            return float('inf')
+            
         # 计算当前关节配置的末端位置
-        if self.robot is not None:
-            # 如果提供了机器人模型，使用它计算正向运动学
-            T = self.robot.fkine(position)
-        else:
-            # 否则使用默认DH参数
-            T = forward_kinematics_dh(position)
+        T = forward_kinematics_dh(position)
         
         # 计算位置误差
         position_error = np.linalg.norm(T[:3, 3] - self.target_T[:3, 3])
@@ -214,10 +211,12 @@ class WhaleOptimizer:
         
         return self.best_position, self.best_fitness
     
-    def getBestPosition(self):
-        """获取最佳位置"""
-        return self.best_position.tolist() if self.best_position is not None else None
-    
-    def getBestFitness(self):
-        """获取最佳适应度"""
-        return self.best_fitness 
+    def optimize(self, target_T, initial_joints=None):
+        """兼容SimpleOptimizer接口的方法"""
+        self.target_T = target_T
+        best_position, best_fitness = self.run()
+        return best_position, best_fitness, self.fitness_history
+
+# 在导入时打印一条消息，帮助调试
+if __name__ != "__main__":
+    rospy.loginfo("成功导入WhaleOptimizer模块") 

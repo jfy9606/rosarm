@@ -12,153 +12,32 @@ from std_msgs.msg import Bool
 from arm_trajectory.srv import PlanTrajectory, PlanTrajectoryRequest, PlanTrajectoryResponse
 from arm_trajectory.msg import TrajectoryPath, TrajectoryPoint
 
-# 定义一个简单的备选优化器类
-class SimpleOptimizer:
-    """简单的优化器，作为WhaleOptimizer的替代"""
-    
-    def __init__(self, 
-                 num_particles=30,
-                 max_iter=100, 
-                 forward_kinematics_func=None,
-                 dh_params=None,
-                 joint_limits=None):
-        """初始化简单优化器"""
-        self.num_particles = num_particles
-        self.max_iter = max_iter
-        self.forward_kinematics = forward_kinematics_func
-        self.dh_params = dh_params
-        
-        # 默认关节限制
-        if joint_limits is None:
-            # 默认限制 [theta1, d2, theta3, theta4, theta5, d6]
-            self.joint_limits = [
-                [-pi, pi],      # theta1 (rad)
-                [0, 43],       # d2 (cm)
-                [-pi/2, pi/2], # theta3 (rad)
-                [0, pi],       # theta4 (rad)
-                [pi/2, pi/2],  # theta5 (rad, fixed)
-                [5, 15]        # d6 (cm)
-            ]
-        else:
-            self.joint_limits = joint_limits
-        
-        self.dim = len(self.joint_limits)
-        rospy.loginfo(f"初始化SimpleOptimizer，替代WhaleOptimizer")
-    
-    def random_joint_config(self):
-        """生成随机关节配置"""
-        config = []
-        for i in range(self.dim):
-            min_val, max_val = self.joint_limits[i]
-            config.append(np.random.uniform(min_val, max_val))
-        return np.array(config)
-    
-    def clamp_joints(self, joints):
-        """限制关节在有效范围内"""
-        for i in range(self.dim):
-            min_val, max_val = self.joint_limits[i]
-            joints[i] = max(min_val, min(max_val, joints[i]))
-        return joints
-    
-    def transformation_error(self, T1, T2):
-        """计算两个变换矩阵之间的误差"""
-        # 位置误差 - 欧几里得距离
-        pos_error = np.linalg.norm(T1[:3, 3] - T2[:3, 3])
-        
-        # 方向误差 - 使用旋转矩阵差异
-        R1 = T1[:3, :3]
-        R2 = T2[:3, :3]
-        orientation_error = np.linalg.norm(R1 - R2, 'fro') / np.sqrt(6)
-        
-        # 权重位置与方向
-        position_weight = 0.7
-        orientation_weight = 0.3
-        
-        return position_weight * pos_error + orientation_weight * orientation_error
-    
-    def fitness_function(self, joints, target_T):
-        """基于当前和目标姿态之间的变换误差计算适应度"""
-        current_T = self.forward_kinematics(joints)
-        error = self.transformation_error(current_T, target_T)
-        return error
-    
-    def optimize(self, target_T, initial_joints=None):
-        """运行优化以找到达到目标姿态的关节配置"""
-        # 初始化粒子群
-        particles = np.zeros((self.num_particles, self.dim))
-        
-        # 如果提供了初始关节，则从那里开始
-        if initial_joints is not None:
-            particles[0] = initial_joints
-            for i in range(1, self.num_particles):
-                particles[i] = self.random_joint_config()
-        else:
-            for i in range(self.num_particles):
-                particles[i] = self.random_joint_config()
-        
-        # 初始化最佳粒子位置
-        fitness = np.zeros(self.num_particles)
-        for i in range(self.num_particles):
-            fitness[i] = self.fitness_function(particles[i], target_T)
-        
-        best_idx = np.argmin(fitness)
-        best_particle = particles[best_idx].copy()
-        best_fitness = fitness[best_idx]
-        
-        # 初始化跟踪变量
-        fitness_history = []
-        
-        # 主优化循环
-        for iteration in range(self.max_iter):
-            # 更新每个粒子位置
-            for i in range(self.num_particles):
-                # 随机扰动
-                particles[i] = particles[i] + np.random.normal(0, 0.1, self.dim)
-                
-                # 向最佳粒子移动
-                particles[i] = particles[i] + 0.1 * (best_particle - particles[i])
-                
-                # 限制关节范围
-                particles[i] = self.clamp_joints(particles[i])
-                
-                # 更新适应度
-                fitness[i] = self.fitness_function(particles[i], target_T)
-            
-            # 更新最佳粒子
-            new_best_idx = np.argmin(fitness)
-            if fitness[new_best_idx] < best_fitness:
-                best_particle = particles[new_best_idx].copy()
-                best_fitness = fitness[new_best_idx]
-            
-            # 存储此迭代的最佳适应度
-            fitness_history.append(best_fitness)
-            
-            # 每10次迭代记录一次进度
-            if iteration % 10 == 0 or iteration == self.max_iter - 1:
-                rospy.loginfo(f"迭代 {iteration}: 最佳适应度 = {best_fitness}")
-        
-        return best_particle, best_fitness, fitness_history
-
-# 尝试导入WhaleOptimizer
+# 导入WhaleOptimizer
 try:
-    # 直接从当前目录导入
-    import sys
-    import os
-    
     # 获取当前脚本目录路径
     current_dir = os.path.dirname(os.path.abspath(__file__))
     
-    # 将当前目录添加到Python路径
-    if current_dir not in sys.path:
-        sys.path.append(current_dir)
+    # 导入鲸鱼优化器
+    whales_file = os.path.join(current_dir, "whales_optimizer.py")
+    if not os.path.exists(whales_file):
+        raise ImportError(f"找不到文件: {whales_file}")
     
-    # 直接从文件导入类
-    from whales_optimizer import WhaleOptimizer, forward_kinematics_dh
+    # 使用exec执行文件内容
+    whale_namespace = {}
+    with open(whales_file, 'r') as f:
+        exec(f.read(), whale_namespace)
+    
+    # 从命名空间获取所需类和函数
+    WhaleOptimizer = whale_namespace.get("WhaleOptimizer")
+    forward_kinematics_dh = whale_namespace.get("forward_kinematics_dh")
+    
+    if not WhaleOptimizer or not forward_kinematics_dh:
+        raise ImportError("WhaleOptimizer或forward_kinematics_dh在whales_optimizer.py中不存在")
+        
     rospy.loginfo("成功导入WhaleOptimizer")
-except ImportError as e:
+except Exception as e:
     rospy.logerr(f"导入WhaleOptimizer失败: {e}")
-    rospy.loginfo("将使用备选优化方法")
-    use_whale_optimizer = False
+    raise ImportError(f"无法导入WhaleOptimizer，系统需要此优化器: {e}")
 
 class CoordinateSystem:
     """机械臂工作空间坐标系统"""
@@ -343,23 +222,14 @@ class PathPlanner:
         self.coord_system = coordinate_system
         self.arm_config = arm_config
         
-        # 初始化优化器，根据导入情况选择
-        if use_whale_optimizer:
-            rospy.loginfo("使用WhaleOptimizer进行路径规划")
-            self.optimizer = WhaleOptimizer(
-                num_whales=arm_config["optimizer"]["population_size"],
-                max_iter=arm_config["optimizer"]["max_iterations"],
-                forward_kinematics_func=lambda joints: forward_kinematics_dh(joints, arm_config["dh_params"]),
-                joint_limits=arm_config["joint_limits"]
-            )
-        else:
-            rospy.loginfo("使用SimpleOptimizer进行路径规划")
-            self.optimizer = SimpleOptimizer(
-                num_particles=arm_config["optimizer"]["population_size"],
-                max_iter=arm_config["optimizer"]["max_iterations"],
-                forward_kinematics_func=lambda joints: forward_kinematics_dh(joints, arm_config["dh_params"]),
-                joint_limits=arm_config["joint_limits"]
-            )
+        # 初始化鲸鱼优化器
+        rospy.loginfo("使用WhaleOptimizer进行路径规划")
+        self.optimizer = WhaleOptimizer(
+            num_whales=arm_config["optimizer"]["population_size"],
+            max_iter=arm_config["optimizer"]["max_iterations"],
+            lb=[limit[0] for limit in arm_config["joint_limits"]],
+            ub=[limit[1] for limit in arm_config["joint_limits"]]
+        )
         
         # 初始化路径可视化发布器
         self.path_marker_pub = rospy.Publisher('/path_visualization', MarkerArray, queue_size=1)
@@ -378,8 +248,12 @@ class PathPlanner:
         if initial_joints is None:
             initial_joints = self.arm_config['default_pose']
         
-        # 使用鲸鱼优化算法求解
-        best_joints, fitness, _ = self.optimizer.optimize(target_pose, initial_joints)
+        # 设置优化器的目标矩阵
+        self.optimizer.target_T = target_pose
+        
+        # 运行优化器
+        best_joints, fitness = self.optimizer.run()
+        
         return best_joints, fitness
     
     def plan_path(self, start_joints, target_pose, steps=10, avoid_obstacles=True):

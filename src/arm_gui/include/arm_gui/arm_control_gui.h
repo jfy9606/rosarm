@@ -152,6 +152,7 @@ private slots:
     void on_gripperCloseButton_clicked();
     void on_vacuumOnButton_clicked();
     void on_vacuumOffButton_clicked();
+    void on_moveToPositionButton_clicked();
     
     // 更新UI
     void updateUI();
@@ -177,12 +178,9 @@ private slots:
     void onVacuumOnButtonClicked();
     void onVacuumOffButtonClicked();
     
-    // 路径规划与视觉控制槽
+    // 视觉控制槽
     void onPickButtonClicked();
     void onPlaceButtonClicked();
-    void onScanObjectsClicked();
-    void onExecutePathClicked();
-    void onVisualizeWorkspaceClicked();
     
     // 菜单操作槽
     void onOpenTaskSequence();

@@ -12,6 +12,8 @@
 #include <QLabel>
 #include <QComboBox>
 #include <QSizePolicy>
+#include <QDebug>
+#include <stdexcept>
 
 #include <sensor_msgs/JointState.h>
 #include <std_msgs/String.h>
@@ -278,7 +280,61 @@ void ArmControlGUI::initializeROS()
 
 void ArmControlGUI::initializeOpenGL()
 {
-    // 这里不需要额外的初始化，Scene3DRenderer会自行初始化
+    qDebug() << "开始初始化3D渲染环境...";
+    
+    // 检查是否已经创建了scene_3d_renderer_
+    if (scene_3d_renderer_) {
+        qDebug() << "警告: 3D渲染器已存在，先删除旧实例";
+        delete scene_3d_renderer_;
+        scene_3d_renderer_ = nullptr;
+    }
+    
+    // 检查openGLView是否有效
+    if (!ui->openGLView) {
+        qDebug() << "错误: openGLView为空";
+        return;
+    }
+    
+    // 确保QWidget有合适的尺寸
+    ui->openGLView->setMinimumSize(200, 200);
+    
+    // 创建新的布局（如果已有布局则先清除）
+    QLayout* oldLayout = ui->openGLView->layout();
+    if (oldLayout) {
+        qDebug() << "移除旧布局";
+        delete oldLayout;
+    }
+    
+    // 创建新布局
+    QHBoxLayout* layout = new QHBoxLayout(ui->openGLView);
+    layout->setContentsMargins(0, 0, 0, 0);
+    ui->openGLView->setLayout(layout);
+    
+    try {
+        // 创建3D渲染器实例
+        scene_3d_renderer_ = new Scene3DRenderer(ui->openGLView);
+        if (!scene_3d_renderer_) {
+            qDebug() << "错误: 无法创建3D渲染器实例";
+            return;
+        }
+        
+        // 添加到布局
+        layout->addWidget(scene_3d_renderer_);
+        
+        // 连接信号
+        connect(scene_3d_renderer_, &Scene3DRenderer::objectSelected, 
+                this, &ArmControlGUI::on3DViewObjectSelected);
+        
+        // 更新场景
+        updateScene3D();
+        
+        qDebug() << "3D渲染初始化成功完成";
+    } catch (const std::exception& e) {
+        qDebug() << "3D渲染初始化异常:" << e.what();
+    } catch (...) {
+        qDebug() << "3D渲染初始化未知异常";
+    }
+    
     logMessage("3D渲染初始化完成");
 }
 
@@ -305,17 +361,24 @@ void ArmControlGUI::setupCameraParameters()
 void ArmControlGUI::updateScene3D()
 {
     if (!scene_3d_renderer_) {
+        qDebug() << "updateScene3D: 3D渲染器未初始化";
         return;
     }
-        
+    
+    try {
         // 更新场景中的物体
         updateSceneObjects();
-    
-    // 更新机械臂姿态
-    scene_3d_renderer_->setRobotPose(current_joint_values_);
-    
-    // 更新选中的物体
-    scene_3d_renderer_->setSelectedObject(selected_object_index_);
+        
+        // 更新机械臂姿态
+        scene_3d_renderer_->setRobotPose(current_joint_values_);
+        
+        // 更新选中的物体
+        scene_3d_renderer_->setSelectedObject(selected_object_index_);
+    } catch (const std::exception& e) {
+        qDebug() << "updateScene3D异常:" << e.what();
+    } catch (...) {
+        qDebug() << "updateScene3D未知异常";
+    }
 }
 
 // 更新场景中的物体
@@ -324,50 +387,58 @@ void ArmControlGUI::updateSceneObjects()
     // 清空场景中的物体
     scene_objects_.clear();
     
-    // 场景中添加原点（坐标系中心）
-    scene_objects_.push_back(std::make_pair(QVector3D(0, 0, 0), QColor(255, 255, 255)));
-    
-    // 计算机械臂末端位置
-    geometry_msgs::Pose end_effector_pose = jointsToPos(current_joint_values_);
-    
-    // 将末端位置添加到场景
-    scene_objects_.push_back(std::make_pair(
-        QVector3D(end_effector_pose.position.x * 100, // 米转厘米
-                 end_effector_pose.position.y * 100,
-                 end_effector_pose.position.z * 100),
-        QColor(0, 255, 0)));
-    
-    // 添加检测到的物体
-    for (const DetectedObject& obj : detected_objects_) {
-        // 确定物体的颜色
-        QColor color(255, 0, 0); // 默认红色
+    try {
+        // 场景中添加原点（坐标系中心）
+        scene_objects_.push_back(std::make_pair(QVector3D(0, 0, 0), QColor(255, 255, 255)));
         
-        // 如果是水果，使用不同颜色
-        if (obj.type == "apple") {
-            color = QColor(255, 0, 0); // 红色
-        } else if (obj.type == "banana") {
+        // 计算机械臂末端位置
+        geometry_msgs::Pose end_effector_pose = jointsToPos(current_joint_values_);
+        
+        // 将末端位置添加到场景
+        scene_objects_.push_back(std::make_pair(
+            QVector3D(end_effector_pose.position.x * 100, // 米转厘米
+                     end_effector_pose.position.y * 100,
+                     end_effector_pose.position.z * 100),
+            QColor(0, 255, 0)));
+        
+        // 添加检测到的物体
+        for (const DetectedObject& obj : detected_objects_) {
+            // 确定物体的颜色
+            QColor color(255, 0, 0); // 默认红色
+            
+            // 如果是水果，使用不同颜色
+            if (obj.type == "apple") {
+                color = QColor(255, 0, 0); // 红色
+            } else if (obj.type == "banana") {
                 color = QColor(255, 255, 0); // 黄色
-        } else if (obj.type == "orange") {
-            color = QColor(255, 165, 0); // 橙色
-        } else if (obj.type == "tomato") {
-            color = QColor(255, 99, 71); // 番茄红
+            } else if (obj.type == "orange") {
+                color = QColor(255, 165, 0); // 橙色
+            } else if (obj.type == "tomato") {
+                color = QColor(255, 99, 71); // 番茄红
+            }
+            
+            // 将相机坐标系中的点转换到世界坐标系
+            QVector4D position_camera(obj.x / 100.0f, obj.y / 100.0f, obj.z / 100.0f, 1.0f); // 厘米转米
+            QVector4D position_world = camera_extrinsic_.inverted() * position_camera;
+            
+            // 添加到场景中
+            scene_objects_.push_back(std::make_pair(
+                QVector3D(position_world.x() * 100, // 米转厘米
+                         position_world.y() * 100,
+                         position_world.z() * 100),
+                color));
         }
         
-        // 将相机坐标系中的点转换到世界坐标系
-        QVector4D position_camera(obj.x / 100.0f, obj.y / 100.0f, obj.z / 100.0f, 1.0f); // 厘米转米
-        QVector4D position_world = camera_extrinsic_.inverted() * position_camera;
-        
-        // 添加到场景中
-        scene_objects_.push_back(std::make_pair(
-            QVector3D(position_world.x() * 100, // 米转厘米
-                     position_world.y() * 100,
-                     position_world.z() * 100),
-            color));
-    }
-    
-    // 更新3D渲染器
-    if (scene_3d_renderer_) {
-    scene_3d_renderer_->updateObjects(scene_objects_);
+        // 更新3D渲染器
+        if (scene_3d_renderer_) {
+            scene_3d_renderer_->updateObjects(scene_objects_);
+        } else {
+            qDebug() << "updateSceneObjects: 3D渲染器为空";
+        }
+    } catch (const std::exception& e) {
+        qDebug() << "updateSceneObjects异常:" << e.what();
+    } catch (...) {
+        qDebug() << "updateSceneObjects未知异常";
     }
 }
 
@@ -1650,46 +1721,7 @@ void ArmControlGUI::yoloStatusCallback(const std_msgs::Bool::ConstPtr& msg)
 
 // YOLO检测功能已移除
 
-// 添加路径规划相关的槽函数
-void ArmControlGUI::onScanObjectsClicked()
-{
-    logMessage("开始扫描物体...");
-    
-    // 发送扫描命令 - 使用前进行物体扫描
-    std_msgs::String cmd_msg;
-    cmd_msg.data = "scan";
-    arm_command_pub_.publish(cmd_msg);
-    
-    // 显示状态信息
-    ui->statusbar->showMessage("正在扫描工作区域内的物体...", 2000);
-    logMessage("扫描工作区域内的物体");
-}
-
-void ArmControlGUI::onExecutePathClicked()
-{
-    logMessage("执行规划的路径...");
-    
-    // 发送执行命令
-    std_msgs::String cmd_msg;
-    cmd_msg.data = "execute";
-    arm_command_pub_.publish(cmd_msg);
-    
-    // 更新状态栏
-    ui->statusbar->showMessage("正在执行路径规划动作...", 3000);
-}
-
-void ArmControlGUI::onVisualizeWorkspaceClicked()
-{
-    logMessage("可视化工作空间...");
-    
-    // 发送可视化命令
-    std_msgs::String cmd_msg;
-    cmd_msg.data = "visualize_workspace";
-    arm_command_pub_.publish(cmd_msg);
-    
-    // 更新状态栏
-    ui->statusbar->showMessage("正在可视化工作空间...", 3000);
-}
+// 路径规划相关的槽函数已移除
 
 // 新增统一的物体检测回调函数，处理YOLO格式的检测结果
 void ArmControlGUI::objectDetectionCallback(const sensor_msgs::Image::ConstPtr& img_msg, 
@@ -1930,42 +1962,47 @@ void ArmControlGUI::on_homeButton_clicked()
 
 void ArmControlGUI::on_stopButton_clicked()
 {
-    // 停止所有运动
-    std_msgs::String cmd_msg;
-    cmd_msg.data = "stop arm1";
-    arm_command_pub_.publish(cmd_msg);
-    logMessage("停止所有运动");
+    // 发送停止命令
+    logMessage("紧急停止");
+    
+    // 停止所有电机
+    sendMotorOrder(0xFF, 0x09, 0, 0, 0, false, 0, 0);
+    
+    // 通过向ROS发布停止命令来停止机械臂
+    std_msgs::String stop_cmd;
+    stop_cmd.data = "stop";
+    arm_command_pub_.publish(stop_cmd);
 }
 
 void ArmControlGUI::on_moveButton_clicked()
 {
+    // 实际使用的是moveToPositionButton或其他按钮
+    // 这是为了兼容自动连接槽函数的调用
     onMoveToPositionClicked();
 }
 
 void ArmControlGUI::on_gripperOpenButton_clicked()
 {
-    logMessage("打开夹持器");
+    logMessage("打开夹爪");
     
-    // 参照示例动作1中的夹持电机实现
-    // 打开夹持器对应夹持电机归零
-    sendMotorOrder(1, 11, 0, 0, 0, true, 0, 30);
-    QApplication::processEvents();
-    
-    // 同时发送标准的夹持器命令以保持兼容性
+    // 发送夹爪开命令
     sendGripperCommand(true);
+    
+    // 更新UI状态
+    gripper_open_ = true;
+    updateUI();
 }
 
 void ArmControlGUI::on_gripperCloseButton_clicked()
 {
-    logMessage("关闭夹持器");
+    logMessage("关闭夹爪");
     
-    // 参照示例动作1中的夹持电机实现
-    // 关闭夹持器对应夹持电机移动到-25位置
-    sendMotorOrder(1, 11, 0, 0, 0, true, -25, 30);
-    QApplication::processEvents();
-    
-    // 同时发送标准的夹持器命令以保持兼容性
+    // 发送夹爪关闭命令
     sendGripperCommand(false);
+    
+    // 更新UI状态
+    gripper_open_ = false;
+    updateUI();
 }
 
 void ArmControlGUI::on_vacuumOnButton_clicked()
@@ -2245,4 +2282,11 @@ void ArmControlGUI::setupJointLimits()
     joint_limits_[5] = std::make_pair(5.0, 15.0);      // 末端伸缩
     
     logMessage("关节限制设置完成");
+}
+
+// 实现on_moveToPositionButton_clicked函数
+void ArmControlGUI::on_moveToPositionButton_clicked()
+{
+    // 直接调用现有的onMoveToPositionClicked函数
+    onMoveToPositionClicked();
 }

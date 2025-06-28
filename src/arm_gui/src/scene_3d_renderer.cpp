@@ -3,6 +3,10 @@
 #include <GL/glu.h>
 #include <QOpenGLFunctions>
 #include <cmath>
+#include <QDebug>  // 添加调试输出支持
+#include <algorithm> // 用于std::min和std::max函数
+#include <limits>    // 用于处理无穷值
+#include <stdexcept> // 用于异常处理
 
 // Scene3DRenderer 实现
 Scene3DRenderer::Scene3DRenderer(QWidget* parent)
@@ -18,35 +22,82 @@ Scene3DRenderer::Scene3DRenderer(QWidget* parent)
     // 设置焦点策略，允许通过Tab键获取焦点
     setFocusPolicy(Qt::StrongFocus);
     setMouseTracking(true);
+    
+    // 确保窗口可见
+    setMinimumSize(200, 200);
+    
+    qDebug() << "Scene3DRenderer构造函数: 初始化完成";
 }
 
 Scene3DRenderer::~Scene3DRenderer()
 {
+    // 获取上下文并使其成为当前上下文
+    makeCurrent();
+    
     // 清理OpenGL资源
+    
+    // 释放上下文
+    doneCurrent();
+    
+    qDebug() << "Scene3DRenderer析构函数: 资源已释放";
 }
 
 void Scene3DRenderer::initializeGL()
 {
-    initializeOpenGLFunctions();
-    glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
-    glEnable(GL_DEPTH_TEST);
-    glEnable(GL_LIGHTING);
-    glEnable(GL_LIGHT0);
+    qDebug() << "Scene3DRenderer::initializeGL开始";
     
-    // 设置光源
-    GLfloat light_position[] = { 1.0f, 1.0f, 1.0f, 0.0f };
-    GLfloat light_ambient[] = { 0.2f, 0.2f, 0.2f, 1.0f };
-    GLfloat light_diffuse[] = { 1.0f, 1.0f, 1.0f, 1.0f };
-    GLfloat light_specular[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    // 检查OpenGL初始化
+    if (!isValid()) {
+        qDebug() << "ERROR: OpenGL上下文无效！";
+        return;
+    }
     
-    glLightfv(GL_LIGHT0, GL_POSITION, light_position);
-    glLightfv(GL_LIGHT0, GL_AMBIENT, light_ambient);
-    glLightfv(GL_LIGHT0, GL_DIFFUSE, light_diffuse);
-    glLightfv(GL_LIGHT0, GL_SPECULAR, light_specular);
+    try {
+        // 初始化OpenGL函数
+        initializeOpenGLFunctions();
+        
+        // 设置清除颜色
+        glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
+        
+        // 启用深度测试
+        glEnable(GL_DEPTH_TEST);
+        
+        // 启用光照
+        glEnable(GL_LIGHTING);
+        glEnable(GL_LIGHT0);
+        
+        // 设置光源
+        GLfloat light_position[] = { 1.0f, 1.0f, 1.0f, 0.0f };
+        GLfloat light_ambient[] = { 0.2f, 0.2f, 0.2f, 1.0f };
+        GLfloat light_diffuse[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+        GLfloat light_specular[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+        
+        glLightfv(GL_LIGHT0, GL_POSITION, light_position);
+        glLightfv(GL_LIGHT0, GL_AMBIENT, light_ambient);
+        glLightfv(GL_LIGHT0, GL_DIFFUSE, light_diffuse);
+        glLightfv(GL_LIGHT0, GL_SPECULAR, light_specular);
+        
+        // 检查OpenGL错误
+        GLenum error = glGetError();
+        if (error != GL_NO_ERROR) {
+            qDebug() << "OpenGL初始化错误:" << error;
+        } else {
+            qDebug() << "Scene3DRenderer::initializeGL成功";
+        }
+    } catch (const std::exception& e) {
+        qDebug() << "Scene3DRenderer::initializeGL异常:" << e.what();
+    } catch (...) {
+        qDebug() << "Scene3DRenderer::initializeGL未知异常";
+    }
 }
 
 void Scene3DRenderer::resizeGL(int w, int h)
 {
+    // 防止除以零
+    if (h == 0) h = 1;
+    
+    qDebug() << "Scene3DRenderer::resizeGL:" << w << "x" << h;
+    
     glViewport(0, 0, w, h);
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
@@ -56,35 +107,47 @@ void Scene3DRenderer::resizeGL(int w, int h)
 
 void Scene3DRenderer::paintGL()
 {
-    // 清除缓冲区
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    
-    // 设置模型视图矩阵
-    glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
-    
-    // 更新摄像机位置
-    float camX = camera_target_.x() + zoom_ * cos(yaw_ * M_PI / 180.0f) * cos(pitch_ * M_PI / 180.0f);
-    float camY = camera_target_.y() + zoom_ * sin(pitch_ * M_PI / 180.0f);
-    float camZ = camera_target_.z() + zoom_ * sin(yaw_ * M_PI / 180.0f) * cos(pitch_ * M_PI / 180.0f);
-    
-    camera_position_ = QVector3D(camX, camY, camZ);
-    
-    // 设置视图
-    gluLookAt(
-        camera_position_.x(), camera_position_.y(), camera_position_.z(),
-        camera_target_.x(), camera_target_.y(), camera_target_.z(),
-        camera_up_.x(), camera_up_.y(), camera_up_.z()
-    );
-    
-    // 绘制坐标轴
-    renderCoordinateAxes();
-    
-    // 绘制机械臂
-    renderRobot();
-    
-    // 绘制物体
-    renderObjects();
+    try {
+        // 清除缓冲区
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        
+        // 设置模型视图矩阵
+        glMatrixMode(GL_MODELVIEW);
+        glLoadIdentity();
+        
+        // 更新摄像机位置
+        float camX = camera_target_.x() + zoom_ * cos(yaw_ * M_PI / 180.0f) * cos(pitch_ * M_PI / 180.0f);
+        float camY = camera_target_.y() + zoom_ * sin(pitch_ * M_PI / 180.0f);
+        float camZ = camera_target_.z() + zoom_ * sin(yaw_ * M_PI / 180.0f) * cos(pitch_ * M_PI / 180.0f);
+        
+        camera_position_ = QVector3D(camX, camY, camZ);
+        
+        // 设置视图
+        gluLookAt(
+            camera_position_.x(), camera_position_.y(), camera_position_.z(),
+            camera_target_.x(), camera_target_.y(), camera_target_.z(),
+            camera_up_.x(), camera_up_.y(), camera_up_.z()
+        );
+        
+        // 绘制坐标轴
+        renderCoordinateAxes();
+        
+        // 绘制机械臂
+        renderRobot();
+        
+        // 绘制物体
+        renderObjects();
+        
+        // 检查OpenGL错误
+        GLenum error = glGetError();
+        if (error != GL_NO_ERROR) {
+            qDebug() << "paintGL OpenGL错误:" << error;
+        }
+    } catch (const std::exception& e) {
+        qDebug() << "paintGL异常:" << e.what();
+    } catch (...) {
+        qDebug() << "paintGL未知异常";
+    }
 }
 
 void Scene3DRenderer::mousePressEvent(QMouseEvent* event)
@@ -287,152 +350,210 @@ void Scene3DRenderer::renderObjects()
 
 void Scene3DRenderer::renderRobot()
 {
-    if (robot_joints_.empty() || robot_joints_.size() < 6) {
+    // 检查关节数据是否有效
+    if (robot_joints_.empty()) {
+        qDebug() << "renderRobot: 关节数据为空";
         return;
     }
     
-    // 从关节值中提取关节角度
-    float theta1 = robot_joints_[0];         // 底座旋转角度 (弧度)
-    float d2 = robot_joints_[1] / 100.0f;    // 伸缩关节长度 (米)
-    float theta3 = robot_joints_[2];         // 肩部关节角度 (弧度)
-    float theta4 = robot_joints_[3];         // 肘部关节角度 (弧度)
-    float theta5 = robot_joints_[4];         // 固定关节角度 (弧度，通常为π/2)
-    float d6 = robot_joints_[5] / 100.0f;    // 末端伸缩长度 (米)
+    // 确保关节数据完整
+    if (robot_joints_.size() < 6) {
+        qDebug() << "renderRobot: 关节数据不完整，期望6个值，实际" << robot_joints_.size() << "个值";
+        // 补全缺少的值，确保不会因数组越界导致崩溃
+        while (robot_joints_.size() < 6) {
+            robot_joints_.push_back(0.0);
+        }
+    }
     
-    // 设置材质颜色
-    GLfloat arm_color[4] = { 0.7f, 0.7f, 0.7f, 1.0f };
-    GLfloat joint_color[4] = { 0.4f, 0.4f, 0.4f, 1.0f };
+    try {
+        // 从关节值中提取关节角度
+        float theta1 = robot_joints_[0];         // 底座旋转角度 (弧度)
+        float d2 = robot_joints_[1] / 100.0f;    // 伸缩关节长度 (米)
+        float theta3 = robot_joints_[2];         // 肩部关节角度 (弧度)
+        float theta4 = robot_joints_[3];         // 肘部关节角度 (弧度)
+        float theta5 = robot_joints_[4];         // 固定关节角度 (弧度，通常为π/2)
+        float d6 = robot_joints_[5] / 100.0f;    // 末端伸缩长度 (米)
+        
+        // 防止值无效
+        if (std::isnan(theta1) || std::isnan(d2) || std::isnan(theta3) || std::isnan(theta4) || std::isnan(theta5) || std::isnan(d6)) {
+            qDebug() << "renderRobot: 检测到NaN值，使用默认值";
+            theta1 = 0.0f;
+            d2 = 0.0f;
+            theta3 = 0.0f;
+            theta4 = 0.0f;
+            theta5 = M_PI/2.0f;
+            d6 = 0.05f;
+        }
+        
+        // 限制值的范围
+        d2 = std::max(0.0f, std::min(0.43f, d2));
+        theta3 = std::max(-M_PI/2.0f, std::min(M_PI/2.0f, theta3));
+        theta4 = std::max(0.0f, std::min(M_PI, theta4));
+        d6 = std::max(0.05f, std::min(0.15f, d6));
+        
+        // 设置材质颜色
+        GLfloat arm_color[4] = { 0.7f, 0.7f, 0.7f, 1.0f };
+        GLfloat joint_color[4] = { 0.4f, 0.4f, 0.4f, 1.0f };
+        
+        glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, arm_color);
+        
+        // 绘制底座
+        glPushMatrix();
+        glRotatef(theta1 * 180.0f / M_PI, 0.0f, 1.0f, 0.0f);
+        
+        // 底座圆柱
+        glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, joint_color);
+        glPushMatrix();
+        glTranslatef(0.0f, -0.05f, 0.0f);
+        glRotatef(90.0f, 1.0f, 0.0f, 0.0f);
+        
+        GLUquadricObj *quadric = gluNewQuadric();
+        if (quadric) {
+            gluQuadricDrawStyle(quadric, GLU_FILL);
+            gluCylinder(quadric, 0.2f, 0.2f, 0.1f, 20, 5);
+            gluDeleteQuadric(quadric);
+        }
+        
+        glPopMatrix();
+        
+        // 第一节臂
+        glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, arm_color);
+        glPushMatrix();
+        glTranslatef(0.0f, 0.0f, 0.0f);
+        glRotatef(90.0f, 1.0f, 0.0f, 0.0f);
+        
+        quadric = gluNewQuadric();
+        if (quadric) {
+            gluQuadricDrawStyle(quadric, GLU_FILL);
+            gluCylinder(quadric, 0.05f, 0.05f, d2, 10, 5);
+            gluDeleteQuadric(quadric);
+        }
+        
+        glPopMatrix();
+        
+        // 肩部关节
+        glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, joint_color);
+        glPushMatrix();
+        glTranslatef(0.0f, d2, 0.0f);
+        
+        quadric = gluNewQuadric();
+        if (quadric) {
+            gluQuadricDrawStyle(quadric, GLU_FILL);
+            gluSphere(quadric, 0.07f, 10, 10);
+            gluDeleteQuadric(quadric);
+        }
+        
+        glPopMatrix();
+        
+        // 第二节臂
+        glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, arm_color);
+        glPushMatrix();
+        glTranslatef(0.0f, d2, 0.0f);
+        glRotatef(theta3 * 180.0f / M_PI, 0.0f, 0.0f, 1.0f);
+        glPushMatrix();
+        glRotatef(90.0f, 0.0f, 1.0f, 0.0f);
+        
+        quadric = gluNewQuadric();
+        if (quadric) {
+            gluQuadricDrawStyle(quadric, GLU_FILL);
+            gluCylinder(quadric, 0.04f, 0.04f, 0.3f, 10, 5);
+            gluDeleteQuadric(quadric);
+        }
+        
+        glPopMatrix();
+        
+        // 肘部关节
+        glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, joint_color);
+        glPushMatrix();
+        glTranslatef(0.3f, 0.0f, 0.0f);
+        
+        quadric = gluNewQuadric();
+        if (quadric) {
+            gluQuadricDrawStyle(quadric, GLU_FILL);
+            gluSphere(quadric, 0.06f, 10, 10);
+            gluDeleteQuadric(quadric);
+        }
+        
+        glPopMatrix();
+        
+        // 第三节臂
+        glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, arm_color);
+        glPushMatrix();
+        glTranslatef(0.3f, 0.0f, 0.0f);
+        glRotatef(theta4 * 180.0f / M_PI, 0.0f, 0.0f, 1.0f);
+        glPushMatrix();
+        glRotatef(90.0f, 0.0f, 1.0f, 0.0f);
+        
+        quadric = gluNewQuadric();
+        if (quadric) {
+            gluQuadricDrawStyle(quadric, GLU_FILL);
+            gluCylinder(quadric, 0.03f, 0.03f, 0.25f, 10, 5);
+            gluDeleteQuadric(quadric);
+        }
+        
+        glPopMatrix();
+        
+        // 腕部关节
+        glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, joint_color);
+        glPushMatrix();
+        glTranslatef(0.25f, 0.0f, 0.0f);
+        
+        quadric = gluNewQuadric();
+        if (quadric) {
+            gluQuadricDrawStyle(quadric, GLU_FILL);
+            gluSphere(quadric, 0.05f, 10, 10);
+            gluDeleteQuadric(quadric);
+        }
+        
+        glPopMatrix();
+        
+        // 末端执行器
+        glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, arm_color);
+        glPushMatrix();
+        glTranslatef(0.25f, 0.0f, 0.0f);
+        glRotatef(theta5 * 180.0f / M_PI, 0.0f, 0.0f, 1.0f);
+        glPushMatrix();
+        glRotatef(90.0f, 1.0f, 0.0f, 0.0f);
+        
+        quadric = gluNewQuadric();
+        if (quadric) {
+            gluQuadricDrawStyle(quadric, GLU_FILL);
+            gluCylinder(quadric, 0.02f, 0.02f, d6, 10, 5);
+            gluDeleteQuadric(quadric);
+        }
+        
+        glPopMatrix();
+        
+        // 末端吸盘
+        glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, joint_color);
+        glPushMatrix();
+        glTranslatef(0.0f, -d6, 0.0f);
+        glRotatef(90.0f, 1.0f, 0.0f, 0.0f);
+        
+        quadric = gluNewQuadric();
+        if (quadric) {
+            gluQuadricDrawStyle(quadric, GLU_FILL);
+            gluCylinder(quadric, 0.04f, 0.04f, 0.02f, 10, 5);
+            gluDeleteQuadric(quadric);
+        }
+        
+        glPopMatrix();
+        
+        glPopMatrix(); // 末端执行器
+        glPopMatrix(); // 第三节臂
+        glPopMatrix(); // 第二节臂
+        glPopMatrix(); // 底座
+    } catch (const std::exception& e) {
+        qDebug() << "renderRobot异常:" << e.what();
+    } catch (...) {
+        qDebug() << "renderRobot未知异常";
+    }
     
-    glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, arm_color);
-    
-    // 绘制底座
-    glPushMatrix();
-    glRotatef(theta1 * 180.0f / M_PI, 0.0f, 1.0f, 0.0f);
-    
-    // 底座圆柱
-    glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, joint_color);
-    glPushMatrix();
-    glTranslatef(0.0f, -0.05f, 0.0f);
-    glRotatef(90.0f, 1.0f, 0.0f, 0.0f);
-    
-    GLUquadricObj *quadric = gluNewQuadric();
-    gluQuadricDrawStyle(quadric, GLU_FILL);
-    gluCylinder(quadric, 0.2f, 0.2f, 0.1f, 20, 5);
-    gluDeleteQuadric(quadric);
-    
-    glPopMatrix();
-    
-    // 第一节臂
-    glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, arm_color);
-    glPushMatrix();
-    glTranslatef(0.0f, 0.0f, 0.0f);
-    glRotatef(90.0f, 1.0f, 0.0f, 0.0f);
-    
-    quadric = gluNewQuadric();
-    gluQuadricDrawStyle(quadric, GLU_FILL);
-    gluCylinder(quadric, 0.05f, 0.05f, d2, 10, 5);
-    gluDeleteQuadric(quadric);
-    
-    glPopMatrix();
-    
-    // 肩部关节
-    glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, joint_color);
-    glPushMatrix();
-    glTranslatef(0.0f, d2, 0.0f);
-    
-    quadric = gluNewQuadric();
-    gluQuadricDrawStyle(quadric, GLU_FILL);
-    gluSphere(quadric, 0.07f, 10, 10);
-    gluDeleteQuadric(quadric);
-    
-    glPopMatrix();
-    
-    // 第二节臂
-    glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, arm_color);
-    glPushMatrix();
-    glTranslatef(0.0f, d2, 0.0f);
-    glRotatef(theta3 * 180.0f / M_PI, 0.0f, 0.0f, 1.0f);
-    glPushMatrix();
-    glRotatef(90.0f, 0.0f, 1.0f, 0.0f);
-    
-    quadric = gluNewQuadric();
-    gluQuadricDrawStyle(quadric, GLU_FILL);
-    gluCylinder(quadric, 0.04f, 0.04f, 0.3f, 10, 5);
-    gluDeleteQuadric(quadric);
-    
-    glPopMatrix();
-    
-    // 肘部关节
-    glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, joint_color);
-    glPushMatrix();
-    glTranslatef(0.3f, 0.0f, 0.0f);
-    
-    quadric = gluNewQuadric();
-    gluQuadricDrawStyle(quadric, GLU_FILL);
-    gluSphere(quadric, 0.06f, 10, 10);
-    gluDeleteQuadric(quadric);
-    
-    glPopMatrix();
-    
-    // 第三节臂
-    glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, arm_color);
-    glPushMatrix();
-    glTranslatef(0.3f, 0.0f, 0.0f);
-    glRotatef(theta4 * 180.0f / M_PI, 0.0f, 0.0f, 1.0f);
-    glPushMatrix();
-    glRotatef(90.0f, 0.0f, 1.0f, 0.0f);
-    
-    quadric = gluNewQuadric();
-    gluQuadricDrawStyle(quadric, GLU_FILL);
-    gluCylinder(quadric, 0.03f, 0.03f, 0.25f, 10, 5);
-    gluDeleteQuadric(quadric);
-    
-    glPopMatrix();
-    
-    // 腕部关节
-    glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, joint_color);
-    glPushMatrix();
-    glTranslatef(0.25f, 0.0f, 0.0f);
-    
-    quadric = gluNewQuadric();
-    gluQuadricDrawStyle(quadric, GLU_FILL);
-    gluSphere(quadric, 0.05f, 10, 10);
-    gluDeleteQuadric(quadric);
-    
-    glPopMatrix();
-    
-    // 末端执行器
-    glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, arm_color);
-    glPushMatrix();
-    glTranslatef(0.25f, 0.0f, 0.0f);
-    glRotatef(theta5 * 180.0f / M_PI, 0.0f, 0.0f, 1.0f);
-    glPushMatrix();
-    glRotatef(90.0f, 1.0f, 0.0f, 0.0f);
-    
-    quadric = gluNewQuadric();
-    gluQuadricDrawStyle(quadric, GLU_FILL);
-    gluCylinder(quadric, 0.02f, 0.02f, d6, 10, 5);
-    gluDeleteQuadric(quadric);
-    
-    glPopMatrix();
-    
-    // 末端吸盘
-    glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, joint_color);
-    glPushMatrix();
-    glTranslatef(0.0f, -d6, 0.0f);
-    glRotatef(90.0f, 1.0f, 0.0f, 0.0f);
-    
-    quadric = gluNewQuadric();
-    gluQuadricDrawStyle(quadric, GLU_FILL);
-    gluCylinder(quadric, 0.04f, 0.04f, 0.02f, 10, 5);
-    gluDeleteQuadric(quadric);
-    
-    glPopMatrix();
-    
-    glPopMatrix(); // 末端执行器
-    glPopMatrix(); // 第三节臂
-    glPopMatrix(); // 第二节臂
-    glPopMatrix(); // 底座
+    // 检查OpenGL错误
+    GLenum error = glGetError();
+    if (error != GL_NO_ERROR) {
+        qDebug() << "renderRobot OpenGL错误:" << error;
+    }
 }
 
 QVector3D Scene3DRenderer::screenToRay(int x, int y)

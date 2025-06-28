@@ -2,6 +2,10 @@
 import rospy
 import numpy as np
 import tf2_ros
+import math
+import random
+import tf
+from math import pi
 from geometry_msgs.msg import PoseArray, Pose, TransformStamped
 from std_msgs.msg import String
 from moveit_msgs.msg import RobotTrajectory
@@ -10,8 +14,6 @@ from arm_trajectory.msg import TrajectoryPath, TrajectoryPoint
 from arm_trajectory.srv import PlanTrajectory, PlanTrajectoryRequest, PlanTrajectoryResponse
 import sys
 import os
-import math
-import random
 
 # 通过环境变量获取Python路径
 # 获取PYTHONPATH环境变量并将其添加到sys.path
@@ -34,130 +36,36 @@ if cwd not in sys.path:
     sys.path.append(cwd)
     rospy.loginfo(f"添加当前工作目录到路径: {cwd}")
 
-# 尝试导入WhaleOptimizer
+# 直接从whales_optimizer.py导入
+import os
+import sys
+
+# 获取当前脚本所在的路径
+current_dir = os.path.dirname(os.path.abspath(__file__))
+whales_file = os.path.join(current_dir, "whales_optimizer.py")
+
+# 导入WhaleOptimizer类和forward_kinematics_dh函数
+if not os.path.exists(whales_file):
+    rospy.logerr(f"找不到whales_optimizer.py文件: {whales_file}")
+    raise ImportError(f"找不到whales_optimizer.py文件: {whales_file}")
+
+# 使用exec执行文件内容
 try:
-    # 直接从当前目录导入
-    import sys
-    import os
+    whale_namespace = {}
+    with open(whales_file, 'r') as f:
+        exec(f.read(), whale_namespace)
     
-    # 获取当前脚本目录路径
-    current_dir = os.path.dirname(os.path.abspath(__file__))
+    # 从命名空间获取所需类和函数
+    WhaleOptimizer = whale_namespace.get("WhaleOptimizer")
+    forward_kinematics_dh = whale_namespace.get("forward_kinematics_dh")
     
-    # 将当前目录添加到Python路径
-    if current_dir not in sys.path:
-        sys.path.append(current_dir)
+    if not WhaleOptimizer or not forward_kinematics_dh:
+        raise ImportError("WhaleOptimizer或forward_kinematics_dh在whales_optimizer.py中不存在")
     
-    # 直接从文件导入类
-    from whales_optimizer import WhaleOptimizer, forward_kinematics_dh
-    rospy.loginfo("成功导入WhaleOptimizer")
-except ImportError as e:
+    rospy.loginfo("成功从whales_optimizer.py导入WhaleOptimizer")
+except Exception as e:
     rospy.logerr(f"导入WhaleOptimizer失败: {e}")
-    rospy.loginfo("将使用备选优化方法")
-    
-    # 定义简单的替代优化器
-    class SimpleOptimizer:
-        """
-        当无法导入WhaleOptimizer时使用
-        """
-        def __init__(self, num_whales=30, dim=6, max_iter=100, lb=None, ub=None, robot=None, target_T=None):
-            self.dim = dim
-            self.max_iter = max_iter
-            self.lb = np.array(lb) if lb is not None else np.array([-math.pi, 0, -math.pi/2, 0, math.pi/2, 5])
-            self.ub = np.array(ub) if ub is not None else np.array([math.pi, 43, math.pi/2, math.pi, math.pi/2, 15])
-            self.robot = robot
-            self.target_T = target_T
-            self.best_position = None
-            self.best_fitness = float('inf')
-        
-        def calculate_fitness(self, position):
-            """计算适应度"""
-            if self.robot is not None:
-                T = self.robot.fkine(position)
-            else:
-                T = forward_kinematics_dh(position)
-            
-            position_error = np.linalg.norm(T[:3, 3] - self.target_T[:3, 3])
-            rotation_error = np.linalg.norm(T[:3, :3] - self.target_T[:3, :3], 'fro')
-            return 0.7 * position_error + 0.3 * rotation_error
-        
-        def run(self):
-            """运行优化"""
-            # 简单随机搜索
-            best_position = np.zeros(self.dim)
-            best_fitness = float('inf')
-            
-            for _ in range(self.max_iter * 10):  # 增加迭代次数以提高成功率
-                # 随机生成一个位置
-                position = np.array([random.uniform(self.lb[i], self.ub[i]) for i in range(self.dim)])
-                
-                # 计算适应度
-                fitness = self.calculate_fitness(position)
-                
-                # 更新最佳位置
-                if fitness < best_fitness:
-                    best_fitness = fitness
-                    best_position = position.copy()
-            
-            self.best_position = best_position
-            self.best_fitness = best_fitness
-            return best_position, best_fitness
-        
-        def getBestPosition(self):
-            """获取最佳位置"""
-            return self.best_position.tolist() if self.best_position is not None else None
-        
-        def getBestFitness(self):
-            """获取最佳适应度"""
-            return self.best_fitness
-    
-    # 使用替代优化器
-    WhaleOptimizer = SimpleOptimizer
-
-from math import pi
-import tf.transformations
-
-# 备选的简单前向运动学函数
-def simple_forward_kinematics(joint_values, dh_params=None):
-    """
-    简化版的前向运动学计算
-    当无法导入WhaleOptimizer时使用
-    """
-    # DH变换矩阵计算
-    def compute_dh_transform(theta, d, a, alpha):
-        ct = np.cos(theta)
-        st = np.sin(theta)
-        ca = np.cos(alpha)
-        sa = np.sin(alpha)
-        
-        return np.array([
-            [ct, -st*ca, st*sa, a*ct],
-            [st, ct*ca, -ct*sa, a*st],
-            [0, sa, ca, d],
-            [0, 0, 0, 1]
-        ])
-    
-    if dh_params is None:
-        # 默认DH参数
-        a1, a2, a3 = 13, 13, 25  # 杆长
-        dh_params = [
-            # type, d, theta, a, alpha
-            ('revolute', 0, joint_values[0], a1, pi/2),  # 第一关节 (旋转)
-            ('prismatic', joint_values[1], pi/4, 0, 0),   # 第二关节 (伸缩)
-            ('revolute', a2, joint_values[2], 0, pi/2),  # 第三关节 (旋转)
-            ('revolute', 0, joint_values[3], a3, pi/2),  # 第四关节 (旋转)
-            ('revolute', 0, joint_values[4], 0, pi/2),   # 第五关节 (固定)
-            ('prismatic', joint_values[5], pi/2, 0, 0)    # 第六关节 (伸缩)
-        ]
-    
-    T = np.eye(4)
-    
-    for joint_type, d, theta, a, alpha in dh_params:
-        # 计算此关节的变换矩阵
-        transform = compute_dh_transform(theta, d, a, alpha)
-        # 累积变换
-        T = T @ transform
-    
-    return T
+    raise ImportError(f"无法导入WhaleOptimizer: {e}")
 
 class ArmTrajectoryBridge:
     """Bridge node for connecting stereo vision with trajectory planning"""
@@ -195,24 +103,12 @@ class ArmTrajectoryBridge:
         # Initialize the optimizer for each arm
         self.optimizers = {}
         for arm_id, config in self.arm_configs.items():
-            if use_whale_optimizer:
-                # 使用鲸鱼优化算法，但不传递不兼容的参数
-                self.optimizers[arm_id] = WhaleOptimizer(
-                    num_whales=30,
-                    max_iter=100,
-                    lb=[limit[0] for limit in config['joint_limits']],
-                    ub=[limit[1] for limit in config['joint_limits']]
-                    # 注意：WhaleOptimizer不接受forward_kinematics_func参数
-                    # 它使用自己的forward_kinematics_dh函数
-                )
-            else:
-                # 使用备选优化方法
-                self.optimizers[arm_id] = SimpleOptimizer(
-                    num_particles=30,
-                    max_iter=100, 
-                    forward_kinematics_func=lambda joints, arm=arm_id: self.forward_kinematics(joints, arm),
-                    joint_limits=config['joint_limits']
-                )
+            self.optimizers[arm_id] = WhaleOptimizer(
+                num_whales=30,
+                max_iter=100,
+                lb=[limit[0] for limit in config['joint_limits']],
+                ub=[limit[1] for limit in config['joint_limits']]
+            )
         
         rospy.loginfo("Trajectory Bridge Node initialized")
     
@@ -280,17 +176,12 @@ class ArmTrajectoryBridge:
         if initial_joints is None:
             initial_joints = self.arm_configs[arm_id]['default_pose']
             
-        if use_whale_optimizer:
-            # WhaleOptimizer需要在每次调用前设置target_T
-            optimizer = self.optimizers[arm_id]
-            optimizer.target_T = target_pose
-            
-            # 运行优化器
-            best_position, best_fitness = optimizer.run()
-            fitness_history = optimizer.fitness_history
-        else:
-            # 使用SimpleOptimizer
-            best_position, best_fitness, fitness_history = self.optimizers[arm_id].optimize(target_pose, initial_joints)
+        # 设置优化器的目标矩阵
+        optimizer = self.optimizers[arm_id]
+        optimizer.target_T = target_pose
+        
+        # 运行优化器
+        best_position, best_fitness = optimizer.run()
         
         return best_position, best_fitness
     
