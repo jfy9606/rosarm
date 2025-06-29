@@ -103,6 +103,34 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
    sudo chmod a+rw /dev/ttyUSB*
    ```
 
+### "renderRobot: 关节数据为空"错误
+
+如果GUI显示"renderRobot: 关节数据为空"错误或3D视图中机械臂不显示：
+
+1. 检查关节状态话题是否存在：
+   ```bash
+   rostopic info /arm1/joint_states
+   ```
+
+2. 如果话题不存在，启动joint_state_publisher节点：
+   ```bash
+   # 使用test_joints.launch进行测试
+   roslaunch test_joints.launch
+   
+   # 或在已有系统中启动关节发布节点
+   rosrun liancheng_socket joint_state_publisher
+   ```
+
+3. 检查关节数据是否正确发布：
+   ```bash
+   rostopic echo /arm1/joint_states -n 1
+   ```
+
+4. 如果需要模拟关节数据进行测试：
+   ```bash
+   rosrun liancheng_socket test_joint_publisher
+   ```
+
 ## 系统组件
 
 系统由以下主要组件组成：
@@ -110,6 +138,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 1. **摄像头** - 支持高分辨率USB摄像头，包括宽幅摄像头
 2. **图像处理** - 使用OpenCV和YOLO进行图像处理和目标检测
 3. **机械臂控制** - 基于ROS的机械臂控制界面和轨迹规划
+4. **关节状态发布** - 负责将电机命令转换为关节状态并发布到/arm1/joint_states话题
 
 ## 系统特性
 
@@ -122,6 +151,14 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 3. **动态显示** - 3D场景中物体位置会根据摄像头位置自动更新
 
 这一特性使系统能够从吸取物体的视角检测和处理物体，提高了抓取精度。
+
+### 3D机械臂可视化
+
+系统提供了3D机械臂可视化功能，允许用户在GUI界面中直观地观察机械臂当前姿态：
+
+1. **实时渲染** - 根据关节状态实时渲染机械臂3D模型
+2. **交互控制** - 支持通过鼠标旋转和缩放视图
+3. **物体选择** - 可在3D视图中选择和操作检测到的物体
 
 ## 安装指南
 
@@ -197,6 +234,7 @@ sudo apt-get install ros-noetic-image-transport
 - **arm_gui**: 机械臂控制GUI界面
 - **arm_trajectory**: 轨迹规划和生成
 - **liancheng_socket**: 网络通信接口（原名SimpleNetwork）
+  - 包含joint_state_publisher：负责发布关节状态
 - **servo_wrist**: 舵机控制
 - **stereo_vision**: 立体视觉处理
 
@@ -237,6 +275,9 @@ source devel/setup.bash
 
 # 指定摄像头和分辨率
 ./start.sh --camera /dev/video0 --resolution 1280x480
+
+# 测试机械臂3D渲染
+roslaunch test_joints.launch
 ```
 
 ### 摄像头支持
@@ -272,6 +313,7 @@ roslaunch run.launch enable_yolo:=true
 - `launch/run.launch` - 主启动文件
 - `launch/camera_test.launch` - 摄像头测试启动文件
 - `launch/direct_camera.launch` - 直接访问摄像头启动文件
+- `launch/test_joints.launch` - 测试机械臂3D渲染启动文件
 
 ## 故障排除
 
@@ -384,6 +426,25 @@ roslaunch run.launch enable_yolo:=true
       - 检查图像话题的发布和订阅是否正确
       - 尝试使用rqt_image_view工具检查图像话题是否有发布
 
+11. **3D视图中机械臂不显示**
+    - 如果GUI中3D视图显示"renderRobot: 关节数据为空"：
+    ```bash
+    # 检查关节状态话题是否存在
+    rostopic list | grep joint_states
+    
+    # 检查关节状态发布节点是否运行
+    rosnode list | grep joint_publisher
+    
+    # 如果节点不存在，启动测试节点
+    roslaunch test_joints.launch
+    
+    # 或单独启动关节发布节点
+    rosrun liancheng_socket joint_state_publisher
+    
+    # 检查关节数据是否正确发布
+    rostopic echo /arm1/joint_states -n 1
+    ```
+
 ## 系统架构
 
 系统采用模块化设计，主要包括以下ROS节点：
@@ -392,12 +453,15 @@ roslaunch run.launch enable_yolo:=true
 2. `yolo_detector` - 基于YOLO的目标检测
 3. `trajectory_bridge` - 轨迹规划和执行
 4. `arm_gui` - 用户界面
+5. `joint_state_publisher` - 关节状态发布
 
 各节点之间通过ROS话题进行通信，主要话题包括：
 
 - `/camera/image_raw` - 摄像头图像
 - `/camera/detections` - 目标检测结果
 - `/detection_image` - 包含检测结果的可视化图像
+- `/arm1/joint_states` - 机械臂关节状态
+- `/Controller_motor_order` - 电机命令
 
 ## 工具说明
 
@@ -406,6 +470,7 @@ roslaunch run.launch enable_yolo:=true
 1. `camera_test.py` - 测试摄像头并显示参数信息
 2. `camera_direct.py` - 不使用ROS直接访问摄像头
 3. `camera_node.py` - ROS摄像头节点
+4. `test_joint_publisher` - 发布模拟关节数据用于测试
 
 ## 许可证
 
@@ -434,6 +499,7 @@ GUI界面提供了以下功能：
    - 控制夹持器开合
    - 控制吸盘吸附
 5. **示例动作**：预设的演示动作
+6. **3D视图**：显示机械臂当前姿态和检测到的物体
 
 ## 启动方式
 
@@ -449,6 +515,13 @@ roslaunch arm_gui arm_gui.launch
 ```bash
 source devel/setup.bash
 roslaunch arm_gui arm_gui.launch with_path_planner:=false with_trajectory_planner:=false with_vision_arm_bridge:=false
+```
+
+测试机械臂3D渲染（发布模拟关节数据）：
+
+```bash
+source devel/setup.bash
+roslaunch test_joints.launch
 ```
 
 ## 使用方法
@@ -469,10 +542,11 @@ roslaunch arm_gui arm_gui.launch with_path_planner:=false with_trajectory_planne
 - **stereo_vision**：立体视觉和目标检测
 - **arm_trajectory**：路径规划和轨迹生成
 - **servo_wrist**：舵机控制
-- **liancheng_socket**：通信网络（原名SimpleNetwork）
+- **liancheng_socket**：通信网络和关节状态发布
 
 ## 注意事项
 
 - 确保摄像头设备可用
 - 路径规划需要正确配置的DH参数和关节限制
 - 视觉检测需要正确的相机标定参数
+- 确保关节状态发布节点正常运行，否则3D视图无法显示机械臂
