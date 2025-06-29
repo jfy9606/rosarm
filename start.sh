@@ -442,7 +442,6 @@ done
 # 启动完整系统
 launch_full_system() {
     echo -e "${GREEN}启动机械臂视觉控制系统...${NC}"
-    echo -e "${CYAN}YOLO目标检测: 在GUI中控制开关${NC}"
     
     if [ -n "$YOLO_MODEL" ]; then
         echo -e "${CYAN}使用自定义YOLOv8模型: $YOLO_MODEL${NC}"

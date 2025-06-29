@@ -40,6 +40,8 @@
     <!-- 启动立体相机节点 -->
     <node name="stereo_camera_node" pkg="arm_trajectory" type="stereo_camera_node.py" output="screen">
         <param name="camera_index" value="$(arg camera_index)" />
+        <param name="frame_rate" value="30" />
+        <param name="stereo_method" value="anaglyph" />
     </node>
     
     <!-- 相机图像中继节点 -->

@@ -43,9 +43,9 @@ class YoloDetector:
                 self.model = YOLO(self.model_path)
                 rospy.loginfo(f"Loaded custom YOLOv8 model from {self.model_path}")
             else:
-                # Use pre-trained YOLOv8s model
-                self.model = YOLO("yolov8s.pt")
-                rospy.loginfo("Loaded default YOLOv8s model")
+                # Use pre-trained YOLOv8n model
+                self.model = YOLO("yolov8n.pt")
+                rospy.loginfo("Loaded default YOLOv8n model")
             
             self.model_loaded = True
             

@@ -297,6 +297,47 @@
             </layout>
            </item>
            <item>
+            <layout class="QHBoxLayout" name="currentPosLayout">
+             <item>
+              <widget class="QLabel" name="currentPosLabel">
+               <property name="text">
+                <string>当前坐标:</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="currentPosXValue">
+               <property name="text">
+                <string>X: 0.0</string>
+               </property>
+               <property name="alignment">
+                <set>Qt::AlignCenter</set>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="currentPosYValue">
+               <property name="text">
+                <string>Y: 0.0</string>
+               </property>
+               <property name="alignment">
+                <set>Qt::AlignCenter</set>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="currentPosZValue">
+               <property name="text">
+                <string>Z: 0.0</string>
+               </property>
+               <property name="alignment">
+                <set>Qt::AlignCenter</set>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+           <item>
             <layout class="QHBoxLayout" name="horizontalLayout_8">
              <item>
               <widget class="QPushButton" name="moveToPositionButton">

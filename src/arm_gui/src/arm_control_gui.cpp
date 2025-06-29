@@ -1354,11 +1354,20 @@ void ArmControlGUI::updateEndEffectorPose()
         // 更新相机变换矩阵
         updateCameraTransform(pose);
         
-        // 记录位置信息到日志（不更新UI）
-        logMessage(QString("末端位置: X=%1, Y=%2, Z=%3 cm").arg(
-            pose.position.x * 100.0, 0, 'f', 1).arg(
-            pose.position.y * 100.0, 0, 'f', 1).arg(
-            pose.position.z * 100.0, 0, 'f', 1));
+        // 添加节流逻辑，只在位置明显变化时才更新UI
+        static double last_x = 0.0, last_y = 0.0, last_z = 0.0;
+        double x_cm = pose.position.x * 100.0;
+        double y_cm = pose.position.y * 100.0;
+        double z_cm = pose.position.z * 100.0;
+        
+        if (fabs(x_cm - last_x) > 1.0 || fabs(y_cm - last_y) > 1.0 || fabs(z_cm - last_z) > 1.0) {
+            // 更新位置信息到UI标签，而不是记录到日志
+            updateEndEffectorPosition(x_cm, y_cm, z_cm);
+            
+            last_x = x_cm;
+            last_y = y_cm;
+            last_z = z_cm;
+        }
     }
 }
 
@@ -1472,7 +1481,6 @@ void ArmControlGUI::sendJointCommand(const std::vector<double>& joint_values)
     joint_command_pub_.publish(joint_cmd);
     
     // 计算末端执行器位置（简化版本，实际应使用完整的正向运动学）
-    // 这样可以在日志中显示关节控制对应的笛卡尔空间位置
     double x = 0.0, y = 0.0, z = 0.0;
     
     // 简化的位置计算
@@ -1495,13 +1503,11 @@ void ArmControlGUI::sendJointCommand(const std::vector<double>& joint_values)
     y *= 100.0;
     z *= 100.0;
     
-    // 仅在值明显变化时更新日志（避免刷屏）
+    // 仅在值明显变化时更新位置显示（避免频繁更新）
     static double last_x = 0.0, last_y = 0.0, last_z = 0.0;
     if (fabs(x - last_x) > 1.0 || fabs(y - last_y) > 1.0 || fabs(z - last_z) > 1.0) {
-        logMessage(QString("关节控制：末端位置约为 X=%1, Y=%2, Z=%3 cm").arg(
-            QString::number(x, 'f', 1)).arg(
-            QString::number(y, 'f', 1)).arg(
-            QString::number(z, 'f', 1)));
+        // 更新位置标签，而不是记录到日志
+        updateEndEffectorPosition(x, y, z);
         
         last_x = x;
         last_y = y;
@@ -2352,7 +2358,7 @@ void ArmControlGUI::initializeMembers()
     
     // 更新定时器
     updateTimer = new QTimer(this);
-    updateTimer->setInterval(100); // 10Hz更新
+    updateTimer->setInterval(500); // 2Hz更新，降低刷新频率，减少刷屏问题
     connect(updateTimer, &QTimer::timeout, this, &ArmControlGUI::updateUI);
     updateTimer->start();
     
@@ -2467,4 +2473,46 @@ bool ArmControlGUI::findAvailableCamera()
     logMessage("未找到可用摄像头");
     available_camera_index_ = -1;
     return false;
+}
+
+// 添加一个新的函数来更新末端执行器位置标签
+void ArmControlGUI::updateEndEffectorPosition(double x, double y, double z)
+{
+    // 设置当前位置标签的文本
+    ui->currentPosXValue->setText(QString("X: %1").arg(QString::number(x, 'f', 1)));
+    ui->currentPosYValue->setText(QString("Y: %1").arg(QString::number(y, 'f', 1)));
+    ui->currentPosZValue->setText(QString("Z: %1").arg(QString::number(z, 'f', 1)));
+}
+
+// 修改topicCallback_pose函数，使末端位置不再显示在日志中
+void ArmControlGUI::topicCallback_pose(const geometry_msgs::Pose& pose)
+{
+    // 确保在UI线程中处理
+    if (ros::ok() && !ui_processing_)
+    {
+        ui_processing_ = true;
+        
+        // 更新末端位置到UI
+        current_end_pose_ = pose;
+        
+        // 更新相机变换矩阵
+        updateCameraTransform(pose);
+        
+        // 添加节流逻辑，只在位置明显变化时才更新UI
+        static double last_x = 0.0, last_y = 0.0, last_z = 0.0;
+        double x_cm = pose.position.x * 100.0;
+        double y_cm = pose.position.y * 100.0;
+        double z_cm = pose.position.z * 100.0;
+        
+        if (fabs(x_cm - last_x) > 1.0 || fabs(y_cm - last_y) > 1.0 || fabs(z_cm - last_z) > 1.0) {
+            // 更新当前位置到末端执行器控制面板的标签中（而不是记录到日志）
+            updateEndEffectorPosition(x_cm, y_cm, z_cm);
+            
+            last_x = x_cm;
+            last_y = y_cm;
+            last_z = z_cm;
+        }
+        
+        ui_processing_ = false;
+    }
 }

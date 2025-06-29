@@ -213,6 +213,7 @@ private:
     // UI相关
     Ui::ArmControlMainWindow* ui;
     QTimer* updateTimer;
+    bool ui_processing_ = false;
     
     // 控制模式
     ArmControlMode current_control_mode_;
@@ -251,6 +252,7 @@ private:
     std::vector<double> joint_max_values_;
     QVector3D current_end_position_;
     QQuaternion current_end_orientation_;
+    geometry_msgs::Pose current_end_pose_;
     bool gripper_open_;
     bool vacuum_on_;
     int vacuum_power_;
@@ -280,6 +282,7 @@ private:
     void yoloStatusCallback(const std_msgs::Bool::ConstPtr& msg);
     void objectDetectionCallback(const sensor_msgs::Image::ConstPtr& img_msg,
                               const geometry_msgs::PoseArray::ConstPtr& poses_msg);
+    void topicCallback_pose(const geometry_msgs::Pose& pose);
 
     // 机械臂控制函数
     void sendJointCommand(const std::vector<double>& positions);
@@ -294,6 +297,7 @@ private:
 
     // 辅助函数
     void logMessage(const QString& message);
+    void updateEndEffectorPosition(double x, double y, double z);
     QImage cvMatToQImage(const cv::Mat& mat);
     
     // 初始化函数
