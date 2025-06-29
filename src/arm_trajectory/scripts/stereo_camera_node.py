@@ -6,6 +6,7 @@ from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge, CvBridgeError
 import threading
 import time
+from std_msgs.msg import String
 
 # 增加额外导入(只在深度计算时使用)
 try:
@@ -24,7 +25,7 @@ class StereoCameraNode:
         # Get parameters
         self.camera_index = int(rospy.get_param('~camera_index', 0))
         self.frame_rate = int(rospy.get_param('~frame_rate', 30))
-        self.stereo_method = rospy.get_param('~stereo_method', 'anaglyph')  # anaglyph, wiggle, side_by_side
+        self.stereo_method = rospy.get_param('~stereo_method', 'rectified')  # rectified, anaglyph, wiggle, side_by_side
         self.use_depth = rospy.get_param('~use_depth', False) and HAVE_XIMGPROC  # 是否生成深度图
         
         # Initialize bridge
@@ -38,10 +39,24 @@ class StereoCameraNode:
         self.left_info_pub = rospy.Publisher('/stereo_camera/left/camera_info', CameraInfo, queue_size=1)
         self.right_info_pub = rospy.Publisher('/stereo_camera/right/camera_info', CameraInfo, queue_size=1)
         
+        # 订阅立体显示方法参数变更
+        self.method_sub = rospy.Subscriber('/stereo_camera/stereo_method', String, self.stereo_method_callback)
+        
         # Initialize camera
         self.camera = None
         self.is_running = False
         self.camera_lock = threading.Lock()
+        
+        # 检测系统中可用的摄像头设备
+        self.available_cameras = self.find_available_cameras()
+        
+        # 如果指定的索引无效但有其他可用摄像头，使用第一个可用的
+        if self.camera_index not in self.available_cameras and self.available_cameras:
+            rospy.logwarn(f"Camera index {self.camera_index} not available. Using index {self.available_cameras[0]} instead.")
+            self.camera_index = self.available_cameras[0]
+        
+        # 初始化立体配准参数
+        self.init_stereo_rectification()
         
         # Initialize stereo processor
         self.init_stereo_processor()
@@ -58,6 +73,141 @@ class StereoCameraNode:
         
         # Register shutdown hook
         rospy.on_shutdown(self.shutdown)
+    
+    def find_available_cameras(self):
+        """查找系统中所有可用的摄像头设备"""
+        available_cameras = []
+        
+        # 1. 首先检查/dev/video*设备文件
+        import glob
+        import os
+        
+        # 获取所有video设备文件
+        video_devices = glob.glob('/dev/video*')
+        rospy.loginfo(f"Found {len(video_devices)} video device files: {video_devices}")
+        
+        # 检查每个设备是否可以作为摄像头打开
+        for device in video_devices:
+            try:
+                # 从设备路径提取索引号
+                index = int(device.replace('/dev/video', ''))
+                
+                # 尝试使用OpenCV打开设备
+                cap = cv2.VideoCapture(index)
+                if cap.isOpened():
+                    # 读取一帧测试
+                    ret, _ = cap.read()
+                    if ret:
+                        available_cameras.append(index)
+                        rospy.loginfo(f"Camera device {device} (index {index}) is available")
+                    else:
+                        rospy.logwarn(f"Camera device {device} opened but cannot read frames")
+                    cap.release()
+                else:
+                    rospy.logwarn(f"Cannot open camera device {device}")
+            except Exception as e:
+                rospy.logwarn(f"Error checking device {device}: {e}")
+        
+        # 2. 如果没有找到可用摄像头，尝试系统特定方法
+        if not available_cameras:
+            rospy.logwarn("No cameras found through device files, trying system methods")
+            try:
+                # 在Linux系统上尝试使用v4l2-ctl列出设备
+                import subprocess
+                try:
+                    result = subprocess.check_output(['v4l2-ctl', '--list-devices'], universal_newlines=True)
+                    rospy.loginfo(f"V4L2 device list: {result}")
+                    # 解析输出寻找可用设备
+                except Exception as e:
+                    rospy.logwarn(f"Error running v4l2-ctl: {e}")
+            except Exception as e:
+                rospy.logwarn(f"Error during system-specific camera detection: {e}")
+        
+        # 3. 最后，如果其他方法都失败，尝试索引0-9直接打开
+        if not available_cameras:
+            rospy.logwarn("Trying direct camera indices 0-9")
+            for i in range(10):
+                try:
+                    cap = cv2.VideoCapture(i)
+                    if cap.isOpened():
+                        ret, _ = cap.read()
+                        if ret:
+                            available_cameras.append(i)
+                            rospy.loginfo(f"Camera index {i} is available")
+                        cap.release()
+                except Exception:
+                    pass
+        
+        if available_cameras:
+            rospy.loginfo(f"Available camera indices: {available_cameras}")
+        else:
+            rospy.logerr("No available cameras found!")
+            
+            # 尝试使用fswebcam检查设备
+            try:
+                import subprocess
+                rospy.loginfo("Trying fswebcam to detect devices...")
+                try:
+                    result = subprocess.check_output(['fswebcam', '-l'], universal_newlines=True)
+                    rospy.loginfo(f"fswebcam devices: {result}")
+                except Exception as e:
+                    rospy.logwarn(f"Error running fswebcam: {e}")
+            except Exception:
+                pass
+                
+        return available_cameras
+    
+    def init_stereo_rectification(self):
+        """初始化立体配准参数"""
+        # 相机内参矩阵 (近似值)
+        self.K_left = np.array([
+            [600.0, 0.0, 320.0],
+            [0.0, 600.0, 240.0],
+            [0.0, 0.0, 1.0]
+        ])
+        self.K_right = self.K_left.copy()
+        
+        # 畸变系数 (近似值)
+        self.D_left = np.zeros((5, 1))
+        self.D_right = np.zeros((5, 1))
+        
+        # 旋转矩阵 (对于平行摄像头，这是单位矩阵)
+        self.R = np.eye(3)
+        
+        # 平移向量 (假设摄像头间距为6.5cm)
+        self.T = np.array([-0.065, 0, 0])
+        
+        # 图像尺寸
+        self.img_size = (640, 480)
+        
+        # 计算立体配准映射
+        try:
+            R1, R2, P1, P2, Q, roi1, roi2 = cv2.stereoRectify(
+                self.K_left, self.D_left, self.K_right, self.D_right,
+                self.img_size, self.R, self.T, alpha=0
+            )
+            
+            # 计算映射矩阵
+            self.map1_left, self.map2_left = cv2.initUndistortRectifyMap(
+                self.K_left, self.D_left, R1, P1, self.img_size, cv2.CV_32FC1
+            )
+            self.map1_right, self.map2_right = cv2.initUndistortRectifyMap(
+                self.K_right, self.D_right, R2, P2, self.img_size, cv2.CV_32FC1
+            )
+            
+            # 存储用于深度计算的Q矩阵
+            self.Q = Q
+            
+            rospy.loginfo("立体配准映射初始化成功")
+        except Exception as e:
+            rospy.logerr(f"立体配准映射初始化失败: {e}")
+            # 创建默认映射（不做任何变换）
+            self.map1_left, self.map2_left = np.meshgrid(
+                np.arange(self.img_size[0]),
+                np.arange(self.img_size[1])
+            )
+            self.map1_right, self.map2_right = self.map1_left.copy(), self.map2_left.copy()
+            self.Q = np.eye(4)
     
     def init_stereo_processor(self):
         """Initialize stereo vision processor based on selected method"""
@@ -134,28 +284,62 @@ class StereoCameraNode:
                     import time
                     time.sleep(0.5)
                 
-                # 尝试使用GStreamer管道打开相机（如果可用）
-                try:
-                    # 首先尝试直接打开，这对USB摄像头通常效果更好
-                    self.camera = cv2.VideoCapture(self.camera_index)
+                # 如果没有可用的摄像头，尝试重新扫描
+                if not self.available_cameras:
+                    self.available_cameras = self.find_available_cameras()
                     
-                    # 如果使用GStreamer打开失败，尝试直接构造管道
-                    if not self.camera.isOpened() and cv2.getBuildInformation().find("GStreamer") != -1:
-                        # 针对双目摄像头构建的GStreamer管道
-                        gst_pipeline = (
-                            f"v4l2src device=/dev/video{self.camera_index} ! "
-                            f"image/jpeg,width=1280,height=480,framerate={self.frame_rate}/1 ! "
-                            f"jpegdec ! videoconvert ! appsink"
-                        )
-                        rospy.loginfo(f"Trying GStreamer pipeline: {gst_pipeline}")
-                        self.camera = cv2.VideoCapture(gst_pipeline, cv2.CAP_GSTREAMER)
-                except Exception as e:
-                    rospy.logwarn(f"GStreamer pipeline failed, falling back to default: {e}")
-                    # 如果GStreamer失败，回退到标准方法
-                    self.camera = cv2.VideoCapture(self.camera_index)
+                    if not self.available_cameras:
+                        rospy.logerr("No cameras available after re-scanning")
+                        # 创建一个模拟视频源用于测试
+                        self.create_dummy_camera()
+                        return False
+                    else:
+                        self.camera_index = self.available_cameras[0]
+                
+                # 检查camera_index是否在available_cameras中
+                if self.camera_index not in self.available_cameras and self.available_cameras:
+                    rospy.logwarn(f"Camera index {self.camera_index} is not available. Using index {self.available_cameras[0]}")
+                    self.camera_index = self.available_cameras[0]
+                
+                # 尝试多种打开摄像头的方式
+                # 1. 直接使用OpenCV打开
+                self.camera = cv2.VideoCapture(self.camera_index)
+                
+                if not self.camera.isOpened():
+                    # 2. 尝试使用设备文件路径
+                    device_path = f"/dev/video{self.camera_index}"
+                    rospy.loginfo(f"Trying to open camera using device path: {device_path}")
+                    self.camera = cv2.VideoCapture(device_path)
+                
+                if not self.camera.isOpened() and cv2.getBuildInformation().find("GStreamer") != -1:
+                    # 3. 尝试使用GStreamer管道
+                    # 首先使用通用MJPG格式
+                    gst_pipeline = (
+                        f"v4l2src device=/dev/video{self.camera_index} ! "
+                        f"image/jpeg,width=1280,height=480,framerate={self.frame_rate}/1 ! "
+                        f"jpegdec ! videoconvert ! appsink"
+                    )
+                    rospy.loginfo(f"Trying GStreamer pipeline: {gst_pipeline}")
+                    self.camera = cv2.VideoCapture(gst_pipeline, cv2.CAP_GSTREAMER)
+                
+                if not self.camera.isOpened() and cv2.getBuildInformation().find("GStreamer") != -1:
+                    # 4. 尝试使用更通用的格式
+                    gst_pipeline = (
+                        f"v4l2src device=/dev/video{self.camera_index} ! "
+                        f"video/x-raw,width=1280,height=480,framerate={self.frame_rate}/1 ! "
+                        f"videoconvert ! appsink"
+                    )
+                    rospy.loginfo(f"Trying generic GStreamer pipeline: {gst_pipeline}")
+                    self.camera = cv2.VideoCapture(gst_pipeline, cv2.CAP_GSTREAMER)
                 
                 if not self.camera.isOpened():
                     rospy.logerr(f"Failed to open camera at index {self.camera_index}")
+                    # 移除失败的相机索引，避免重复尝试
+                    if self.camera_index in self.available_cameras:
+                        self.available_cameras.remove(self.camera_index)
+                        
+                    # 尝试使用模拟摄像头
+                    self.create_dummy_camera()
                     return False
                 
                 # 首先设置图像格式为MJPG，这对于高帧率（30fps）至关重要
@@ -178,6 +362,8 @@ class StereoCameraNode:
                         rospy.logerr("Camera initialization failed, could not read frames")
                         self.camera.release()
                         self.camera = None
+                        # 创建模拟摄像头
+                        self.create_dummy_camera()
                         return False
                 
                 # 获取实际相机属性
@@ -203,7 +389,58 @@ class StereoCameraNode:
         except Exception as e:
             rospy.logerr(f"Error opening camera: {e}")
             self.is_running = False
+            # 创建模拟摄像头
+            self.create_dummy_camera()
             return False
+            
+    def create_dummy_camera(self):
+        """创建模拟摄像头用于测试"""
+        rospy.logwarn("Creating dummy camera for testing")
+        # 标记使用模拟摄像头
+        self.using_dummy_camera = True
+        # 设置运行状态为真，让系统继续运行
+        self.is_running = True
+        
+        # 创建一个彩色的测试图案
+        self.dummy_left = np.zeros((480, 640, 3), dtype=np.uint8)
+        self.dummy_right = np.zeros((480, 640, 3), dtype=np.uint8)
+        
+        # 在左右图像上绘制不同的测试图案
+        # 左图: 红色网格
+        for i in range(0, 480, 40):
+            cv2.line(self.dummy_left, (0, i), (640, i), (0, 0, 255), 1)
+        for i in range(0, 640, 40):
+            cv2.line(self.dummy_left, (i, 0), (i, 480), (0, 0, 255), 1)
+            
+        # 右图: 蓝色网格 (稍微偏移以模拟视差)
+        for i in range(0, 480, 40):
+            cv2.line(self.dummy_right, (0, i), (640, i), (255, 0, 0), 1)
+        for i in range(10, 650, 40):  # 10像素的偏移
+            cv2.line(self.dummy_right, (i, 0), (i, 480), (255, 0, 0), 1)
+            
+        # 添加文本
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        cv2.putText(self.dummy_left, "DUMMY LEFT CAMERA", (50, 240), font, 1, (255, 255, 255), 2)
+        cv2.putText(self.dummy_right, "DUMMY RIGHT CAMERA", (50, 240), font, 1, (255, 255, 255), 2)
+        
+        # 添加几个3D测试对象 (不同位置的圆，可以测试立体视觉)
+        for i in range(5):
+            # 随机位置
+            x = 100 + i * 100
+            y = 100 + i * 50
+            # 右图中的偏移量 - 距离越近，视差越大
+            disparity = 30 - i * 5  # 0-25的视差范围
+            
+            # 在左右图像上画圆
+            cv2.circle(self.dummy_left, (x, y), 20, (0, 255, 0), -1)
+            cv2.circle(self.dummy_right, (x - disparity, y), 20, (0, 255, 0), -1)
+            
+            # 添加深度标签
+            depth_text = f"D{i+1}"
+            cv2.putText(self.dummy_left, depth_text, (x-10, y+5), font, 0.6, (0, 0, 0), 2)
+            cv2.putText(self.dummy_right, depth_text, (x-disparity-10, y+5), font, 0.6, (0, 0, 0), 2)
+        
+        rospy.loginfo("Dummy camera created successfully")
     
     def create_anaglyph(self, left_image, right_image):
         """Create anaglyph (red-cyan) 3D image from stereo pair"""
@@ -243,41 +480,89 @@ class StereoCameraNode:
         return image
     
     def compute_depth_map(self, left_image, right_image):
-        """Compute depth map from stereo images using semi-global matching"""
-        if not self.use_depth or not HAVE_XIMGPROC or self.stereo_processor is None:
-            # 返回一个简单的彩色图像而不是深度图
-            return np.zeros_like(left_image)
-            
+        """Compute depth map from stereo images"""
+        if not self.use_depth:
+            # 如果未启用深度计算，返回空白图像
+            return np.zeros((480, 640), dtype=np.uint8)
+        
         try:
-            # 确保图像是灰度格式
+            # 确保输入图像为灰度图
             if len(left_image.shape) == 3:
                 left_gray = cv2.cvtColor(left_image, cv2.COLOR_BGR2GRAY)
-            else:
-                left_gray = left_image
-                
-            if len(right_image.shape) == 3:
                 right_gray = cv2.cvtColor(right_image, cv2.COLOR_BGR2GRAY)
             else:
+                left_gray = left_image
                 right_gray = right_image
             
-            # 计算左右视差图
-            left_disp = self.stereo_processor.compute(left_gray, right_gray).astype(np.float32) / 16.0
-            right_disp = self.stereo_processor_right.compute(right_gray, left_gray).astype(np.float32) / 16.0
-            
-            # 使用WLS滤波器进行后处理优化
-            filtered_disp = self.wls_filter.filter(left_disp, left_gray, disparity_map_right=right_disp)
-            
-            # 归一化视差图以便显示
-            norm_disp = cv2.normalize(filtered_disp, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
-            
-            # 生成彩色深度图
-            depth_colormap = cv2.applyColorMap(norm_disp, cv2.COLORMAP_JET)
-            
-            return depth_colormap
-            
+            if self.stereo_processor is not None:
+                # 计算视差图
+                disparity_left = self.stereo_processor.compute(left_gray, right_gray)
+                
+                if self.stereo_processor_right is not None and self.wls_filter is not None:
+                    # 计算右视图视差图
+                    disparity_right = self.stereo_processor_right.compute(right_gray, left_gray)
+                    
+                    # 使用WLS滤波器改善视差图
+                    filtered_disp = self.wls_filter.filter(disparity_left, left_gray, None, disparity_right)
+                    
+                    # 规范化视差图以便显示
+                    norm_disp = cv2.normalize(filtered_disp, None, 0, 255, cv2.NORM_MINMAX, cv2.CV_8U)
+                else:
+                    # 如果没有WLS滤波器，直接规范化左视图视差图
+                    norm_disp = cv2.normalize(disparity_left, None, 0, 255, cv2.NORM_MINMAX, cv2.CV_8U)
+                
+                # 使用视差图和Q矩阵计算3D点云
+                if hasattr(self, 'Q'):
+                    try:
+                        # 创建伪彩色深度图
+                        depth_colormap = cv2.applyColorMap(norm_disp, cv2.COLORMAP_JET)
+                        
+                        # 在深度图上添加文本说明
+                        cv2.putText(depth_colormap, "Depth Map", (10, 30), 
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                        
+                        # 在深度图上添加色条
+                        bar_width = 20
+                        bar_height = 200
+                        bar_x = depth_colormap.shape[1] - bar_width - 10
+                        bar_y = (depth_colormap.shape[0] - bar_height) // 2
+                        
+                        # 创建渐变色条
+                        for i in range(bar_height):
+                            color_idx = int(255 * (1 - i / bar_height))
+                            color = cv2.applyColorMap(np.array([[color_idx]], dtype=np.uint8), cv2.COLORMAP_JET)[0, 0]
+                            cv2.rectangle(depth_colormap, 
+                                        (bar_x, bar_y + i), 
+                                        (bar_x + bar_width, bar_y + i + 1), 
+                                        (int(color[0]), int(color[1]), int(color[2])), 
+                                        -1)
+                        
+                        # 添加标签
+                        cv2.putText(depth_colormap, "Near", (bar_x - 40, bar_y + 20), 
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                        cv2.putText(depth_colormap, "Far", (bar_x - 40, bar_y + bar_height - 20), 
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                        
+                        return depth_colormap
+                    except Exception as e:
+                        rospy.logwarn(f"Error creating depth colormap: {e}")
+                
+                # 如果3D重建失败，返回灰度视差图
+                return cv2.cvtColor(norm_disp, cv2.COLOR_GRAY2BGR)
+            else:
+                # 如果没有立体处理器，返回空白图像
+                blank = np.zeros_like(left_image)
+                cv2.putText(blank, "Depth processing disabled", (50, 240), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                return blank
+                
         except Exception as e:
-            rospy.logerr(f"Error in depth map computation: {e}")
-            return np.zeros_like(left_image)
+            rospy.logerr(f"Error computing depth map: {e}")
+            # 返回带有错误信息的空白图像
+            blank = np.zeros_like(left_image)
+            cv2.putText(blank, f"Depth error: {str(e)[:30]}", (50, 240), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            return blank
     
     def create_side_by_side_3d(self, left_image, right_image):
         """Create side-by-side 3D image with highlighting"""
@@ -302,19 +587,49 @@ class StereoCameraNode:
         return side_by_side
     
     def process_stereo_images(self, left_image, right_image):
-        """Process stereo images based on selected method"""
-        if self.stereo_method == 'anaglyph':
-            # 生成红青立体图像
-            return self.create_anaglyph(left_image, right_image)
-        elif self.stereo_method == 'wiggle':
-            # 生成摇摆效果
-            return self.create_wiggle(left_image, right_image)
-        elif self.stereo_method == 'side_by_side':
-            # 生成并排显示立体图像
-            return self.create_side_by_side_3d(left_image, right_image)
+        """Process stereo images according to the selected method"""
+        # 获取当前的立体显示方法
+        current_method = self.stereo_method
+        
+        # 首先进行立体配准
+        left_rectified = cv2.remap(left_image, self.map1_left, self.map2_left, cv2.INTER_LINEAR)
+        right_rectified = cv2.remap(right_image, self.map1_right, self.map2_right, cv2.INTER_LINEAR)
+        
+        # 在配准后的图像上绘制水平线以显示对齐效果
+        if current_method == 'rectified':
+            # 创建配准后的合并视图
+            merged = np.zeros((480, 1280, 3), dtype=np.uint8)
+            merged[:, :640] = left_rectified
+            merged[:, 640:] = right_rectified
+            
+            # 绘制水平线以显示对齐效果
+            for y in range(0, 480, 40):
+                cv2.line(merged, (0, y), (1280, y), (0, 255, 0), 1)
+                
+            # 添加文本标签
+            cv2.putText(merged, "Rectified Stereo", (10, 30), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+            
+            return merged
+            
+        elif current_method == 'anaglyph':
+            # 使用配准后的图像创建红青立体图
+            return self.create_anaglyph(left_rectified, right_rectified)
+            
+        elif current_method == 'wiggle':
+            # 使用配准后的图像创建摇摆效果
+            return self.create_wiggle(left_rectified, right_rectified)
+            
+        elif current_method == 'side_by_side':
+            # 使用配准后的图像创建并排3D效果
+            return self.create_side_by_side_3d(left_rectified, right_rectified)
+            
         else:
-            # 默认情况下，简单地显示两个图像
-            return np.hstack([left_image, right_image])
+            # 默认使用配准视图
+            merged = np.zeros((480, 1280, 3), dtype=np.uint8)
+            merged[:, :640] = left_rectified
+            merged[:, 640:] = right_rectified
+            return merged
     
     def publish_loop(self):
         """Main loop for capturing and publishing images"""
@@ -340,124 +655,142 @@ class StereoCameraNode:
         camera_info_left.distortion_model = "plumb_bob"
         camera_info_right.distortion_model = "plumb_bob"
         
-        # 失败计数和恢复机制
-        consecutive_failures = 0
-        max_failures = 5
+        # 标记错误计数，连续错误过多则重启摄像头
+        error_count = 0
+        max_errors = 10
         
-        while not rospy.is_shutdown():
-            if not self.is_running:
-                # Try to reopen camera if it's closed
-                if not self.open_camera():
-                    rate.sleep()
-                    continue
-            
-            # Capture frame
-            with self.camera_lock:
-                if self.camera is None:
-                    rate.sleep()
-                    continue
+        # 用于计算FPS的变量
+        frame_count = 0
+        last_time = time.time()
+        fps = 0
+        
+        while not rospy.is_shutdown() and self.is_running:
+            # Check if we have a valid camera
+            if hasattr(self, 'using_dummy_camera') and self.using_dummy_camera:
+                # 使用模拟摄像头数据
+                left_img = self.dummy_left.copy()
+                right_img = self.dummy_right.copy()
+                
+                # 为模拟视频添加动态效果 - 每帧移动圆形
+                self.animate_dummy_frames()
+                
+                # 模拟成功读取帧
+                ret = True
+            else:
+                # 使用真实摄像头
+                with self.camera_lock:
+                    if self.camera is None or not self.is_running:
+                        rate.sleep()
+                        continue
                     
-                # 尝试读取帧，处理可能的JPEG损坏错误
+                    # Capture frame
+                    try:
+                        ret, frame = self.camera.read()
+                    except Exception as e:
+                        rospy.logerr(f"Error reading camera frame: {e}")
+                        ret = False
+            
+                if not ret:
+                    error_count += 1
+                    rospy.logwarn(f"Failed to read camera frame ({error_count}/{max_errors})")
+                    
+                    # 如果连续错误次数过多，尝试重新打开摄像头
+                    if error_count >= max_errors:
+                        rospy.logerr(f"Too many consecutive camera errors. Attempting to reopen camera.")
+                        error_count = 0
+                        self.open_camera()
+                    
+                    rate.sleep()
+                    continue
+                
+                error_count = 0  # 成功读取后重置错误计数
+                
+                # 处理帧数据
                 try:
-                    ret, frame = self.camera.read()
-                except cv2.error as e:
-                    # 忽略JPEG错误，并尝试下一帧
-                    rospy.logwarn(f"OpenCV error: {e}")
-                    ret = False
+                    # 检查是否为有效的双目图像
+                    if frame.shape[1] != 1280 or frame.shape[0] != 480:
+                        rospy.logwarn(f"Unexpected frame size: {frame.shape[1]}x{frame.shape[0]}, expecting 1280x480. Skipping frame.")
+                        rate.sleep()
+                        continue
+                    
+                    # 检测无效帧 (全黑或异常数据)
+                    if np.mean(frame) < 5 or np.isnan(np.sum(frame)):
+                        rospy.logwarn("Invalid frame detected (black or NaN values). Skipping.")
+                        rate.sleep()
+                        continue
+                    
+                    # 复制帧以避免修改原始数据
+                    frame = frame.copy()
+                    
+                    # 分割为左右图像
+                    left_img = frame[:, :640]
+                    right_img = frame[:, 640:]
+                    
+                    # 验证分割后的图像尺寸
+                    if left_img.shape[1] != 640 or right_img.shape[1] != 640:
+                        rospy.logerr(f"Invalid split frame sizes. Left: {left_img.shape}, Right: {right_img.shape}")
+                        rate.sleep()
+                        continue
                 except Exception as e:
-                    rospy.logerr(f"Unexpected error reading camera: {e}")
-                    ret = False
-            
-            if not ret:
-                consecutive_failures += 1
-                rospy.logerr(f"Failed to capture frame ({consecutive_failures}/{max_failures})")
-                
-                # 如果连续失败太多次，重置相机
-                if consecutive_failures >= max_failures:
-                    rospy.logwarn("Too many consecutive failures, resetting camera...")
-                    self.is_running = False
-                    with self.camera_lock:
-                        if self.camera is not None:
-                            try:
-                                self.camera.release()
-                            except:
-                                pass
-                            self.camera = None
-                
-                rate.sleep()
-                continue
-            
-            # 成功获取帧，重置失败计数
-            consecutive_failures = 0
+                    rospy.logerr(f"Error processing frame: {e}")
+                    rate.sleep()
+                    continue
             
             try:
-                # 检查帧是否有效
-                if frame is None or frame.size == 0:
-                    rospy.logwarn("Empty frame received")
-                    rate.sleep()
-                    continue
+                # 计算和显示FPS
+                frame_count += 1
+                if frame_count >= 10:
+                    current_time = time.time()
+                    fps = frame_count / (current_time - last_time)
+                    last_time = current_time
+                    frame_count = 0
                 
-                # Split frame into left and right images
-                height, width = frame.shape[:2]
-                half_width = width // 2
+                # 在左右图像上添加FPS信息
+                if hasattr(self, 'using_dummy_camera') and self.using_dummy_camera:
+                    cv2.putText(left_img, "DUMMY MODE", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 
+                                0.7, (0, 255, 255), 2)
                 
-                if width > 1 and half_width > 0:
+                cv2.putText(left_img, f"FPS: {fps:.1f}", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 
+                            0.7, (0, 255, 255), 2)
+                
+                # Process the stereo images according to the selected method
+                merged_img = self.process_stereo_images(left_img, right_img)
+                
+                # Create depth map if requested
+                if self.use_depth and self.stereo_processor is not None:
                     try:
-                        # 确保分割索引在有效范围内
-                        if half_width > frame.shape[1]:
-                            half_width = frame.shape[1] // 2
+                        depth_img = self.compute_depth_map(left_img, right_img)
                         
-                        left_image = frame[:, :half_width].copy()  # 使用copy()避免共享内存引起的问题
-                        right_image = frame[:, half_width:].copy()
-                        
-                        # 验证图像大小和数据完整性
-                        if left_image.size == 0 or right_image.size == 0:
-                            raise ValueError("Invalid split image size")
+                        # Convert to ROS image and publish
+                        depth_msg = self.bridge.cv2_to_imgmsg(depth_img, encoding="mono8")
+                        depth_msg.header.stamp = rospy.Time.now()
+                        depth_msg.header.frame_id = "stereo_depth"
+                        self.depth_pub.publish(depth_msg)
                     except Exception as e:
-                        rospy.logwarn(f"Error splitting frame: {e}")
-                        # 如果分割出错，创建空白图像
-                        left_image = np.zeros((480, 640, 3), dtype=np.uint8)
-                        right_image = np.zeros((480, 640, 3), dtype=np.uint8)
-                else:
-                    # If we can't split the image, create dummy images
-                    left_image = np.zeros((480, 640, 3), dtype=np.uint8)
-                    right_image = np.zeros((480, 640, 3), dtype=np.uint8)
+                        rospy.logwarn(f"Error computing depth map: {e}")
                 
-                # Process stereo images to create merged view
-                merged_image = self.process_stereo_images(left_image, right_image)
-                
-                # Create timestamps
+                # Update header timestamps
                 now = rospy.Time.now()
-                
-                # Publish left image
-                left_msg = self.bridge.cv2_to_imgmsg(left_image, "bgr8")
-                left_msg.header.stamp = now
-                left_msg.header.frame_id = "stereo_left"
-                self.left_pub.publish(left_msg)
-                
-                # Publish right image
-                right_msg = self.bridge.cv2_to_imgmsg(right_image, "bgr8")
-                right_msg.header.stamp = now
-                right_msg.header.frame_id = "stereo_right"
-                self.right_pub.publish(right_msg)
-                
-                # Publish merged image
-                merged_msg = self.bridge.cv2_to_imgmsg(merged_image, "bgr8")
-                merged_msg.header.stamp = now
-                merged_msg.header.frame_id = "stereo_camera"
-                self.merged_pub.publish(merged_msg)
-                
-                # Compute and publish depth map if enabled
-                if self.use_depth and self.depth_pub is not None:
-                    depth_map = self.compute_depth_map(left_image, right_image)
-                    depth_msg = self.bridge.cv2_to_imgmsg(depth_map, "bgr8")
-                    depth_msg.header.stamp = now
-                    depth_msg.header.frame_id = "stereo_depth"
-                    self.depth_pub.publish(depth_msg)
-                
-                # Publish camera info
                 camera_info_left.header.stamp = now
                 camera_info_right.header.stamp = now
+                
+                # Convert to ROS images
+                left_msg = self.bridge.cv2_to_imgmsg(left_img, "bgr8")
+                right_msg = self.bridge.cv2_to_imgmsg(right_img, "bgr8")
+                merged_msg = self.bridge.cv2_to_imgmsg(merged_img, "bgr8")
+                
+                # Set headers
+                left_msg.header.stamp = now
+                left_msg.header.frame_id = "stereo_left"
+                right_msg.header.stamp = now
+                right_msg.header.frame_id = "stereo_right"
+                merged_msg.header.stamp = now
+                merged_msg.header.frame_id = "stereo_camera"
+                
+                # Publish images and camera info
+                self.left_pub.publish(left_msg)
+                self.right_pub.publish(right_msg)
+                self.merged_pub.publish(merged_msg)
                 self.left_info_pub.publish(camera_info_left)
                 self.right_info_pub.publish(camera_info_right)
                 
@@ -466,7 +799,68 @@ class StereoCameraNode:
             except Exception as e:
                 rospy.logerr(f"Error in publish loop: {e}")
             
+            # Maintain frame rate
             rate.sleep()
+            
+    def animate_dummy_frames(self):
+        """为模拟摄像头添加简单动画效果"""
+        if not hasattr(self, 'dummy_animation_counter'):
+            self.dummy_animation_counter = 0
+            self.dummy_animation_dir = 1
+        
+        # 更新计数器
+        self.dummy_animation_counter += self.dummy_animation_dir
+        
+        # 反转方向如果达到边界
+        if self.dummy_animation_counter > 20 or self.dummy_animation_counter < -20:
+            self.dummy_animation_dir *= -1
+        
+        # 基于计数器更新圆形位置
+        offset = self.dummy_animation_counter
+        
+        # 清除之前的动态内容
+        self.dummy_left = np.zeros((480, 640, 3), dtype=np.uint8)
+        self.dummy_right = np.zeros((480, 640, 3), dtype=np.uint8)
+        
+        # 重新绘制网格
+        # 左图: 红色网格
+        for i in range(0, 480, 40):
+            cv2.line(self.dummy_left, (0, i), (640, i), (0, 0, 255), 1)
+        for i in range(0, 640, 40):
+            cv2.line(self.dummy_left, (i, 0), (i, 480), (0, 0, 255), 1)
+            
+        # 右图: 蓝色网格 (稍微偏移以模拟视差)
+        for i in range(0, 480, 40):
+            cv2.line(self.dummy_right, (0, i), (640, i), (255, 0, 0), 1)
+        for i in range(10, 650, 40):  # 10像素的偏移
+            cv2.line(self.dummy_right, (i, 0), (i, 480), (255, 0, 0), 1)
+        
+        # 添加文本
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        cv2.putText(self.dummy_left, "DUMMY LEFT CAMERA", (50, 240), font, 1, (255, 255, 255), 2)
+        cv2.putText(self.dummy_right, "DUMMY RIGHT CAMERA", (50, 240), font, 1, (255, 255, 255), 2)
+        
+        # 添加一个动态移动的对象
+        for i in range(5):
+            # 根据动画位置调整坐标
+            x = 100 + i * 100
+            y = 100 + i * 50 + offset
+            # 右图中的偏移量
+            disparity = 30 - i * 5
+            
+            # 在左右图像上画圆
+            cv2.circle(self.dummy_left, (x, y), 20, (0, 255, 0), -1)
+            cv2.circle(self.dummy_right, (x - disparity, y), 20, (0, 255, 0), -1)
+            
+            # 添加深度标签
+            depth_text = f"D{i+1}"
+            cv2.putText(self.dummy_left, depth_text, (x-10, y+5), font, 0.6, (0, 0, 0), 2)
+            cv2.putText(self.dummy_right, depth_text, (x-disparity-10, y+5), font, 0.6, (0, 0, 0), 2)
+            
+        # 添加时间戳
+        timestamp = f"Time: {time.strftime('%H:%M:%S')}"
+        cv2.putText(self.dummy_left, timestamp, (10, 30), font, 0.6, (255, 255, 0), 2)
+        cv2.putText(self.dummy_right, timestamp, (10, 30), font, 0.6, (255, 255, 0), 2)
     
     def shutdown(self):
         """Clean up on shutdown"""
@@ -505,6 +899,18 @@ class StereoCameraNode:
             pass
         
         rospy.loginfo("Camera resources released successfully")
+    
+    def stereo_method_callback(self, msg):
+        """处理立体显示方法的更改"""
+        method = msg.data.strip("'\"")  # 去除可能的引号
+        if method in ['rectified', 'anaglyph', 'wiggle', 'side_by_side']:
+            old_method = self.stereo_method
+            self.stereo_method = method
+            # 更新全局参数
+            rospy.set_param('/stereo_camera/stereo_method', method)
+            rospy.loginfo(f"立体显示方法已更改: {old_method} -> {method}")
+        else:
+            rospy.logwarn(f"不支持的立体显示方法: {method}")
 
 if __name__ == '__main__':
     try:
