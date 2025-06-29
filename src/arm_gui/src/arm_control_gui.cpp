@@ -19,6 +19,7 @@
 #include <std_msgs/String.h>
 #include <std_msgs/Float64.h>
 #include <std_msgs/Bool.h>
+#include <std_msgs/Int32.h>
 #include <geometry_msgs/PoseArray.h>
 #include <std_srvs/SetBool.h>
 
@@ -62,6 +63,12 @@ ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     
     // 初始化ROS通信
     initializeROS();
+    
+    // 连接摄像头切换按钮
+    QPushButton* cameraSwitchButton = findChild<QPushButton*>("cameraSwitchButton");
+    if (cameraSwitchButton) {
+        connect(cameraSwitchButton, &QPushButton::clicked, this, &ArmControlGUI::onCameraSwitchButtonClicked);
+    }
     
     // 更新GUI以显示初始关节值
     updateGUIJointValues();
@@ -333,11 +340,14 @@ void ArmControlGUI::initializeROS()
     // 设置舵机控制发布器
     servo_control_pub_ = nh_.advertise<servo_wrist::SerControl>("servo_control_topic", 10);
     
+    // 设置摄像头视图模式切换发布器
+    camera_view_mode_pub_ = nh_.advertise<std_msgs::Int32>("/stereo_camera/view_mode", 10);
+    
     // 订阅关节状态
     joint_state_sub_ = nh_.subscribe("/arm1/joint_states", 10, &ArmControlGUI::jointStateCallback, this);
     
-    // 订阅合成立体图像
-    stereo_merged_sub_ = nh_.subscribe("/stereo_camera/image_merged", 1, &ArmControlGUI::stereoMergedCallback, this);
+    // 订阅当前视图图像（而不是合成立体图像）
+    stereo_merged_sub_ = nh_.subscribe("/stereo_camera/current_view", 1, &ArmControlGUI::stereoMergedCallback, this);
     
     // 订阅检测图像
     detection_image_sub_ = nh_.subscribe("/detections/image", 1, &ArmControlGUI::detectionImageCallback, this);
@@ -2317,6 +2327,41 @@ void ArmControlGUI::createPlaceholderImage()
     
     // 更新UI
     QMetaObject::invokeMethod(this, "updateCameraViews", Qt::QueuedConnection);
+}
+
+// 摄像头视图切换按钮点击处理
+void ArmControlGUI::onCameraSwitchButtonClicked()
+{
+    // 循环切换模式：左图(0) -> 右图(1) -> 深度图(2) -> 左图(0)
+    camera_view_mode_ = (camera_view_mode_ + 1) % 3;
+    
+    // 更新标签显示
+    QLabel* viewModeLabel = findChild<QLabel*>("cameraViewModeLabel");
+    if (viewModeLabel) {
+        QString modeName;
+        switch(camera_view_mode_) {
+            case 0: modeName = "左图"; break;
+            case 1: modeName = "右图"; break;
+            case 2: modeName = "深度图"; break;
+            default: modeName = "未知"; break;
+        }
+        viewModeLabel->setText(QString("当前：%1").arg(modeName));
+    }
+    
+    // 发布视图模式消息
+    std_msgs::Int32 mode_msg;
+    mode_msg.data = camera_view_mode_;
+    camera_view_mode_pub_.publish(mode_msg);
+    
+    // 记录日志
+    QString modeStr;
+    switch(camera_view_mode_) {
+        case 0: modeStr = "左图"; break;
+        case 1: modeStr = "右图"; break;
+        case 2: modeStr = "深度图"; break;
+        default: modeStr = "未知模式"; break;
+    }
+    logMessage(QString("切换摄像头视图模式：%1").arg(modeStr));
 }
 
 // 重新连接摄像头

@@ -201,6 +201,9 @@ private slots:
     // 摄像头图像鼠标事件处理
     void onCameraViewClicked(QPoint pos);
     
+    // 摄像头视图切换
+    void onCameraSwitchButtonClicked();
+    
     // 将这两个函数移动到槽中
     void updateCameraViews();
     void updateDetectionsTable();
@@ -234,6 +237,7 @@ private:
     ros::Publisher relay_order_pub_;
     ros::Publisher servo_control_pub_;
     ros::Publisher vacuum_power_pub_;
+    ros::Publisher camera_view_mode_pub_; // 用于发布摄像头视图模式
     
     // 消息过滤器同步器
     typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, geometry_msgs::PoseArray> SyncPolicy;
@@ -248,6 +252,9 @@ private:
     std::vector<double> joint_max_values_;
     QVector3D current_end_position_;
     QQuaternion current_end_orientation_;
+    
+    // 摄像头视图状态
+    int camera_view_mode_ = 0; // 0=左图，1=右图，2=深度图
     geometry_msgs::Pose current_end_pose_;
     bool gripper_open_;
     bool vacuum_on_;
