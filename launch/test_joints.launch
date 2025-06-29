@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- 启动测试关节发布器 -->
+  <node name="test_joint_publisher" pkg="liancheng_socket" type="test_joint_publisher" output="screen">
+  </node>
+  
+  <!-- 启动GUI节点 -->
+  <node pkg="arm_gui" type="arm_gui_node" name="arm_gui" output="screen">
+    <!-- GUI参数 -->
+  </node>
+</launch> 

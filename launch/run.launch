@@ -21,6 +21,10 @@
     <param name="baud_rate" value="115200" />
   </node>
   
+  <!-- 关节状态发布节点 -->
+  <node name="joint_publisher" pkg="liancheng_socket" type="joint_state_publisher" output="screen">
+  </node>
+  
   <!-- 舵机控制节点 -->
   <node name="servo" pkg="servo_wrist" type="wrist_ctrl" args="$(arg servo_port)" output="screen">
     <!-- 舵机串口参数 -->

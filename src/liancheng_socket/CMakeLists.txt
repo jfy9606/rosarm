@@ -210,6 +210,18 @@ target_link_libraries(canusb
     ${catkin_LIBRARIES}
 )
 
+add_executable(joint_state_publisher src/joint_state_publisher.cpp)
+add_dependencies(joint_state_publisher liancheng_socket_generate_messages_cpp ${catkin_EXPORTED_TARGETS})
+target_link_libraries(joint_state_publisher
+    ${catkin_LIBRARIES}
+)
+
+add_executable(test_joint_publisher src/test_joint_publisher.cpp)
+add_dependencies(test_joint_publisher liancheng_socket_generate_messages_cpp ${catkin_EXPORTED_TARGETS})
+target_link_libraries(test_joint_publisher
+    ${catkin_LIBRARIES}
+)
+
 #############
 ## Install ##
 #############
