@@ -22,6 +22,11 @@
         <param name="baud_rate" value="115200" />
     </node>
     
+    <!-- 启动关节状态发布节点 -->
+    <node name="joint_publisher" pkg="liancheng_socket" type="joint_state_publisher" output="screen">
+        <param name="publish_rate" value="50" />
+    </node>
+    
     <!-- 启动YOLO目标检测节点 -->
     <node name="yolo_detector_visual_servo" pkg="arm_trajectory" type="yolo_detector.py" output="screen" if="$(arg yolo_enabled)">
         <param name="model_path" value="$(arg yolo_model_path)" />

@@ -169,34 +169,17 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 - Python 3.8+
 - OpenCV 4.2+
 
-### YOLOv8安装说明
-
-系统使用YOLOv8进行目标检测，按照以下步骤进行安装：
+### 配置ROS软件源
 
 ```bash
-# 安装PyTorch和相关依赖
-pip3 install torch torchvision
+# 添加ROS软件源
+sudo sh -c 'echo "deb http://packages.ros.org/ros/ubuntu $(lsb_release -sc) main" > /etc/apt/sources.list.d/ros-latest.list'
 
-# 安装Ultralytics包（YOLOv8）
-pip3 install ultralytics
+# 添加密钥
+sudo apt-key adv --keyserver 'hkp://keyserver.ubuntu.com:80' --recv-key C1CF6E31E6BADE8868B172B4F42ED6FBAB17C654
 
-# 验证安装
-python3 -c "from ultralytics import YOLO; print('YOLOv8安装成功')"
-```
-
-如果需要特定版本的模型权重，可以：
-
-```bash
-# 下载模型权重到项目目录
-mkdir -p models
-wget -P models/ https://github.com/ultralytics/assets/releases/download/latest/yolov8n.pt  # nano版本
-wget -P models/ https://github.com/ultralytics/assets/releases/download/latest/yolov8s.pt  # small版本
-```
-
-运行时需要在启动脚本中指定模型路径：
-
-```bash
-./start.sh --yolo --model models/yolov8n.pt
+# 更新软件包列表
+sudo apt update
 ```
 
 ### 安装依赖
@@ -204,39 +187,40 @@ wget -P models/ https://github.com/ultralytics/assets/releases/download/latest/y
 ```bash
 # 安装ROS基本依赖
 sudo apt-get update
-sudo apt-get install ros-noetic-image-view ros-noetic-tf2-ros ros-noetic-cv-bridge ros-noetic-serial
+sudo apt-get install ros-noetic-image-view ros-noetic-tf2-ros ros-noetic-cv-bridge ros-noetic-serial ros-noetic-moveit-msgs ros-noetic-geometry-msgs ros-noetic-sensor-msgs ros-noetic-image-transport
 
 # 安装Qt5依赖
-sudo apt-get install qtbase5-dev qt5-default qtchooser qttools5-dev-tools qttools5-dev libqt5core5a libqt5gui5 libqt5widgets5 libqt5opengl5 ros-noetic-rqt* ros-noetic-qt-gui* -y
+sudo apt-get install qtbase5-dev qt5-default qtchooser qttools5-dev-tools qttools5-dev libqt5core5a libqt5gui5 libqt5widgets5 libqt5opengl5 libqt5opengl5-dev ros-noetic-rqt* ros-noetic-qt-gui* -y
 
-# 安装Qt5 OpenGL开发库（用于QMatrix3x3和QMatrix4x4支持）
-sudo apt-get install libqt5opengl5-dev -y
+# 修复Qt5库问题（解决libQt5Core.so.5错误）
+sudo strip --remove-section=.note.ABI-tag /usr/lib/x86_64-linux-gnu/libQt5Core.so.5
+export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
+echo 'export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH' >> ~/.bashrc
+source ~/.bashrc
 
-# 安装其他系统依赖
-sudo apt-get install libopengl0 libglx0 libgl1-mesa-dev
+# 安装系统依赖
+sudo apt-get install libopengl0 libglx0 libgl1-mesa-dev -y
 
 # 安装Python依赖
-pip3 install numpy opencv-python torch torchvision
+pip3 install numpy opencv-contrib-python torch torchvision ultralytics
 
-# 安装YOLOv8
-pip3 install ultralytics
+# 验证YOLO安装
+python3 -c "from ultralytics import YOLO; print('YOLOv8安装成功')"
 
-# 安装消息和功能包依赖
-sudo apt-get install ros-noetic-moveit-msgs ros-noetic-geometry-msgs ros-noetic-sensor-msgs ros-noetic-tf2-ros
-
-# 安装通信和网络依赖
-sudo apt-get install ros-noetic-image-transport
+# 下载YOLO模型权重（可选）
+mkdir -p models
+wget -P models/ https://github.com/ultralytics/assets/releases/download/latest/yolov8n.pt  # nano版本
 ```
 
-### 工作空间目录结构
+### 安装配置Catkin工具
 
-系统包含以下ROS功能包：
-- **arm_gui**: 机械臂控制GUI界面
-- **arm_trajectory**: 轨迹规划和生成
-- **liancheng_socket**: 网络通信接口（原名SimpleNetwork）
-  - 包含joint_state_publisher：负责发布关节状态
-- **servo_wrist**: 舵机控制
-- **stereo_vision**: 立体视觉处理
+```bash
+# 安装python-catkin-tools
+sudo apt-get install python3-catkin-tools python3-osrf-pycommon -y
+
+# 验证安装
+catkin --version
+```
 
 ### 编译工作空间
 
