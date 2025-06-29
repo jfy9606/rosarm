@@ -146,13 +146,9 @@ protected:
 private slots:
     // 按钮点击处理
     void on_homeButton_clicked();
-    void on_stopButton_clicked();
-    void on_moveButton_clicked();
-    void on_gripperOpenButton_clicked();
-    void on_gripperCloseButton_clicked();
+    void on_moveToPositionButton_clicked();
     void on_vacuumOnButton_clicked();
     void on_vacuumOffButton_clicked();
-    void on_moveToPositionButton_clicked();
     
     // 更新UI
     void updateUI();

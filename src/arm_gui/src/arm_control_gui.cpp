@@ -55,6 +55,11 @@ ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     setupDHParameters();
     setupJointLimits();
     
+    // 设置默认的立体视图模式
+    if (!nh_.hasParam("/stereo_camera/stereo_method")) {
+        nh_.setParam("/stereo_camera/stereo_method", "anaglyph");
+    }
+    
     // 初始化ROS通信
     initializeROS();
     
@@ -91,10 +96,11 @@ ArmControlGUI::~ArmControlGUI()
     delete ui;
 }
 
-// 事件过滤器实现，用于处理相机视图的鼠标事件
+// 事件过滤器实现，用于处理相机视图的鼠标事件和键盘事件
 bool ArmControlGUI::eventFilter(QObject* watched, QEvent* event)
 {
     if (watched == ui->cameraView) {
+        // 处理鼠标点击
         if (event->type() == QEvent::MouseButtonPress) {
             QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
             if (mouseEvent->button() == Qt::LeftButton) {
@@ -102,6 +108,50 @@ bool ArmControlGUI::eventFilter(QObject* watched, QEvent* event)
                 onCameraViewClicked(mouseEvent->pos());
                 return true;
             }
+        }
+        // 处理鼠标双击 - 在立体视图和普通视图之间切换
+        else if (event->type() == QEvent::MouseButtonDblClick) {
+            QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
+            if (mouseEvent->button() == Qt::LeftButton) {
+                // 获取当前值
+                std::string current_method;
+                if (nh_.hasParam("/stereo_camera/stereo_method")) {
+                    nh_.getParam("/stereo_camera/stereo_method", current_method);
+                } else {
+                    current_method = "anaglyph"; // 默认值
+                }
+                
+                // 切换立体视图模式
+                std::string new_method = (current_method == "anaglyph") ? "normal" : "anaglyph";
+                nh_.setParam("/stereo_camera/stereo_method", new_method);
+                
+                // 记录日志
+                logMessage(QString("切换立体视图模式: %1").arg(QString::fromStdString(new_method)));
+                return true;
+            }
+        }
+    }
+    
+    // 处理全局键盘事件
+    if (event->type() == QEvent::KeyPress) {
+        QKeyEvent* keyEvent = static_cast<QKeyEvent*>(event);
+        // 按下's'键切换立体视图模式
+        if (keyEvent->key() == Qt::Key_S) {
+            // 获取当前值
+            std::string current_method;
+            if (nh_.hasParam("/stereo_camera/stereo_method")) {
+                nh_.getParam("/stereo_camera/stereo_method", current_method);
+            } else {
+                current_method = "anaglyph"; // 默认值
+            }
+            
+            // 切换立体视图模式
+            std::string new_method = (current_method == "anaglyph") ? "normal" : "anaglyph";
+            nh_.setParam("/stereo_camera/stereo_method", new_method);
+            
+            // 记录日志
+            logMessage(QString("按键切换立体视图模式: %1").arg(QString::fromStdString(new_method)));
+            return true;
         }
     }
     
@@ -225,6 +275,44 @@ void ArmControlGUI::initializeJointControlConnections()
             this, &ArmControlGUI::onJoint4SpinChanged);
     connect(ui->joint6_spin, static_cast<void (QDoubleSpinBox::*)(double)>(&QDoubleSpinBox::valueChanged), 
             this, &ArmControlGUI::onJoint6SpinChanged);
+    
+    // 添加自定义按钮连接 - 用于处理原来使用自动连接的按钮
+    QPushButton* emergencyStopBtn = ui->centralwidget->findChild<QPushButton*>("emergencyStopBtn");
+    if (emergencyStopBtn) {
+        connect(emergencyStopBtn, &QPushButton::clicked, this, [this]() {
+            // 发送停止命令
+            logMessage("紧急停止");
+            
+            // 停止所有电机
+            sendMotorOrder(0xFF, 0x09, 0, 0, 0, false, 0, 0);
+            
+            // 通过向ROS发布停止命令来停止机械臂
+            std_msgs::String stop_cmd;
+            stop_cmd.data = "stop";
+            arm_command_pub_.publish(stop_cmd);
+        });
+    }
+    
+    // 添加夹爪控制按钮连接
+    QPushButton* openGripperBtn = ui->centralwidget->findChild<QPushButton*>("openGripperBtn");
+    if (openGripperBtn) {
+        connect(openGripperBtn, &QPushButton::clicked, this, [this]() {
+            logMessage("打开夹爪");
+            sendGripperCommand(true);
+            gripper_open_ = true;
+            updateUI();
+        });
+    }
+    
+    QPushButton* closeGripperBtn = ui->centralwidget->findChild<QPushButton*>("closeGripperBtn");
+    if (closeGripperBtn) {
+        connect(closeGripperBtn, &QPushButton::clicked, this, [this]() {
+            logMessage("关闭夹爪");
+            sendGripperCommand(false);
+            gripper_open_ = false;
+            updateUI();
+        });
+    }
 }
 
 void ArmControlGUI::initializeROS()
@@ -1992,51 +2080,6 @@ void ArmControlGUI::on_homeButton_clicked()
     onHomeButtonClicked();
 }
 
-void ArmControlGUI::on_stopButton_clicked()
-{
-    // 发送停止命令
-    logMessage("紧急停止");
-    
-    // 停止所有电机
-    sendMotorOrder(0xFF, 0x09, 0, 0, 0, false, 0, 0);
-    
-    // 通过向ROS发布停止命令来停止机械臂
-    std_msgs::String stop_cmd;
-    stop_cmd.data = "stop";
-    arm_command_pub_.publish(stop_cmd);
-}
-
-void ArmControlGUI::on_moveButton_clicked()
-{
-    // 实际使用的是moveToPositionButton或其他按钮
-    // 这是为了兼容自动连接槽函数的调用
-    onMoveToPositionClicked();
-}
-
-void ArmControlGUI::on_gripperOpenButton_clicked()
-{
-    logMessage("打开夹爪");
-    
-    // 发送夹爪开命令
-    sendGripperCommand(true);
-    
-    // 更新UI状态
-    gripper_open_ = true;
-    updateUI();
-}
-
-void ArmControlGUI::on_gripperCloseButton_clicked()
-{
-    logMessage("关闭夹爪");
-    
-    // 发送夹爪关闭命令
-    sendGripperCommand(false);
-    
-    // 更新UI状态
-    gripper_open_ = false;
-    updateUI();
-}
-
 void ArmControlGUI::on_vacuumOnButton_clicked()
 {
     onVacuumOnButtonClicked();
@@ -2122,13 +2165,59 @@ void ArmControlGUI::stereoMergedCallback(const sensor_msgs::Image::ConstPtr& msg
         cv::Mat single_view;
         
         if (camera_image.cols == 1280 && camera_image.rows == 480) {
-            // 这是一个双目图像，提取左图像作为主视图
+            // 这是一个双目图像，提取左右图像
             cv::Rect left_roi(0, 0, 640, 480);  // 左半部分
             cv::Rect right_roi(640, 0, 640, 480);  // 右半部分
             
             cv::Mat left_view = camera_image(left_roi);
-            // 创建合成视图 - 这里简单地使用左视图
-            single_view = left_view.clone();
+            cv::Mat right_view = camera_image(right_roi);
+            
+            // 获取立体视图方法参数（红青立体图或普通视图）
+            static bool use_anaglyph = true; // 默认使用立体图模式
+            
+            // 每15帧检查一次参数，避免频繁查询参数服务器
+            static int frame_counter = 0;
+            if (frame_counter++ % 15 == 0) {
+                if (nh_.hasParam("/stereo_camera/stereo_method")) {
+                    std::string method;
+                    nh_.getParam("/stereo_camera/stereo_method", method);
+                    use_anaglyph = (method == "anaglyph");
+                }
+            }
+            
+            if (use_anaglyph) {
+                // 创建红青立体图(anaglyph)
+                cv::Mat anaglyph(left_view.rows, left_view.cols, CV_8UC3);
+                cv::Mat left_channels[3], right_channels[3], out_channels[3];
+                
+                // 分离通道
+                cv::split(left_view, left_channels);
+                cv::split(right_view, right_channels);
+                
+                // 创建红青立体图 - 左眼红色，右眼青色(蓝绿)
+                out_channels[0] = right_channels[0]; // 右眼蓝色通道
+                out_channels[1] = right_channels[1]; // 右眼绿色通道
+                out_channels[2] = left_channels[2];  // 左眼红色通道
+                
+                // 合并通道创建立体图
+                cv::merge(out_channels, 3, anaglyph);
+                
+                // 使用立体图作为合成视图
+                single_view = anaglyph;
+                
+                // 添加提示信息到图像上
+                cv::putText(single_view, "立体视图模式 (需要红青眼镜)", 
+                           cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 0.7,
+                           cv::Scalar(255, 255, 255), 2);
+            } else {
+                // 使用左眼视图作为普通视图
+                single_view = left_view.clone();
+                
+                // 添加提示信息到图像上
+                cv::putText(single_view, "普通视图模式", 
+                           cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 0.7,
+                           cv::Scalar(0, 255, 0), 2);
+            }
             
         } else {
             // 其他尺寸的图像，直接使用
