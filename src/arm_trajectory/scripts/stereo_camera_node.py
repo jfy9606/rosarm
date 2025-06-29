@@ -5,6 +5,7 @@ import numpy as np
 from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge, CvBridgeError
 import threading
+import time
 
 # 增加额外导入(只在深度计算时使用)
 try:
@@ -116,10 +117,42 @@ class StereoCameraNode:
             with self.camera_lock:
                 # Close existing camera if open
                 if self.camera is not None:
-                    self.camera.release()
+                    try:
+                        self.camera.release()
+                    except Exception as e:
+                        rospy.logwarn(f"Warning while releasing old camera: {e}")
+                    self.camera = None
+                    
+                    # 调用GC帮助释放资源
+                    try:
+                        import gc
+                        gc.collect()
+                    except:
+                        pass
+                    
+                    # 给系统一点时间完全释放资源
+                    import time
+                    time.sleep(0.5)
                 
-                # Open camera
-                self.camera = cv2.VideoCapture(self.camera_index)
+                # 尝试使用GStreamer管道打开相机（如果可用）
+                try:
+                    # 首先尝试直接打开，这对USB摄像头通常效果更好
+                    self.camera = cv2.VideoCapture(self.camera_index)
+                    
+                    # 如果使用GStreamer打开失败，尝试直接构造管道
+                    if not self.camera.isOpened() and cv2.getBuildInformation().find("GStreamer") != -1:
+                        # 针对双目摄像头构建的GStreamer管道
+                        gst_pipeline = (
+                            f"v4l2src device=/dev/video{self.camera_index} ! "
+                            f"image/jpeg,width=1280,height=480,framerate={self.frame_rate}/1 ! "
+                            f"jpegdec ! videoconvert ! appsink"
+                        )
+                        rospy.loginfo(f"Trying GStreamer pipeline: {gst_pipeline}")
+                        self.camera = cv2.VideoCapture(gst_pipeline, cv2.CAP_GSTREAMER)
+                except Exception as e:
+                    rospy.logwarn(f"GStreamer pipeline failed, falling back to default: {e}")
+                    # 如果GStreamer失败，回退到标准方法
+                    self.camera = cv2.VideoCapture(self.camera_index)
                 
                 if not self.camera.isOpened():
                     rospy.logerr(f"Failed to open camera at index {self.camera_index}")
@@ -134,6 +167,18 @@ class StereoCameraNode:
                 
                 # 设置帧率 - 必须在设置完格式和分辨率后设置
                 self.camera.set(cv2.CAP_PROP_FPS, self.frame_rate)
+                
+                # 读取一帧确保摄像头正常工作
+                ret, _ = self.camera.read()
+                if not ret:
+                    rospy.logwarn("First frame read failed, camera may not be initialized properly")
+                    # 再尝试一次
+                    ret, _ = self.camera.read()
+                    if not ret:
+                        rospy.logerr("Camera initialization failed, could not read frames")
+                        self.camera.release()
+                        self.camera = None
+                        return False
                 
                 # 获取实际相机属性
                 actual_width = self.camera.get(cv2.CAP_PROP_FRAME_WIDTH)
@@ -295,6 +340,10 @@ class StereoCameraNode:
         camera_info_left.distortion_model = "plumb_bob"
         camera_info_right.distortion_model = "plumb_bob"
         
+        # 失败计数和恢复机制
+        consecutive_failures = 0
+        max_failures = 5
+        
         while not rospy.is_shutdown():
             if not self.is_running:
                 # Try to reopen camera if it's closed
@@ -308,22 +357,67 @@ class StereoCameraNode:
                     rate.sleep()
                     continue
                     
-                ret, frame = self.camera.read()
+                # 尝试读取帧，处理可能的JPEG损坏错误
+                try:
+                    ret, frame = self.camera.read()
+                except cv2.error as e:
+                    # 忽略JPEG错误，并尝试下一帧
+                    rospy.logwarn(f"OpenCV error: {e}")
+                    ret = False
+                except Exception as e:
+                    rospy.logerr(f"Unexpected error reading camera: {e}")
+                    ret = False
             
             if not ret:
-                rospy.logerr("Failed to capture frame")
-                self.is_running = False
+                consecutive_failures += 1
+                rospy.logerr(f"Failed to capture frame ({consecutive_failures}/{max_failures})")
+                
+                # 如果连续失败太多次，重置相机
+                if consecutive_failures >= max_failures:
+                    rospy.logwarn("Too many consecutive failures, resetting camera...")
+                    self.is_running = False
+                    with self.camera_lock:
+                        if self.camera is not None:
+                            try:
+                                self.camera.release()
+                            except:
+                                pass
+                            self.camera = None
+                
                 rate.sleep()
                 continue
             
+            # 成功获取帧，重置失败计数
+            consecutive_failures = 0
+            
             try:
+                # 检查帧是否有效
+                if frame is None or frame.size == 0:
+                    rospy.logwarn("Empty frame received")
+                    rate.sleep()
+                    continue
+                
                 # Split frame into left and right images
                 height, width = frame.shape[:2]
                 half_width = width // 2
                 
-                if width > 1:
-                    left_image = frame[:, :half_width]
-                    right_image = frame[:, half_width:]
+                if width > 1 and half_width > 0:
+                    try:
+                        # 确保分割索引在有效范围内
+                        if half_width > frame.shape[1]:
+                            half_width = frame.shape[1] // 2
+                        
+                        left_image = frame[:, :half_width].copy()  # 使用copy()避免共享内存引起的问题
+                        right_image = frame[:, half_width:].copy()
+                        
+                        # 验证图像大小和数据完整性
+                        if left_image.size == 0 or right_image.size == 0:
+                            raise ValueError("Invalid split image size")
+                    except Exception as e:
+                        rospy.logwarn(f"Error splitting frame: {e}")
+                        # 如果分割出错，创建空白图像
+                        left_image = np.zeros((480, 640, 3), dtype=np.uint8)
+                        right_image = np.zeros((480, 640, 3), dtype=np.uint8)
                 else:
                     # If we can't split the image, create dummy images
                     left_image = np.zeros((480, 640, 3), dtype=np.uint8)
@@ -379,10 +473,38 @@ class StereoCameraNode:
         rospy.loginfo("Shutting down stereo camera node")
         self.is_running = False
         
+        # 确保正确释放GStreamer资源
         with self.camera_lock:
             if self.camera is not None:
-                self.camera.release()
+                # 1. 先停止管道
+                if hasattr(self.camera, 'cap'):
+                    if hasattr(self.camera.cap, 'pipeline') and self.camera.cap.pipeline:
+                        import gi
+                        gi.require_version('Gst', '1.0')
+                        from gi.repository import Gst
+                        if hasattr(self.camera.cap.pipeline, 'set_state'):
+                            self.camera.cap.pipeline.set_state(Gst.State.NULL)
+                
+                # 2. 释放摄像头资源
+                try:
+                    self.camera.release()
+                except Exception as e:
+                    rospy.logerr(f"Error releasing camera: {e}")
+                
+                # 3. 确保设置为None
                 self.camera = None
+                
+        # 等待一小段时间确保资源彻底释放
+        time.sleep(0.5)
+        
+        # 显式调用GC
+        try:
+            import gc
+            gc.collect()
+        except:
+            pass
+        
+        rospy.loginfo("Camera resources released successfully")
 
 if __name__ == '__main__':
     try:
