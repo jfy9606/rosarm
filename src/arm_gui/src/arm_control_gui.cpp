@@ -2364,56 +2364,57 @@ void ArmControlGUI::onCameraSwitchButtonClicked()
     logMessage(QString("切换摄像头视图模式：%1").arg(modeStr));
 }
 
-// 重新连接摄像头
+// 尝试重新连接摄像头
 void ArmControlGUI::attemptCameraReconnect()
 {
-    static int reconnect_attempts = 0;
-    reconnect_attempts++;
-    
-    logMessage(QString("尝试重新连接摄像头 (尝试次数: %1)...").arg(reconnect_attempts));
-    
-    // 每5次重连尝试，重新扫描可用的摄像头
-    bool camera_found = false;
-    if (reconnect_attempts % 5 == 1) {
-        camera_found = findAvailableCamera();
+    // 只在摄像头不可用时尝试重新连接
+    if (!is_camera_available_) {
+        stereo_camera_error_count_++;
+        
+        // 每5次尝试才输出日志，避免日志过多
+        if (stereo_camera_error_count_ % 5 == 0) {
+            logMessage(QString("尝试重新连接摄像头 (尝试次数: %1)").arg(stereo_camera_error_count_));
+        }
+        
+        // 尝试查找可用摄像头
+        bool camera_found = findAvailableCamera();
+        
         if (camera_found) {
-            // 尝试重新订阅摄像头话题
-            // 可以在这里动态更改摄像头话题名称，如果系统支持的话
+            // 重置错误计数器
+            stereo_camera_error_count_ = 0;
+            is_camera_available_ = true;
             
-            logMessage(QString("找到可用摄像头，索引: %1，正在尝试重新连接...").arg(available_camera_index_));
-            // 重新订阅摄像头话题可能需要额外的工作
-            // 对于ROS系统，可能需要关闭当前的订阅并创建新的订阅
+            // 重启摄像头节点
+            std_msgs::String cmd;
+            cmd.data = "restart_camera";
+            arm_command_pub_.publish(cmd);
+            
+            logMessage(QString("摄像头已重新连接，索引: %1").arg(available_camera_index_));
+        }
+        
+        // 如果错误次数过多，减少重新连接频率
+        if (stereo_camera_error_count_ > 30) {
+            // 超过30次尝试后，延长重连间隔
+            if (!camera_reconnect_timer_.isActive() || camera_reconnect_timer_.interval() < 10000) {
+                camera_reconnect_timer_.start(10000); // 10秒重连一次
+            }
+        } else if (stereo_camera_error_count_ > 10) {
+            // 超过10次尝试后，延长重连间隔
+            if (!camera_reconnect_timer_.isActive() || camera_reconnect_timer_.interval() < 5000) {
+                camera_reconnect_timer_.start(5000); // 5秒重连一次
+            }
+        } else {
+            // 前10次尝试，保持较高频率
+            if (!camera_reconnect_timer_.isActive() || camera_reconnect_timer_.interval() != 2000) {
+                camera_reconnect_timer_.start(2000); // 2秒重连一次
+            }
+        }
+    } else {
+        // 如果摄像头已可用，停止重连定时器
+        if (camera_reconnect_timer_.isActive()) {
+            camera_reconnect_timer_.stop();
         }
     }
-    
-    if (!camera_found && reconnect_attempts % 10 == 0) { // 每尝试10次记录一次日志
-        ROS_INFO("已尝试重连摄像头 %d 次", reconnect_attempts);
-    }
-    
-    // 更新占位图像，更改连接尝试的显示
-    QImage placeholder = current_camera_image_.copy();
-    if (placeholder.isNull()) {
-        // 如果当前没有图像，创建一个新的占位图像
-        placeholder = QImage(640, 480, QImage::Format_RGB888);
-        placeholder.fill(QColor(80, 80, 80)); // 深灰色背景
-    }
-    
-    // 添加文本说明
-    QPainter painter(&placeholder);
-    painter.setPen(QPen(Qt::white));
-    painter.setFont(QFont("Arial", 14));
-    painter.drawText(10, 30, QString("重连尝试 #%1").arg(reconnect_attempts));
-    
-    if (reconnect_attempts % 5 == 0) {
-        painter.setPen(QPen(Qt::yellow));
-        painter.drawText(10, 60, "正在扫描可用摄像头...");
-    }
-    
-    left_camera_image_ = placeholder;
-    current_camera_image_ = placeholder;
-    
-    // 更新UI
-    QMetaObject::invokeMethod(this, "updateCameraViews", Qt::QueuedConnection);
 }
 
 // 旧版updateCameraView函数实现（已被updateCameraViews替代，但为了兼容保留）
@@ -2592,25 +2593,97 @@ void ArmControlGUI::on_moveToPositionButton_clicked()
 // 尝试查找可用的摄像头索引
 bool ArmControlGUI::findAvailableCamera()
 {
-    logMessage("正在扫描可用摄像头...");
+    logMessage("正在扫描可用摄像头设备...");
     
-    // 尝试打开不同索引的摄像头
-    for (int i = 0; i < 10; i++) { // 尝试0-9的摄像头索引
-        cv::VideoCapture cap(i);
-        if (cap.isOpened()) {
-            cv::Mat test_frame;
-            bool read_success = cap.read(test_frame);
-            cap.release();
+    // 1. 先通过系统命令获取实际存在的视频设备
+    FILE* fp;
+    char path[512];
+    std::vector<std::string> video_devices;
+    
+    // 执行ls命令获取视频设备
+    fp = popen("ls /dev/video* 2>/dev/null", "r");
+    if (fp == NULL) {
+        logMessage("无法执行系统命令以查找视频设备");
+        return false;
+    }
+    
+    // 读取所有视频设备路径
+    while (fgets(path, sizeof(path), fp) != NULL) {
+        // 移除末尾的换行符
+        path[strcspn(path, "\n")] = 0;
+        video_devices.push_back(path);
+        logMessage(QString("找到视频设备: %1").arg(path));
+    }
+    pclose(fp);
+    
+    if (video_devices.empty()) {
+        logMessage("系统中未检测到任何视频设备");
+        available_camera_index_ = -1;
+        return false;
+    }
+    
+    // 2. 遍历检测到的视频设备，尝试打开
+    for (const auto& device : video_devices) {
+        // 从设备路径中提取索引号，例如从/dev/video0提取0
+        int device_index = -1;
+        if (sscanf(device.c_str(), "/dev/video%d", &device_index) == 1) {
+            logMessage(QString("尝试打开设备: %1 (索引: %2)").arg(device.c_str()).arg(device_index));
             
-            if (read_success && !test_frame.empty()) {
-                logMessage(QString("找到可用摄像头索引: %1").arg(i));
-                available_camera_index_ = i;
-                return true;
+            // 检查设备是否被占用
+            FILE* check_fp;
+            char check_cmd[512];
+            sprintf(check_cmd, "fuser %s 2>/dev/null", device.c_str());
+            check_fp = popen(check_cmd, "r");
+            if (check_fp == NULL) {
+                logMessage("无法检查设备占用状态");
+            } else {
+                char pid_buf[128];
+                if (fgets(pid_buf, sizeof(pid_buf), check_fp) != NULL) {
+                    // 设备被占用，提取PID
+                    pid_buf[strcspn(pid_buf, "\n")] = 0;
+                    
+                    // 获取占用进程的详细信息
+                    FILE* proc_fp;
+                    char proc_cmd[512];
+                    sprintf(proc_cmd, "ps -p %s -o comm= 2>/dev/null", pid_buf);
+                    proc_fp = popen(proc_cmd, "r");
+                    
+                    char proc_name[128] = "未知进程";
+                    if (proc_fp != NULL) {
+                        if (fgets(proc_name, sizeof(proc_name), proc_fp) != NULL) {
+                            proc_name[strcspn(proc_name, "\n")] = 0;
+                        }
+                        pclose(proc_fp);
+                    }
+                    
+                    logMessage(QString("设备 %1 被进程 %2 (%3) 占用").arg(device.c_str()).arg(pid_buf).arg(proc_name));
+                    logMessage(QString("可执行 'kill %1' 命令终止占用进程").arg(pid_buf));
+                    continue; // 跳过被占用的设备
+                }
+                pclose(check_fp);
+            }
+            
+            // 尝试打开摄像头
+            cv::VideoCapture cap(device_index);
+            if (cap.isOpened()) {
+                cv::Mat test_frame;
+                bool read_success = cap.read(test_frame);
+                cap.release();
+                
+                if (read_success && !test_frame.empty()) {
+                    logMessage(QString("成功打开摄像头设备 %1 (索引: %2)").arg(device.c_str()).arg(device_index));
+                    available_camera_index_ = device_index;
+                    return true;
+                } else {
+                    logMessage(QString("设备 %1 可以打开但无法读取帧").arg(device.c_str()));
+                }
+            } else {
+                logMessage(QString("无法打开设备 %1").arg(device.c_str()));
             }
         }
     }
     
-    logMessage("未找到可用摄像头");
+    logMessage("未找到可用的摄像头设备");
     available_camera_index_ = -1;
     return false;
 }
