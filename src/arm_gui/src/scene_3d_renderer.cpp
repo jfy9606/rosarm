@@ -12,11 +12,11 @@
 Scene3DRenderer::Scene3DRenderer(QWidget* parent)
     : QOpenGLWidget(parent)
     , selected_object_(-1)
-    , camera_position_(0.0f, 0.0f, 5.0f)
+    , camera_position_(0.0f, 1.0f, 3.0f)
     , camera_target_(0.0f, 0.0f, 0.0f)
     , camera_up_(0.0f, 1.0f, 0.0f)
-    , yaw_(-90.0f)
-    , pitch_(0.0f)
+    , yaw_(0.0f)
+    , pitch_(30.0f)
     , zoom_(5.0f)
 {
     // 设置焦点策略，允许通过Tab键获取焦点
@@ -25,6 +25,9 @@ Scene3DRenderer::Scene3DRenderer(QWidget* parent)
     
     // 确保窗口可见
     setMinimumSize(200, 200);
+    
+    // 添加默认的机械臂关节值，避免出现"关节数据为空"的错误
+    robot_joints_ = {0.0, 0.0, 0.0, 0.0, M_PI/2.0, 5.0};
     
     qDebug() << "Scene3DRenderer构造函数: 初始化完成";
 }

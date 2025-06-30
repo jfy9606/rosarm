@@ -72,8 +72,11 @@ ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     
     // 添加深度视图切换按钮（添加到相机视图模式标签旁边）
     QLabel* cameraViewModeLabel = findChild<QLabel*>("cameraViewModeLabel");
-    if (cameraViewModeLabel && cameraViewModeLabel->parentWidget()) {
-        QPushButton* depthViewToggleButton = new QPushButton("显示深度视图", cameraViewModeLabel->parentWidget());
+    QPushButton* depthViewToggleButton = findChild<QPushButton*>("depthViewToggleButton");
+    
+    // 只有在按钮不存在且标签存在时才创建按钮
+    if (cameraViewModeLabel && cameraViewModeLabel->parentWidget() && !depthViewToggleButton) {
+        depthViewToggleButton = new QPushButton("显示深度视图", cameraViewModeLabel->parentWidget());
         depthViewToggleButton->setObjectName("depthViewToggleButton");
         depthViewToggleButton->setMinimumWidth(120);
         
@@ -1436,8 +1439,10 @@ void ArmControlGUI::updateCameraViews()
     // 获取当前相机视图组件的大小
     QSize viewSize = ui->cameraView->size();
     
-    // 缩放图像以适应视图
-    QImage scaledImage = sourceImage->scaled(viewSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    // 改进缩放逻辑，确保图像合理填充视图区域，但不会被过度拉伸
+    // 这里使用Qt::KeepAspectRatio，确保维持长宽比
+    QImage scaledImage = sourceImage->scaled(viewSize.width() * 0.95, viewSize.height() * 0.95, 
+                                            Qt::KeepAspectRatio, Qt::SmoothTransformation);
     
     // 创建一个带有标记的副本
     QImage displayImage = scaledImage.copy();
@@ -1500,10 +1505,14 @@ void ArmControlGUI::updateCameraViews()
         }
         detectionStatusLabel->setText(status);
         
-        // 如果有检测图像，显示它
+        // 如果有检测图像，显示它 - 调整其尺寸以合理填充视图
         if (!current_camera_image_.isNull()) {
+            // 获取检测视图的大小
+            QSize detectionViewSize = detectionView->size();
+            // 确保图像按比例缩放，合理填充检测视图区域
             detectionView->setPixmap(QPixmap::fromImage(current_camera_image_.scaled(
-                detectionView->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation)));
+                detectionViewSize.width() * 0.95, detectionViewSize.height() * 0.95,
+                Qt::KeepAspectRatio, Qt::SmoothTransformation)));
         }
     }
 }

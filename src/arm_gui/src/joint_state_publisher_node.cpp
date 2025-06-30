@@ -32,7 +32,10 @@ public:
         // 启动定时器，定期发布关节状态
         timer_ = nh.createTimer(ros::Duration(0.1), &JointStatePublisher::timerCallback, this);  // 10Hz
         
-        ROS_INFO("Joint State Publisher 已初始化");
+        // 立即发布一次初始关节状态，确保GUI能获取到数据
+        publishJointState();
+        
+        ROS_INFO("Joint State Publisher 已初始化，默认关节值已发布");
     }
     
     // 电机回调函数 - 底座旋转关节
@@ -90,8 +93,8 @@ public:
         }
     }
     
-    // 定时器回调，发布当前关节状态
-    void timerCallback(const ros::TimerEvent&) {
+    // 添加一个新的函数，封装关节状态发布逻辑
+    void publishJointState() {
         sensor_msgs::JointState joint_state;
         
         // 设置时间戳和帧ID
@@ -109,6 +112,11 @@ public:
         
         // 发布关节状态
         joint_state_pub_.publish(joint_state);
+    }
+    
+    // 定时器回调，发布当前关节状态
+    void timerCallback(const ros::TimerEvent&) {
+        publishJointState();
     }
     
 private:
