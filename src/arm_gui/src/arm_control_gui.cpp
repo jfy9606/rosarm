@@ -1389,11 +1389,35 @@ void ArmControlGUI::updateVacuumStatus()
 
 void ArmControlGUI::updateCameraViews()
 {
-    // 决定显示哪个图像：使用当前相机图像
-    QImage* sourceImage = &current_camera_image_;
+    // 根据当前视图模式选择要显示的图像
+    QImage* sourceImage = nullptr;
+    
+    switch(camera_view_mode_) {
+        case 0: // 左图
+            sourceImage = &left_camera_image_;
+            break;
+        case 1: // 右图
+            if (!right_camera_image_.isNull()) {
+                sourceImage = &right_camera_image_;
+            } else {
+                // 如果右图不可用，使用左图
+                sourceImage = &left_camera_image_;
+            }
+            break;
+        case 2: // 深度图
+            if (!current_depth_image_.isNull()) {
+                sourceImage = &current_depth_image_;
+            } else {
+                // 如果深度图不可用，使用左图
+                sourceImage = &left_camera_image_;
+            }
+            break;
+        default:
+            sourceImage = &left_camera_image_;
+    }
     
     // 如果没有图像，跳过
-    if (sourceImage->isNull()) {
+    if (sourceImage == nullptr || sourceImage->isNull()) {
         // 如果没有图像但需要显示UI，则创建占位图像
         if (!is_camera_available_) {
             createPlaceholderImage();
@@ -1419,7 +1443,7 @@ void ArmControlGUI::updateCameraViews()
         painter.setPen(QPen(Qt::red, 2));
         painter.setFont(QFont("Arial", 14, QFont::Bold));
         painter.drawText(10, 30, "摄像头不可用");
-    } else {
+    } else if (camera_view_mode_ != 2) { // 只在非深度图模式下显示物体标记
         // 摄像头可用时，添加检测到的物体标记
         for (size_t i = 0; i < detected_objects_.size(); i++) {
             // 将3D世界坐标转为图像坐标
@@ -1427,8 +1451,8 @@ void ArmControlGUI::updateCameraViews()
             QPoint imgPos = point3DToImage(objPos);
             
             // 调整为当前显示比例
-            float scaleX = static_cast<float>(scaledImage.width()) / current_camera_image_.width();
-            float scaleY = static_cast<float>(scaledImage.height()) / current_camera_image_.height();
+            float scaleX = static_cast<float>(scaledImage.width()) / sourceImage->width();
+            float scaleY = static_cast<float>(scaledImage.height()) / sourceImage->height();
             imgPos.setX(imgPos.x() * scaleX);
             imgPos.setY(imgPos.y() * scaleY);
             
@@ -1449,6 +1473,18 @@ void ArmControlGUI::updateCameraViews()
                                            .arg(detected_objects_[i].type.c_str()));
         }
     }
+    
+    // 添加视图模式标签
+    painter.setPen(QPen(Qt::white, 2));
+    painter.setFont(QFont("Arial", 12, QFont::Bold));
+    QString modeText;
+    switch(camera_view_mode_) {
+        case 0: modeText = "左摄像头视图"; break;
+        case 1: modeText = "右摄像头视图"; break;
+        case 2: modeText = "深度图视图"; break;
+        default: modeText = "未知视图"; break;
+    }
+    painter.drawText(10, displayImage.height() - 10, modeText);
     
     // 设置图像到相机视图
     ui->cameraView->setPixmap(QPixmap::fromImage(displayImage));
@@ -1471,11 +1507,11 @@ void ArmControlGUI::updateCameraViews()
         detectionStatusLabel->setText(status);
         
         // 如果有检测图像，显示它 - 调整其尺寸以合理填充视图
-        if (!current_camera_image_.isNull()) {
+        if (!left_camera_image_.isNull()) {
             // 获取检测视图的大小
             QSize detectionViewSize = detectionView->size();
             // 确保图像按比例缩放，合理填充检测视图区域
-            detectionView->setPixmap(QPixmap::fromImage(current_camera_image_.scaled(
+            detectionView->setPixmap(QPixmap::fromImage(left_camera_image_.scaled(
                 detectionViewSize.width() * 0.95, detectionViewSize.height() * 0.95,
                 Qt::KeepAspectRatio, Qt::SmoothTransformation)));
         }
@@ -2034,14 +2070,16 @@ void ArmControlGUI::stereoMergedCallback(const sensor_msgs::Image::ConstPtr& msg
         
         // 处理双目图像 - 1280*480的图像分为左右两部分
         cv::Mat single_view;
+        cv::Mat left_view;
+        cv::Mat right_view;
         
         if (camera_image.cols == 1280 && camera_image.rows == 480) {
             // 这是一个双目图像，提取左右图像
             cv::Rect left_roi(0, 0, 640, 480);  // 左半部分
             cv::Rect right_roi(640, 0, 640, 480);  // 右半部分
             
-            cv::Mat left_view = camera_image(left_roi);
-            cv::Mat right_view = camera_image(right_roi);
+            left_view = camera_image(left_roi).clone();
+            right_view = camera_image(right_roi).clone();
             
             // 获取立体视图方法参数（红青立体图或普通视图）
             static bool use_anaglyph = true; // 默认使用立体图模式
@@ -2093,6 +2131,7 @@ void ArmControlGUI::stereoMergedCallback(const sensor_msgs::Image::ConstPtr& msg
         } else {
             // 其他尺寸的图像，直接使用
             single_view = camera_image;
+            left_view = camera_image;
         }
         
         // 记录成功接收的图像帧
@@ -2105,25 +2144,47 @@ void ArmControlGUI::stereoMergedCallback(const sensor_msgs::Image::ConstPtr& msg
                    single_view.cols, single_view.rows);
         }
         
-        // 转换为QImage，注意格式转换
-        QImage image;
-        if (single_view.channels() == 3) {
+        // 转换左视图为QImage
+        QImage left_qimage;
+        if (left_view.channels() == 3) {
             // BGR转RGB
-            cv::cvtColor(single_view, single_view, cv::COLOR_BGR2RGB);
-            image = QImage(single_view.data, single_view.cols, single_view.rows,
-                          single_view.step, QImage::Format_RGB888);
-        } else if (single_view.channels() == 1) {
+            cv::Mat left_rgb;
+            cv::cvtColor(left_view, left_rgb, cv::COLOR_BGR2RGB);
+            left_qimage = QImage(left_rgb.data, left_rgb.cols, left_rgb.rows,
+                              left_rgb.step, QImage::Format_RGB888).copy();
+        } else if (left_view.channels() == 1) {
             // 灰度图
-            image = QImage(single_view.data, single_view.cols, single_view.rows,
-                          single_view.step, QImage::Format_Grayscale8);
-        } else {
-            ROS_WARN("不支持的图像格式: %d通道", single_view.channels());
-            return;
+            left_qimage = QImage(left_view.data, left_view.cols, left_view.rows,
+                              left_view.step, QImage::Format_Grayscale8).copy();
         }
         
-        // 保存图像的深拷贝，避免内存问题
-        left_camera_image_ = image.copy();
-        current_camera_image_ = image.copy();
+        // 转换右视图为QImage（如果有）
+        QImage right_qimage;
+        if (!right_view.empty() && right_view.channels() == 3) {
+            cv::Mat right_rgb;
+            cv::cvtColor(right_view, right_rgb, cv::COLOR_BGR2RGB);
+            right_qimage = QImage(right_rgb.data, right_rgb.cols, right_rgb.rows,
+                               right_rgb.step, QImage::Format_RGB888).copy();
+        }
+        
+        // 转换合成视图为QImage
+        QImage merged_qimage;
+        if (single_view.channels() == 3) {
+            // BGR转RGB
+            cv::Mat rgb;
+            cv::cvtColor(single_view, rgb, cv::COLOR_BGR2RGB);
+            merged_qimage = QImage(rgb.data, rgb.cols, rgb.rows,
+                                rgb.step, QImage::Format_RGB888).copy();
+        } else if (single_view.channels() == 1) {
+            // 灰度图
+            merged_qimage = QImage(single_view.data, single_view.cols, single_view.rows,
+                                single_view.step, QImage::Format_Grayscale8).copy();
+        }
+        
+        // 保存图像
+        left_camera_image_ = left_qimage;
+        right_camera_image_ = right_qimage;
+        current_camera_image_ = merged_qimage;
         
         // 标记摄像头可用
         is_camera_available_ = true;
@@ -2593,7 +2654,7 @@ void ArmControlGUI::depthImageCallback(const sensor_msgs::Image::ConstPtr& msg)
 {
     try {
         // 将ROS图像转换为OpenCV格式
-        cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
+        cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::TYPE_32FC1);
         cv::Mat depth_mat = cv_ptr->image;
         
         // 确保图像不为空
@@ -2602,8 +2663,75 @@ void ArmControlGUI::depthImageCallback(const sensor_msgs::Image::ConstPtr& msg)
             return;
         }
 
-        // 将深度图转换为QImage
-        current_depth_image_ = cvMatToQImage(depth_mat);
+        // 将深度图转换为伪彩色显示
+        cv::Mat normalized_depth;
+        cv::Mat colored_depth;
+        
+        // 找出深度图的最小最大值，用于归一化
+        double min_val, max_val;
+        cv::minMaxLoc(depth_mat, &min_val, &max_val);
+        
+        // 如果最大值和最小值相等，设置一个默认范围避免除零错误
+        if (max_val == min_val) {
+            min_val = 0;
+            max_val = 1.0;
+        }
+        
+        // 归一化到0-1范围
+        depth_mat.convertTo(normalized_depth, CV_32FC1, 1.0 / (max_val - min_val), -min_val / (max_val - min_val));
+        
+        // 转换为8位图像，范围0-255
+        cv::Mat depth_8bit;
+        normalized_depth.convertTo(depth_8bit, CV_8UC1, 255.0);
+        
+        // 应用伪彩色映射
+        cv::applyColorMap(depth_8bit, colored_depth, cv::COLORMAP_JET);
+        
+        // 添加深度值指示器（颜色条）
+        int bar_width = 20;
+        int bar_height = colored_depth.rows;
+        cv::Mat color_bar = cv::Mat(bar_height, bar_width, CV_8UC3);
+        
+        for (int y = 0; y < bar_height; y++) {
+            // 从下到上，颜色从蓝到红
+            float normalized_y = 1.0f - (float)y / bar_height;
+            cv::Mat color;
+            cv::Mat temp(1, 1, CV_8UC1, cv::Scalar(normalized_y * 255));
+            cv::applyColorMap(temp, color, cv::COLORMAP_JET);
+            cv::line(color_bar, cv::Point(0, y), cv::Point(bar_width-1, y), color.at<cv::Vec3b>(0, 0), 1);
+        }
+        
+        // 在颜色条上添加刻度
+        int num_ticks = 5;
+        for (int i = 0; i < num_ticks; i++) {
+            int y = i * (bar_height - 1) / (num_ticks - 1);
+            float depth_value = max_val - i * (max_val - min_val) / (num_ticks - 1);
+            cv::line(color_bar, cv::Point(0, y), cv::Point(bar_width/2, y), cv::Scalar(255, 255, 255), 1);
+            
+            // 添加深度值文本
+            std::string text = cv::format("%.2f", depth_value);
+            int font_face = cv::FONT_HERSHEY_SIMPLEX;
+            double font_scale = 0.4;
+            int thickness = 1;
+            int baseline = 0;
+            cv::Size text_size = cv::getTextSize(text, font_face, font_scale, thickness, &baseline);
+            cv::putText(color_bar, text, 
+                      cv::Point(bar_width/2 + 2, y + text_size.height/2), 
+                      font_face, font_scale, cv::Scalar(255, 255, 255), thickness);
+        }
+        
+        // 在彩色深度图右侧添加颜色条
+        cv::Mat result(colored_depth.rows, colored_depth.cols + color_bar.cols, CV_8UC3);
+        colored_depth.copyTo(result(cv::Rect(0, 0, colored_depth.cols, colored_depth.rows)));
+        color_bar.copyTo(result(cv::Rect(colored_depth.cols, 0, color_bar.cols, color_bar.rows)));
+        
+        // 添加标题和说明
+        cv::putText(result, "Depth Map (m)", 
+                  cv::Point(10, 30), 
+                  cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 255), 2);
+        
+        // 将结果转换为QImage
+        current_depth_image_ = cvMatToQImage(result);
         
         // 更新相机视图（线程安全方式）
         QMetaObject::invokeMethod(this, "updateCameraViews", Qt::QueuedConnection);
