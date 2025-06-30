@@ -207,6 +207,10 @@ private slots:
     // 将这两个函数移动到槽中
     void updateCameraViews();
     void updateDetectionsTable();
+    
+    // 添加这些函数到private slots中
+    void updateJointControlWidgets();
+    void updateEndEffectorPose();
 
 private:
     // UI相关
@@ -315,10 +319,8 @@ private:
     void setupJointLimits();
 
     // 更新函数
-    void updateJointControlWidgets();
     void updateVacuumStatus();
     void updateJointInfo();
-    void updateEndEffectorPose();
     void updateConnectionStatus();
     void updateGUIJointValues();
     void updateSceneObjects();
