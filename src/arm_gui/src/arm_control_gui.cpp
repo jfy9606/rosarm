@@ -169,99 +169,62 @@ bool ArmControlGUI::eventFilter(QObject* watched, QEvent* event)
 void ArmControlGUI::initializeGUI()
 {
     // 设置窗口标题
-    setWindowTitle("机械臂控制面板");
+    this->setWindowTitle("机械臂控制面板");
     
-    // 安装事件过滤器
-    this->installEventFilter(this);
+    // 设置界面样式
+    QFile styleFile(":/qss/style.qss");
+    if (styleFile.open(QFile::ReadOnly)) {
+        QString styleSheet = QLatin1String(styleFile.readAll());
+        this->setStyleSheet(styleSheet);
+    }
     
-    // 设置状态栏
-    statusBar()->showMessage("系统就绪");
+    // 初始化UI元素
+    setupUi();
     
-    // 初始化日志显示区
-    ui->logTextEdit->setReadOnly(true);
+    // 创建菜单
+    createMenus();
     
-    // 设置关节控制范围
-    ui->joint1_slider->setRange(-180, 180);
-    ui->joint2_slider->setRange(0, 50);
-    ui->joint3_slider->setRange(-90, 90);
-    ui->joint4_slider->setRange(0, 180);
-    ui->joint6_slider->setRange(5, 15);
+    // 连接信号槽
+    connectSignalSlots();
     
-    ui->joint1_spin->setRange(-180.0, 180.0);
-    ui->joint2_spin->setRange(0.0, 50.0);
-    ui->joint3_spin->setRange(-90.0, 90.0);
-    ui->joint4_spin->setRange(0.0, 180.0);
-    ui->joint6_spin->setRange(5.0, 15.0);
+    // 初始化状态栏
+    ui->statusbar->showMessage("系统准备就绪", 5000);
     
-    // 设置吸盘功率滑块范围
-    ui->vacuumPowerSlider->setRange(0, 100);
-    ui->vacuumPowerSlider->setValue(50);  // 使用默认值50%，与vacuum_power_保持一致
-    ui->vacuumPowerLabel->setText(QString("%1%").arg(50));
+    // 初始化日志区域
+    ui->logTextEdit->append("GUI初始化完成");
     
-    // 设置关节控制连接
-    connect(ui->joint1_slider, &QSlider::valueChanged, this, &ArmControlGUI::onJoint1SliderChanged);
-    connect(ui->joint2_slider, &QSlider::valueChanged, this, &ArmControlGUI::onJoint2SliderChanged);
-    connect(ui->joint3_slider, &QSlider::valueChanged, this, &ArmControlGUI::onJoint3SliderChanged);
-    connect(ui->joint4_slider, &QSlider::valueChanged, this, &ArmControlGUI::onJoint4SliderChanged);
-    connect(ui->joint6_slider, &QSlider::valueChanged, this, &ArmControlGUI::onJoint6SliderChanged);
+    // 确保调用initializeMembers来初始化DH参数和关节限制
+    initializeMembers();
     
-    connect(ui->joint1_spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ArmControlGUI::onJoint1SpinChanged);
-    connect(ui->joint2_spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ArmControlGUI::onJoint2SpinChanged);
-    connect(ui->joint3_spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ArmControlGUI::onJoint3SpinChanged);
-    connect(ui->joint4_spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ArmControlGUI::onJoint4SpinChanged);
-    connect(ui->joint6_spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ArmControlGUI::onJoint6SpinChanged);
+    // 设置末端位置控制器的范围
+    if (ui->pos_x && ui->pos_y && ui->pos_z) {
+        // 设置X轴范围
+        ui->pos_x->setRange(-50.0, 50.0);
+        ui->pos_x->setValue(20.0);
+        
+        // 设置Y轴范围
+        ui->pos_y->setRange(-50.0, 50.0);
+        ui->pos_y->setValue(0.0);
+        
+        // 设置Z轴范围
+        ui->pos_z->setRange(0.0, 50.0);
+        ui->pos_z->setValue(15.0);
+        
+        logMessage("末端位置控制器已配置");
+    } else {
+        logMessage("警告：未找到末端位置控制器组件");
+    }
     
-    // 设置吸盘控制连接
-    connect(ui->vacuumPowerSlider, &QSlider::valueChanged, this, &ArmControlGUI::onVacuumPowerSliderChanged);
-    connect(ui->vacuumOnButton, &QPushButton::clicked, this, &ArmControlGUI::onVacuumOnButtonClicked);
-    connect(ui->vacuumOffButton, &QPushButton::clicked, this, &ArmControlGUI::onVacuumOffButtonClicked);
-    
-    // 连接笛卡尔坐标移动按钮
-    connect(ui->moveToPositionButton, &QPushButton::clicked, this, &ArmControlGUI::onMoveToPositionClicked);
-    
-    // 设置检测物体表格
-    QStringList headers;
-    headers << "ID" << "类型" << "X(cm)" << "Y(cm)" << "Z(cm)" << "操作";
-    ui->detectionsTable->setColumnCount(headers.size());
-    ui->detectionsTable->setHorizontalHeaderLabels(headers);
-    ui->detectionsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    connect(ui->detectionsTable, &QTableWidget::cellClicked, this, &ArmControlGUI::onDetectionsTableCellClicked);
-    
-    // 设置相机图像显示区域
-    ui->cameraView->setScaledContents(false);
-    ui->cameraView->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
-    
-    // 设置鼠标追踪，以便实现图像点击选择物体
-    ui->cameraView->setMouseTracking(true);
-    ui->cameraView->installEventFilter(this);
-    
-    // 初始化3D场景
-    scene_3d_renderer_ = new Scene3DRenderer(ui->openGLView);
-    ui->openGLView->setLayout(new QHBoxLayout());
-    ui->openGLView->layout()->addWidget(scene_3d_renderer_);
-    
-    // 连接3D场景物体选择信号
-    connect(scene_3d_renderer_, &Scene3DRenderer::objectSelected, this, &ArmControlGUI::on3DViewObjectSelected);
-    
-    // 设置相机参数
-    setupCameraParameters();
-    
-    // 添加信息到日志
-    logMessage("GUI初始化完成");
-    
-    // 设置更新定时器
-    updateTimer = new QTimer(this);
-    connect(updateTimer, &QTimer::timeout, this, &ArmControlGUI::onUpdateGUI);
-    updateTimer->start(100);  // 每100ms更新一次
-    
-    // 默认控制模式
-    current_control_mode_ = ArmControlMode::JOINT_CONTROL;
-    
-    // 默认选项
-    selected_object_index_ = -1;
-    
-    // 初始化末端位置显示
-    updateEndEffectorPose();
+    // 计算并显示初始末端位置
+    if (!current_joint_values_.empty()) {
+        geometry_msgs::Pose initial_pose = forwardKinematics(current_joint_values_);
+        double x_cm = initial_pose.position.x * 100.0;
+        double y_cm = initial_pose.position.y * 100.0;
+        double z_cm = initial_pose.position.z * 100.0;
+        
+        updateEndEffectorPosition(x_cm, y_cm, z_cm);
+        logMessage(QString("初始末端位置: X=%1cm Y=%2cm Z=%3cm").arg(x_cm).arg(y_cm).arg(z_cm));
+    }
 }
 
 void ArmControlGUI::initializeJointControlConnections()
@@ -1670,12 +1633,56 @@ void ArmControlGUI::sendPickCommand(const std::string& object_id)
     updateJointInfo();
 }
 
+// 发送放置命令到指定位置
 void ArmControlGUI::sendPlaceCommand(double x, double y, double z)
 {
-    std_msgs::String cmd_msg;
-    cmd_msg.data = "place arm1 " + std::to_string(x/100.0) + " " + 
-                   std::to_string(y/100.0) + " " + std::to_string(z/100.0);
-    arm_command_pub_.publish(cmd_msg);
+    logMessage(QString("准备移动到位置：X=%1 Y=%2 Z=%3").arg(x).arg(y).arg(z));
+    
+    // 创建目标位姿
+    geometry_msgs::Pose target_pose;
+    target_pose.position.x = x / 100.0; // 转换为米
+    target_pose.position.y = y / 100.0;
+    target_pose.position.z = z / 100.0;
+    
+    // 设置方向（默认朝下，吸盘朝下方向）
+    target_pose.orientation.x = 0.0;
+    target_pose.orientation.y = 0.0;
+    target_pose.orientation.z = 0.0;
+    target_pose.orientation.w = 1.0;
+    
+    try {
+        // 使用逆向运动学计算目标关节角度
+        std::vector<double> target_joints = inverseKinematics(target_pose);
+        
+        // 检查计算结果
+        if (target_joints.size() != joint_limits_.size()) {
+            logMessage("错误：逆向运动学计算失败，无法移动到目标位置");
+            return;
+        }
+        
+        // 检查关节限制
+        if (!checkJointLimits(target_joints)) {
+            logMessage("错误：目标位置超出机械臂工作范围，请选择其他位置");
+            return;
+        }
+        
+        // 向机械臂发送关节命令
+        sendJointCommand(target_joints);
+        
+        // 更新目标位置显示
+        updateEndEffectorPosition(x, y, z);
+        
+        // 更新场景3D视图
+        if (scene_3d_renderer_) {
+            scene_3d_renderer_->setRobotPose(target_joints);
+        }
+        
+        logMessage(QString("机械臂正在移动到位置：X=%1 Y=%2 Z=%3").arg(x).arg(y).arg(z));
+    } catch (const std::exception& e) {
+        logMessage(QString("错误：计算目标位置的关节角度时出现异常：%1").arg(e.what()));
+    } catch (...) {
+        logMessage("错误：计算目标位置的关节角度时出现未知异常");
+    }
 }
 
 void ArmControlGUI::sendHomeCommand()
@@ -1712,24 +1719,12 @@ QImage ArmControlGUI::cvMatToQImage(const cv::Mat& mat)
 
 std::vector<double> ArmControlGUI::poseToJoints(const geometry_msgs::Pose& pose)
 {
-    // 这里应该实现逆运动学算法，将末端位姿转换为关节角度
-    // 简单起见，先返回当前关节值
-    return current_joint_values_;
+    return inverseKinematics(pose);
 }
 
 geometry_msgs::Pose ArmControlGUI::jointsToPos(const std::vector<double>& joint_values)
 {
-    // 这里应该实现正运动学算法，将关节角度转换为末端位姿
-    // 简单起见，先返回一个假的位姿
-    geometry_msgs::Pose pose;
-    pose.position.x = 0.3; // 默认在前方30cm
-    pose.position.y = 0.0;
-    pose.position.z = 0.2; // 默认高度20cm
-    pose.orientation.x = 0.0;
-    pose.orientation.y = 0.0;
-    pose.orientation.z = 0.0;
-    pose.orientation.w = 1.0;
-    return pose;
+    return forwardKinematics(joint_values);
 }
 
 // 日志记录
@@ -2072,6 +2067,7 @@ void ArmControlGUI::stereoMergedCallback(const sensor_msgs::Image::ConstPtr& msg
         cv::Mat single_view;
         cv::Mat left_view;
         cv::Mat right_view;
+        cv::Mat depth_map;  // 声明在外部作用域
         
         if (camera_image.cols == 1280 && camera_image.rows == 480) {
             // 这是一个双目图像，提取左右图像
@@ -2128,6 +2124,70 @@ void ArmControlGUI::stereoMergedCallback(const sensor_msgs::Image::ConstPtr& msg
                            cv::Scalar(0, 255, 0), 2);
             }
             
+            // 生成伪彩色深度图
+            
+            // 将左右图像转换为灰度图
+            cv::Mat left_gray, right_gray;
+            cv::cvtColor(left_view, left_gray, cv::COLOR_BGR2GRAY);
+            cv::cvtColor(right_view, right_gray, cv::COLOR_BGR2GRAY);
+            
+            // 计算视差图
+            cv::Mat disparity;
+            cv::Ptr<cv::StereoSGBM> stereo = cv::StereoSGBM::create(0, 64, 11);
+            stereo->compute(left_gray, right_gray, disparity);
+            
+            // 归一化视差图到0-255范围
+            cv::Mat disp8;
+            disparity.convertTo(disp8, CV_8UC1, 255/(stereo->getNumDisparities()*16.));
+            
+            // 应用伪彩色映射
+            cv::Mat colored_depth;
+            cv::applyColorMap(disp8, colored_depth, cv::COLORMAP_JET);
+            
+            // 添加深度值指示器（颜色条）
+            int bar_width = 20;
+            int bar_height = colored_depth.rows;
+            cv::Mat color_bar = cv::Mat(bar_height, bar_width, CV_8UC3);
+            
+            for (int y = 0; y < bar_height; y++) {
+                // 从下到上，颜色从蓝到红
+                float normalized_y = 1.0f - (float)y / bar_height;
+                cv::Mat color;
+                cv::Mat temp(1, 1, CV_8UC1, cv::Scalar(normalized_y * 255));
+                cv::applyColorMap(temp, color, cv::COLORMAP_JET);
+                cv::line(color_bar, cv::Point(0, y), cv::Point(bar_width-1, y), color.at<cv::Vec3b>(0, 0), 1);
+            }
+            
+            // 在颜色条上添加刻度
+            int num_ticks = 5;
+            for (int i = 0; i < num_ticks; i++) {
+                int y = i * (bar_height - 1) / (num_ticks - 1);
+                cv::line(color_bar, cv::Point(0, y), cv::Point(bar_width/2, y), cv::Scalar(255, 255, 255), 1);
+                
+                // 添加深度值文本
+                std::string text = cv::format("%.1f", (1.0 - i / (float)(num_ticks - 1)) * 5.0); // 假设最大深度为5米
+                int font_face = cv::FONT_HERSHEY_SIMPLEX;
+                double font_scale = 0.4;
+                int thickness = 1;
+                int baseline = 0;
+                cv::Size text_size = cv::getTextSize(text, font_face, font_scale, thickness, &baseline);
+                cv::putText(color_bar, text, 
+                          cv::Point(bar_width/2 + 2, y + text_size.height/2), 
+                          font_face, font_scale, cv::Scalar(255, 255, 255), thickness);
+            }
+            
+            // 在彩色深度图右侧添加颜色条
+            cv::Mat result(colored_depth.rows, colored_depth.cols + color_bar.cols, CV_8UC3);
+            colored_depth.copyTo(result(cv::Rect(0, 0, colored_depth.cols, colored_depth.rows)));
+            color_bar.copyTo(result(cv::Rect(colored_depth.cols, 0, color_bar.cols, color_bar.rows)));
+            
+            // 添加标题和说明
+            cv::putText(result, "Depth Map (m)", 
+                      cv::Point(10, 30), 
+                      cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 255), 2);
+            
+            depth_map = result;
+            
         } else {
             // 其他尺寸的图像，直接使用
             single_view = camera_image;
@@ -2181,10 +2241,20 @@ void ArmControlGUI::stereoMergedCallback(const sensor_msgs::Image::ConstPtr& msg
                                 single_view.step, QImage::Format_Grayscale8).copy();
         }
         
+        // 转换深度图为QImage
+        QImage depth_qimage;
+        if (!depth_map.empty() && depth_map.channels() == 3) {
+            cv::Mat depth_rgb;
+            cv::cvtColor(depth_map, depth_rgb, cv::COLOR_BGR2RGB);
+            depth_qimage = QImage(depth_rgb.data, depth_rgb.cols, depth_rgb.rows,
+                               depth_rgb.step, QImage::Format_RGB888).copy();
+        }
+        
         // 保存图像
         left_camera_image_ = left_qimage;
         right_camera_image_ = right_qimage;
         current_camera_image_ = merged_qimage;
+        current_depth_image_ = depth_qimage;
         
         // 标记摄像头可用
         is_camera_available_ = true;
@@ -2374,13 +2444,17 @@ void ArmControlGUI::updateGUIJointValues()
 // 添加初始化成员变量的函数
 void ArmControlGUI::initializeMembers()
 {
+    // 初始化DH参数和关节限制
+    setupDHParameters();
+    setupJointLimits();
+    
     // 机械臂状态初始化
-    current_joint_values_ = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-    target_joint_values_ = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    current_joint_values_ = {0.0, 0.0, 0.0, 0.0, M_PI/2, 5.0};
+    target_joint_values_ = {0.0, 0.0, 0.0, 0.0, M_PI/2, 5.0};
     
     // 关节限制
-    joint_min_values_ = {-180.0, 0.0, -90.0, 0.0, 0.0, 5.0};
-    joint_max_values_ = {180.0, 43.0, 90.0, 180.0, 0.0, 15.0};
+    joint_min_values_ = {-M_PI, 0.0, -M_PI/2, 0.0, M_PI/2, 5.0};
+    joint_max_values_ = {M_PI, 43.0, M_PI/2, M_PI, M_PI/2, 15.0};
     
     // 末端执行器状态（吸盘）
     vacuum_on_ = false;
@@ -2473,34 +2547,58 @@ void ArmControlGUI::setupROSSubscriptions()
 // 设置DH参数
 void ArmControlGUI::setupDHParameters()
 {
-    // 设置DH参数 (基于examples/path/main.m)
-    // a1 = 13, a2 = 13, a3 = 25, d2 = [0, 43], d5 = [5, 15]
-    dh_params_.resize(6);
-    // [type, d, theta, a, alpha]
-    // type: 0=revolute, 1=prismatic
-    dh_params_[0] = std::make_tuple(2, 0.0, 0.0, 0.0, 0.0);     // 底座旋转关节
-    dh_params_[1] = std::make_tuple(1, 0.0, 0.0, 0.0, 0.0);     // 伸缩关节
-    dh_params_[2] = std::make_tuple(2, 0.0, 0.0, 0.4, 0.0);     // 肩部关节
-    dh_params_[3] = std::make_tuple(2, 0.0, 0.0, 0.4, 0.0);     // 肘部关节
-    dh_params_[4] = std::make_tuple(2, 0.0, 0.0, 0.0, 90.0);    // 末端旋转关节
-    dh_params_[5] = std::make_tuple(1, 0.0, 0.0, 0.0, 0.0);     // 末端伸缩关节
+    // 清空现有的DH参数
+    dh_params_.clear();
     
-    logMessage("DH参数设置完成");
+    // 设置DH参数，格式：[type, d, theta, a, alpha]
+    // type: 0=revolute（旋转关节）, 1=prismatic（移动关节）
+    // 参数来源于arm_params.yaml
+    
+    // 初始化机械臂参数（单位：cm）
+    double a1 = 13.0; // 第一个连杆长度
+    double a2 = 13.0; // 第二个连杆长度
+    double a3 = 25.0; // 第三个连杆长度
+    
+    // 添加所有关节的DH参数
+    // [type, d, theta, a, alpha]
+    dh_params_.push_back(std::make_tuple(0, 0.0, 0.0, a1, M_PI/2));  // 底座旋转关节(θ1)
+    dh_params_.push_back(std::make_tuple(1, 0.0, M_PI/4, 0.0, 0.0)); // 伸缩关节(d2)
+    dh_params_.push_back(std::make_tuple(0, a2, 0.0, 0.0, M_PI/2));  // 肩部关节(θ3)
+    dh_params_.push_back(std::make_tuple(0, 0.0, 0.0, a3, M_PI/2));  // 肘部关节(θ4)
+    dh_params_.push_back(std::make_tuple(0, 0.0, M_PI/2, 0.0, M_PI/2)); // 固定关节(θ5)
+    dh_params_.push_back(std::make_tuple(1, 0.0, M_PI/2, 0.0, 0.0));  // 末端伸缩(d6)
+    
+    logMessage("DH参数已设置");
 }
 
 // 设置关节限制
 void ArmControlGUI::setupJointLimits()
 {
-    // 初始化关节限制
-    joint_limits_.resize(6);
-    joint_limits_[0] = std::make_pair(-180.0, 180.0);  // 底座旋转
-    joint_limits_[1] = std::make_pair(0.0, 43.0);      // 伸缩
-    joint_limits_[2] = std::make_pair(-90.0, 90.0);    // 肩部
-    joint_limits_[3] = std::make_pair(0.0, 180.0);     // 肘部
-    joint_limits_[4] = std::make_pair(-180.0, 180.0);  // 末端旋转
-    joint_limits_[5] = std::make_pair(5.0, 15.0);      // 末端伸缩
+    // 清空现有的关节限制
+    joint_limits_.clear();
     
-    logMessage("关节限制设置完成");
+    // 设置关节限制，格式：[最小值, 最大值]
+    // 参数来源于arm_params.yaml
+    
+    // joint1: θ1 (rad) ±180°
+    joint_limits_.push_back(std::make_pair(-M_PI, M_PI));
+    
+    // joint2: d2 (cm) 0-43cm
+    joint_limits_.push_back(std::make_pair(0.0, 43.0));
+    
+    // joint3: θ3 (rad) ±90°
+    joint_limits_.push_back(std::make_pair(-M_PI/2, M_PI/2));
+    
+    // joint4: θ4 (rad) 0-180°
+    joint_limits_.push_back(std::make_pair(0.0, M_PI));
+    
+    // joint5: θ5 (rad) 固定在90°
+    joint_limits_.push_back(std::make_pair(M_PI/2, M_PI/2));
+    
+    // joint6: d6 (cm) 5-15cm
+    joint_limits_.push_back(std::make_pair(5.0, 15.0));
+    
+    logMessage("关节限制已设置");
 }
 
 // 实现on_moveToPositionButton_clicked函数
@@ -2742,4 +2840,344 @@ void ArmControlGUI::depthImageCallback(const sensor_msgs::Image::ConstPtr& msg)
     catch (const std::exception& e) {
         ROS_ERROR("处理深度图像时出现异常: %s", e.what());
     }
+}
+
+// 计算单个关节的DH变换矩阵
+QMatrix4x4 ArmControlGUI::computeDHTransform(double theta, double d, double a, double alpha)
+{
+    QMatrix4x4 transform;
+    
+    // 使用DH参数计算变换矩阵
+    double ct = cos(theta);
+    double st = sin(theta);
+    double ca = cos(alpha);
+    double sa = sin(alpha);
+    
+    transform(0, 0) = ct;      transform(0, 1) = -st*ca;  transform(0, 2) = st*sa;   transform(0, 3) = a*ct;
+    transform(1, 0) = st;      transform(1, 1) = ct*ca;   transform(1, 2) = -ct*sa;  transform(1, 3) = a*st;
+    transform(2, 0) = 0.0;     transform(2, 1) = sa;      transform(2, 2) = ca;      transform(2, 3) = d;
+    transform(3, 0) = 0.0;     transform(3, 1) = 0.0;     transform(3, 2) = 0.0;     transform(3, 3) = 1.0;
+    
+    return transform;
+}
+
+// 使用DH参数计算机械臂正向运动学
+geometry_msgs::Pose ArmControlGUI::forwardKinematics(const std::vector<double>& joint_values)
+{
+    // 检查关节数量是否正确
+    if (joint_values.size() != dh_params_.size()) {
+        logMessage(QString("错误：关节数量不匹配，期望 %1 个关节，实际提供 %2 个")
+                .arg(dh_params_.size()).arg(joint_values.size()));
+        
+        // 返回一个默认姿态
+        geometry_msgs::Pose default_pose;
+        default_pose.position.x = 0.0;
+        default_pose.position.y = 0.0;
+        default_pose.position.z = 0.0;
+        default_pose.orientation.w = 1.0;
+        return default_pose;
+    }
+    
+    // 初始化变换矩阵为单位矩阵
+    QMatrix4x4 transform;
+    transform.setToIdentity();
+    
+    // 累积每个关节的变换
+    for (size_t i = 0; i < dh_params_.size(); ++i) {
+        // 获取关节类型和DH参数
+        int joint_type = std::get<0>(dh_params_[i]);
+        double d = std::get<1>(dh_params_[i]);
+        double theta = std::get<2>(dh_params_[i]);
+        double a = std::get<3>(dh_params_[i]);
+        double alpha = std::get<4>(dh_params_[i]);
+        
+        // 根据关节类型更新相应参数
+        if (joint_type == 0) { // 旋转关节
+            theta += joint_values[i]; // 更新θ
+        } else if (joint_type == 1) { // 移动关节
+            d += joint_values[i];    // 更新d
+        }
+        
+        // 计算此关节的变换矩阵
+        QMatrix4x4 joint_transform = computeDHTransform(theta, d, a, alpha);
+        
+        // 累积变换
+        transform = transform * joint_transform;
+    }
+    
+    // 从变换矩阵提取位姿
+    geometry_msgs::Pose pose;
+    
+    // 设置位置（单位：米）
+    pose.position.x = transform(0, 3) / 100.0; // 转换为米
+    pose.position.y = transform(1, 3) / 100.0;
+    pose.position.z = transform(2, 3) / 100.0;
+    
+    // 从旋转矩阵提取四元数
+    QMatrix3x3 rotation_matrix;
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            rotation_matrix(i, j) = transform(i, j);
+        }
+    }
+    QQuaternion quat = QQuaternion::fromRotationMatrix(rotation_matrix);
+    
+    // 设置方向
+    pose.orientation.x = quat.x();
+    pose.orientation.y = quat.y();
+    pose.orientation.z = quat.z();
+    pose.orientation.w = quat.scalar();
+    
+    return pose;
+}
+
+// 检查关节是否在限制范围内
+bool ArmControlGUI::checkJointLimits(const std::vector<double>& joint_values)
+{
+    // 检查关节数量是否正确
+    if (joint_values.size() != joint_limits_.size()) {
+        logMessage(QString("错误：关节数量不匹配，期望 %1 个关节，实际提供 %2 个")
+                .arg(joint_limits_.size()).arg(joint_values.size()));
+        return false;
+    }
+    
+    // 检查每个关节是否在限制范围内
+    for (size_t i = 0; i < joint_values.size(); ++i) {
+        if (joint_values[i] < joint_limits_[i].first || joint_values[i] > joint_limits_[i].second) {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+// 逆向运动学计算
+std::vector<double> ArmControlGUI::inverseKinematics(const geometry_msgs::Pose& target_pose, const std::vector<double>& initial_guess)
+{
+    // 使用数值优化方法（梯度下降）求解逆运动学
+    
+    // 如果没有提供初始猜测值，使用当前关节角度
+    std::vector<double> current_joints = initial_guess;
+    if (current_joints.empty()) {
+        current_joints = current_joint_values_;
+    }
+    
+    // 确保初始猜测值符合关节限制
+    for (size_t i = 0; i < current_joints.size(); ++i) {
+        current_joints[i] = std::max(joint_limits_[i].first, 
+                           std::min(joint_limits_[i].second, current_joints[i]));
+    }
+    
+    // 设置优化参数
+    const int max_iterations = 100;
+    const double convergence_threshold = 0.001; // 米
+    const double learning_rate = 0.1;
+    
+    // 目标位置（厘米）
+    QVector3D target_position(
+        target_pose.position.x * 100.0, 
+        target_pose.position.y * 100.0, 
+        target_pose.position.z * 100.0
+    );
+    
+    // 目标姿态
+    QQuaternion target_orientation(
+        target_pose.orientation.w, 
+        target_pose.orientation.x, 
+        target_pose.orientation.y, 
+        target_pose.orientation.z
+    );
+    
+    // 迭代优化
+    for (int iter = 0; iter < max_iterations; ++iter) {
+        // 计算当前关节角度下的末端位姿
+        geometry_msgs::Pose current_pose = forwardKinematics(current_joints);
+        
+        // 计算位置误差（厘米）
+        QVector3D current_position(
+            current_pose.position.x * 100.0, 
+            current_pose.position.y * 100.0, 
+            current_pose.position.z * 100.0
+        );
+        
+        QVector3D position_error = target_position - current_position;
+        
+        // 计算姿态误差（简化，仅使用位置误差）
+        
+        // 检查是否收敛
+        double error_magnitude = position_error.length();
+        if (error_magnitude < convergence_threshold) {
+            logMessage(QString("逆运动学已收敛，迭代次数: %1, 误差: %2 cm").arg(iter).arg(error_magnitude));
+            return current_joints;
+        }
+        
+        // 计算雅可比矩阵（数值微分）
+        std::vector<std::vector<double>> jacobian(3, std::vector<double>(current_joints.size(), 0.0));
+        
+        const double delta = 0.01; // 数值微分的步长
+        
+        for (size_t j = 0; j < current_joints.size(); ++j) {
+            // 原关节值
+            double original_value = current_joints[j];
+            
+            // 微小扰动
+            current_joints[j] += delta;
+            
+            // 计算扰动后的位姿
+            geometry_msgs::Pose perturbed_pose = forwardKinematics(current_joints);
+            
+            // 恢复关节值
+            current_joints[j] = original_value;
+            
+            // 计算偏导数
+            jacobian[0][j] = (perturbed_pose.position.x * 100.0 - current_position.x()) / delta;
+            jacobian[1][j] = (perturbed_pose.position.y * 100.0 - current_position.y()) / delta;
+            jacobian[2][j] = (perturbed_pose.position.z * 100.0 - current_position.z()) / delta;
+        }
+        
+        // 使用转置雅可比矩阵计算关节角度更新
+        for (size_t j = 0; j < current_joints.size(); ++j) {
+            double update = 0.0;
+            for (size_t k = 0; k < 3; ++k) {
+                update += jacobian[k][j] * position_error[k];
+            }
+            
+            // 更新关节角度
+            current_joints[j] += learning_rate * update;
+            
+            // 确保关节角度在限制范围内
+            current_joints[j] = std::max(joint_limits_[j].first, 
+                               std::min(joint_limits_[j].second, current_joints[j]));
+        }
+    }
+    
+    logMessage("逆运动学未收敛，返回最佳近似解");
+    return current_joints;
+}
+
+// 初始化UI元素
+void ArmControlGUI::setupUi()
+{
+    // 设置日志显示区
+    ui->logTextEdit->setReadOnly(true);
+    
+    // 设置关节控制范围
+    ui->joint1_slider->setRange(-180, 180);
+    ui->joint2_slider->setRange(0, 50);
+    ui->joint3_slider->setRange(-90, 90);
+    ui->joint4_slider->setRange(0, 180);
+    ui->joint6_slider->setRange(5, 15);
+    
+    ui->joint1_spin->setRange(-180.0, 180.0);
+    ui->joint2_spin->setRange(0.0, 50.0);
+    ui->joint3_spin->setRange(-90.0, 90.0);
+    ui->joint4_spin->setRange(0.0, 180.0);
+    ui->joint6_spin->setRange(5.0, 15.0);
+    
+    // 设置吸盘功率滑块范围
+    ui->vacuumPowerSlider->setRange(0, 100);
+    ui->vacuumPowerSlider->setValue(50);  // 使用默认值50%，与vacuum_power_保持一致
+    ui->vacuumPowerLabel->setText(QString("%1%").arg(50));
+    
+    // 设置检测物体表格
+    QStringList headers;
+    headers << "ID" << "类型" << "X(cm)" << "Y(cm)" << "Z(cm)" << "操作";
+    ui->detectionsTable->setColumnCount(headers.size());
+    ui->detectionsTable->setHorizontalHeaderLabels(headers);
+    ui->detectionsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    
+    // 设置相机图像显示区域
+    ui->cameraView->setScaledContents(false);
+    ui->cameraView->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+    
+    // 设置鼠标追踪，以便实现图像点击选择物体
+    ui->cameraView->setMouseTracking(true);
+    ui->cameraView->installEventFilter(this);
+    
+    // 初始化3D场景
+    scene_3d_renderer_ = new Scene3DRenderer(ui->openGLView);
+    ui->openGLView->setLayout(new QHBoxLayout());
+    ui->openGLView->layout()->addWidget(scene_3d_renderer_);
+}
+
+// 创建菜单
+void ArmControlGUI::createMenus()
+{
+    // 文件菜单
+    QMenu* fileMenu = menuBar()->addMenu("文件");
+    
+    // 打开任务序列
+    QAction* openAction = new QAction("打开任务序列", this);
+    connect(openAction, &QAction::triggered, this, &ArmControlGUI::onOpenTaskSequence);
+    fileMenu->addAction(openAction);
+    
+    // 保存任务序列
+    QAction* saveAction = new QAction("保存任务序列", this);
+    connect(saveAction, &QAction::triggered, this, &ArmControlGUI::onSaveTaskSequence);
+    fileMenu->addAction(saveAction);
+    
+    fileMenu->addSeparator();
+    
+    // 退出
+    QAction* exitAction = new QAction("退出", this);
+    connect(exitAction, &QAction::triggered, this, &ArmControlGUI::onExitApplication);
+    fileMenu->addAction(exitAction);
+    
+    // 设置菜单
+    QMenu* settingsMenu = menuBar()->addMenu("设置");
+    
+    // 机械臂设置
+    QAction* robotSettingsAction = new QAction("机械臂设置", this);
+    connect(robotSettingsAction, &QAction::triggered, this, &ArmControlGUI::onRobotSettings);
+    settingsMenu->addAction(robotSettingsAction);
+    
+    // 帮助菜单
+    QMenu* helpMenu = menuBar()->addMenu("帮助");
+    
+    // 关于
+    QAction* aboutAction = new QAction("关于", this);
+    connect(aboutAction, &QAction::triggered, this, &ArmControlGUI::onAbout);
+    helpMenu->addAction(aboutAction);
+}
+
+// 连接信号槽
+void ArmControlGUI::connectSignalSlots()
+{
+    // 设置关节控制连接
+    connect(ui->joint1_slider, &QSlider::valueChanged, this, &ArmControlGUI::onJoint1SliderChanged);
+    connect(ui->joint2_slider, &QSlider::valueChanged, this, &ArmControlGUI::onJoint2SliderChanged);
+    connect(ui->joint3_slider, &QSlider::valueChanged, this, &ArmControlGUI::onJoint3SliderChanged);
+    connect(ui->joint4_slider, &QSlider::valueChanged, this, &ArmControlGUI::onJoint4SliderChanged);
+    connect(ui->joint6_slider, &QSlider::valueChanged, this, &ArmControlGUI::onJoint6SliderChanged);
+    
+    connect(ui->joint1_spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ArmControlGUI::onJoint1SpinChanged);
+    connect(ui->joint2_spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ArmControlGUI::onJoint2SpinChanged);
+    connect(ui->joint3_spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ArmControlGUI::onJoint3SpinChanged);
+    connect(ui->joint4_spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ArmControlGUI::onJoint4SpinChanged);
+    connect(ui->joint6_spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ArmControlGUI::onJoint6SpinChanged);
+    
+    // 设置吸盘控制连接
+    connect(ui->vacuumPowerSlider, &QSlider::valueChanged, this, &ArmControlGUI::onVacuumPowerSliderChanged);
+    connect(ui->vacuumOnButton, &QPushButton::clicked, this, &ArmControlGUI::onVacuumOnButtonClicked);
+    connect(ui->vacuumOffButton, &QPushButton::clicked, this, &ArmControlGUI::onVacuumOffButtonClicked);
+    
+    // 连接笛卡尔坐标移动按钮
+    connect(ui->moveToPositionButton, &QPushButton::clicked, this, &ArmControlGUI::onMoveToPositionClicked);
+    
+    // 连接末端控制按钮
+    connect(ui->homeButton, &QPushButton::clicked, this, &ArmControlGUI::onHomeButtonClicked);
+    
+    // 连接检测表格点击事件
+    connect(ui->detectionsTable, &QTableWidget::cellClicked, this, &ArmControlGUI::onDetectionsTableCellClicked);
+    
+    // 连接3D场景物体选择信号
+    connect(scene_3d_renderer_, &Scene3DRenderer::objectSelected, this, &ArmControlGUI::on3DViewObjectSelected);
+    
+    // 安装事件过滤器
+    this->installEventFilter(this);
+    
+    // 设置更新定时器
+    updateTimer = new QTimer(this);
+    connect(updateTimer, &QTimer::timeout, this, &ArmControlGUI::onUpdateGUI);
+    updateTimer->start(100);  // 每100ms更新一次
 }

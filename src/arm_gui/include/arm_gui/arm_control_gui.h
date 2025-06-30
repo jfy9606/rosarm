@@ -322,6 +322,9 @@ private:
     void setupCameraParameters();
     void setupDHParameters();
     void setupJointLimits();
+    void setupUi();
+    void createMenus();
+    void connectSignalSlots();
 
     // 更新函数
     void updateVacuumStatus();
@@ -344,6 +347,16 @@ private:
     // DH参数和关节限制
     std::vector<std::tuple<int, double, double, double, double>> dh_params_; // [type, d, theta, a, alpha]
     std::vector<std::pair<double, double>> joint_limits_;
+    
+    // 添加正向和逆向运动学计算函数
+    geometry_msgs::Pose forwardKinematics(const std::vector<double>& joint_values);
+    std::vector<double> inverseKinematics(const geometry_msgs::Pose& target_pose, const std::vector<double>& initial_guess = {});
+    
+    // 计算单个关节的DH变换矩阵
+    QMatrix4x4 computeDHTransform(double theta, double d, double a, double alpha);
+    
+    // 检查关节是否在限制范围内
+    bool checkJointLimits(const std::vector<double>& joint_values);
     
     // 中继控制命令
     void sendRelayOrder(const std::string& command);
