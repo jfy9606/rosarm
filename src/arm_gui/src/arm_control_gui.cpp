@@ -1368,9 +1368,9 @@ void ArmControlGUI::updateCameraViews()
             }
             break;
         case 2: // 深度图
-            if (!current_depth_image_.isNull()) {
-                sourceImage = &current_depth_image_;
-            } else {
+        if (!current_depth_image_.isNull()) {
+            sourceImage = &current_depth_image_;
+        } else {
                 // 如果深度图不可用，使用左图
                 sourceImage = &left_camera_image_;
             }
