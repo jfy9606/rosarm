@@ -38,6 +38,22 @@
 #include <message_filters/synchronizer.h>
 #include <message_filters/sync_policies/approximate_time.h>
 
+// 检测到的物体结构体定义
+struct DetectedObject {
+    int id;               // 物体ID
+    std::string label;    // 物体类别标签
+    float confidence;     // 置信度
+    QVector3D position;   // 物体3D位置
+    QVector3D dimensions; // 物体尺寸
+    
+    DetectedObject() : 
+        id(-1), 
+        label("unknown"), 
+        confidence(0.0f), 
+        position(0, 0, 0), 
+        dimensions(0, 0, 0) {}
+};
+
 ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     : QMainWindow(parent)
     , ui(new Ui::ArmControlMainWindow)
@@ -649,242 +665,245 @@ void ArmControlGUI::sendPickObjectCommand(int object_index)
 // 关节控制槽实现
 void ArmControlGUI::onJoint1SliderChanged(int value)
 {
-    // 阻止UI自动更新导致回弹
-    ui->joint1_slider->blockSignals(true);
-    ui->joint1_spin->blockSignals(true);
-    
-    // 更新UI值
-    ui->joint1_spin->setValue(value);
-    
-    // 设置关节值
-    std::vector<double> joint_values = current_joint_values_;
-    joint_values[0] = value * M_PI / 180.0; // 转换为弧度
-    
-    // 发送统一的关节控制命令
-    sendJointCommand(joint_values);
-    
-    // 等待命令执行完成
-    QApplication::processEvents();
-    
-    // 恢复信号
-    ui->joint1_slider->blockSignals(false);
-    ui->joint1_spin->blockSignals(false);
+    // 第一俯仰电机，范围：±90度
+    if (!ignore_slider_events_) {
+        // 避免反馈循环
+        ignore_spin_events_ = true;
+        
+        // 更新对应的数值显示
+        ui->joint1_spin->setValue(value);
+        
+        // 计算弧度值（将度数转换为弧度）
+        double radians = value * M_PI / 180.0;
+        
+        // 更新关节状态
+        sensor_msgs::JointState joint_cmd;
+        joint_cmd.header.stamp = ros::Time::now();
+        joint_cmd.name.push_back("arm1_joint1");
+        joint_cmd.position.push_back(radians);
+        joint_command_pub_.publish(joint_cmd);
+        
+        // 记录日志
+        logMessage(QString("设置关节1 (第一俯仰电机) 角度: %1 度").arg(value));
+        
+        // 恢复事件处理
+        ignore_spin_events_ = false;
+    }
 }
 
 void ArmControlGUI::onJoint2SliderChanged(int value)
 {
-    // 阻止UI自动更新导致回弹
-    ui->joint2_slider->blockSignals(true);
-    ui->joint2_spin->blockSignals(true);
-    
-    // 更新UI值
-    ui->joint2_spin->setValue(value);
-    
-    // 设置关节值
-    std::vector<double> joint_values = current_joint_values_;
-    joint_values[1] = value;
-    
-    // 发送统一的关节控制命令
-    sendJointCommand(joint_values);
-    
-    // 等待命令执行完成
-    QApplication::processEvents();
-    
-    // 恢复信号
-    ui->joint2_slider->blockSignals(false);
-    ui->joint2_spin->blockSignals(false);
+    // 直线进给电机，范围：0-43厘米
+    if (!ignore_slider_events_) {
+        // 避免反馈循环
+        ignore_spin_events_ = true;
+        
+        // 更新对应的数值显示
+        ui->joint2_spin->setValue(value);
+        
+        // 直接使用厘米值（这个关节是直线伸缩的）
+        double distance = static_cast<double>(value);
+        
+        // 更新关节状态
+        sensor_msgs::JointState joint_cmd;
+        joint_cmd.header.stamp = ros::Time::now();
+        joint_cmd.name.push_back("arm1_joint2");
+        joint_cmd.position.push_back(distance);
+        joint_command_pub_.publish(joint_cmd);
+        
+        // 记录日志
+        logMessage(QString("设置关节2 (直线进给电机) 距离: %1 厘米").arg(value));
+        
+        // 恢复事件处理
+        ignore_spin_events_ = false;
+    }
 }
 
 void ArmControlGUI::onJoint3SliderChanged(int value)
 {
-    // 阻止UI自动更新导致回弹
-    ui->joint3_slider->blockSignals(true);
-    ui->joint3_spin->blockSignals(true);
-    
-    // 更新UI值
-    ui->joint3_spin->setValue(value);
-    
-    // 设置关节值
-    std::vector<double> joint_values = current_joint_values_;
-    joint_values[2] = value * M_PI / 180.0; // 转换为弧度
-    
-    // 发送统一的关节控制命令
-    sendJointCommand(joint_values);
-    
-    // 等待命令执行完成
-    QApplication::processEvents();
-    
-    // 恢复信号
-    ui->joint3_slider->blockSignals(false);
-    ui->joint3_spin->blockSignals(false);
+    // 绕轴旋转电机，范围：±180度
+    if (!ignore_slider_events_) {
+        // 避免反馈循环
+        ignore_spin_events_ = true;
+        
+        // 更新对应的数值显示
+        ui->joint3_spin->setValue(value);
+        
+        // 计算弧度值（将度数转换为弧度）
+        double radians = value * M_PI / 180.0;
+        
+        // 更新关节状态
+        sensor_msgs::JointState joint_cmd;
+        joint_cmd.header.stamp = ros::Time::now();
+        joint_cmd.name.push_back("arm1_joint3");
+        joint_cmd.position.push_back(radians);
+        joint_command_pub_.publish(joint_cmd);
+        
+        // 记录日志
+        logMessage(QString("设置关节3 (绕轴旋转电机) 角度: %1 度").arg(value));
+        
+        // 恢复事件处理
+        ignore_spin_events_ = false;
+    }
 }
 
 void ArmControlGUI::onJoint4SliderChanged(int value)
 {
-    // 阻止UI自动更新导致回弹
-    ui->joint4_slider->blockSignals(true);
-    ui->joint4_spin->blockSignals(true);
-    
-    // 更新UI值
-    ui->joint4_spin->setValue(value);
-    
-    // 设置关节值
-    std::vector<double> joint_values = current_joint_values_;
-    joint_values[3] = value * M_PI / 180.0; // 转换为弧度
-    
-    // 发送统一的关节控制命令
-    sendJointCommand(joint_values);
-    
-    // 等待命令执行完成
-    QApplication::processEvents();
-    
-    // 恢复信号
-    ui->joint4_slider->blockSignals(false);
-    ui->joint4_spin->blockSignals(false);
+    // 第二俯仰电机，范围：±90度
+    if (!ignore_slider_events_) {
+        // 避免反馈循环
+        ignore_spin_events_ = true;
+        
+        // 更新对应的数值显示
+        ui->joint4_spin->setValue(value);
+        
+        // 计算弧度值（将度数转换为弧度）
+        double radians = value * M_PI / 180.0;
+        
+        // 更新关节状态
+        sensor_msgs::JointState joint_cmd;
+        joint_cmd.header.stamp = ros::Time::now();
+        joint_cmd.name.push_back("arm1_joint4");
+        joint_cmd.position.push_back(radians);
+        joint_command_pub_.publish(joint_cmd);
+        
+        // 记录日志
+        logMessage(QString("设置关节4 (第二俯仰电机) 角度: %1 度").arg(value));
+        
+        // 恢复事件处理
+        ignore_spin_events_ = false;
+    }
 }
 
+// 暂时保留此函数但标记为未实现（关节5/6目前未部署）
 void ArmControlGUI::onJoint6SliderChanged(int value)
 {
-    // 阻止UI自动更新导致回弹
-    ui->joint6_slider->blockSignals(true);
-    ui->joint6_spin->blockSignals(true);
-    
-    // 更新UI值
-    ui->joint6_spin->setValue(value);
-    
-    // 设置关节值
-    std::vector<double> joint_values = current_joint_values_;
-    joint_values[5] = value;
-    
-    // 发送统一的关节控制命令
-    sendJointCommand(joint_values);
-    
-    // 等待命令执行完成
-    QApplication::processEvents();
-    
-    // 恢复信号
-    ui->joint6_slider->blockSignals(false);
-    ui->joint6_spin->blockSignals(false);
+    // 关节5/6未部署
+    if (!ignore_slider_events_) {
+        logMessage(QString("警告：关节5/6未部署，无法设置值"));
+    }
 }
 
+// 更新spin box回调函数
 void ArmControlGUI::onJoint1SpinChanged(double value)
 {
-    // 阻止UI自动更新导致回弹
-    ui->joint1_slider->blockSignals(true);
-    ui->joint1_spin->blockSignals(true);
-    
-    // 更新滑块值
-    ui->joint1_slider->setValue(static_cast<int>(value));
-    
-    // 设置关节值
-    std::vector<double> joint_values = current_joint_values_;
-    joint_values[0] = value * M_PI / 180.0; // 转换为弧度
-    
-    // 发送统一的关节控制命令
-    sendJointCommand(joint_values);
-    
-    // 等待命令执行完成
-    QApplication::processEvents();
-    
-    // 恢复信号
-    ui->joint1_slider->blockSignals(false);
-    ui->joint1_spin->blockSignals(false);
+    // 第一俯仰电机，范围：±90度
+    if (!ignore_spin_events_) {
+        // 避免反馈循环
+        ignore_slider_events_ = true;
+        
+        // 更新对应的滑块位置
+        ui->joint1_slider->setValue(static_cast<int>(value));
+        
+        // 计算弧度值（将度数转换为弧度）
+        double radians = value * M_PI / 180.0;
+        
+        // 更新关节状态
+        sensor_msgs::JointState joint_cmd;
+        joint_cmd.header.stamp = ros::Time::now();
+        joint_cmd.name.push_back("arm1_joint1");
+        joint_cmd.position.push_back(radians);
+        joint_command_pub_.publish(joint_cmd);
+        
+        // 记录日志
+        logMessage(QString("设置关节1 (第一俯仰电机) 角度: %1 度").arg(value));
+        
+        // 恢复事件处理
+        ignore_slider_events_ = false;
+    }
 }
 
 void ArmControlGUI::onJoint2SpinChanged(double value)
 {
-    // 阻止UI自动更新导致回弹
-    ui->joint2_slider->blockSignals(true);
-    ui->joint2_spin->blockSignals(true);
-    
-    // 更新滑块值
-    ui->joint2_slider->setValue(static_cast<int>(value));
-    
-    // 设置关节值
-    std::vector<double> joint_values = current_joint_values_;
-    joint_values[1] = value;
-    
-    // 发送统一的关节控制命令
-    sendJointCommand(joint_values);
-    
-    // 等待命令执行完成
-    QApplication::processEvents();
-    
-    // 恢复信号
-    ui->joint2_slider->blockSignals(false);
-    ui->joint2_spin->blockSignals(false);
+    // 直线进给电机，范围：0-43厘米
+    if (!ignore_spin_events_) {
+        // 避免反馈循环
+        ignore_slider_events_ = true;
+        
+        // 更新对应的滑块位置
+        ui->joint2_slider->setValue(static_cast<int>(value));
+        
+        // 直接使用厘米值（这个关节是直线伸缩的）
+        double distance = value;
+        
+        // 更新关节状态
+        sensor_msgs::JointState joint_cmd;
+        joint_cmd.header.stamp = ros::Time::now();
+        joint_cmd.name.push_back("arm1_joint2");
+        joint_cmd.position.push_back(distance);
+        joint_command_pub_.publish(joint_cmd);
+        
+        // 记录日志
+        logMessage(QString("设置关节2 (直线进给电机) 距离: %1 厘米").arg(value));
+        
+        // 恢复事件处理
+        ignore_slider_events_ = false;
+    }
 }
 
 void ArmControlGUI::onJoint3SpinChanged(double value)
 {
-    // 阻止UI自动更新导致回弹
-    ui->joint3_slider->blockSignals(true);
-    ui->joint3_spin->blockSignals(true);
-    
-    // 更新滑块值
-    ui->joint3_slider->setValue(static_cast<int>(value));
-    
-    // 设置关节值
-    std::vector<double> joint_values = current_joint_values_;
-    joint_values[2] = value * M_PI / 180.0; // 转换为弧度
-    
-    // 发送统一的关节控制命令
-    sendJointCommand(joint_values);
-    
-    // 等待命令执行完成
-    QApplication::processEvents();
-    
-    // 恢复信号
-    ui->joint3_slider->blockSignals(false);
-    ui->joint3_spin->blockSignals(false);
+    // 绕轴旋转电机，范围：±180度
+    if (!ignore_spin_events_) {
+        // 避免反馈循环
+        ignore_slider_events_ = true;
+        
+        // 更新对应的滑块位置
+        ui->joint3_slider->setValue(static_cast<int>(value));
+        
+        // 计算弧度值（将度数转换为弧度）
+        double radians = value * M_PI / 180.0;
+        
+        // 更新关节状态
+        sensor_msgs::JointState joint_cmd;
+        joint_cmd.header.stamp = ros::Time::now();
+        joint_cmd.name.push_back("arm1_joint3");
+        joint_cmd.position.push_back(radians);
+        joint_command_pub_.publish(joint_cmd);
+        
+        // 记录日志
+        logMessage(QString("设置关节3 (绕轴旋转电机) 角度: %1 度").arg(value));
+        
+        // 恢复事件处理
+        ignore_slider_events_ = false;
+    }
 }
 
 void ArmControlGUI::onJoint4SpinChanged(double value)
 {
-    // 阻止UI自动更新导致回弹
-    ui->joint4_slider->blockSignals(true);
-    ui->joint4_spin->blockSignals(true);
-    
-    // 更新滑块值
-    ui->joint4_slider->setValue(static_cast<int>(value));
-    
-    // 设置关节值
-    std::vector<double> joint_values = current_joint_values_;
-    joint_values[3] = value * M_PI / 180.0; // 转换为弧度
-    
-    // 发送统一的关节控制命令
-    sendJointCommand(joint_values);
-    
-    // 等待命令执行完成
-    QApplication::processEvents();
-    
-    // 恢复信号
-    ui->joint4_slider->blockSignals(false);
-    ui->joint4_spin->blockSignals(false);
+    // 第二俯仰电机，范围：±90度
+    if (!ignore_spin_events_) {
+        // 避免反馈循环
+        ignore_slider_events_ = true;
+        
+        // 更新对应的滑块位置
+        ui->joint4_slider->setValue(static_cast<int>(value));
+        
+        // 计算弧度值（将度数转换为弧度）
+        double radians = value * M_PI / 180.0;
+        
+        // 更新关节状态
+        sensor_msgs::JointState joint_cmd;
+        joint_cmd.header.stamp = ros::Time::now();
+        joint_cmd.name.push_back("arm1_joint4");
+        joint_cmd.position.push_back(radians);
+        joint_command_pub_.publish(joint_cmd);
+        
+        // 记录日志
+        logMessage(QString("设置关节4 (第二俯仰电机) 角度: %1 度").arg(value));
+        
+        // 恢复事件处理
+        ignore_slider_events_ = false;
+    }
 }
 
+// 暂时保留此函数但标记为未实现（关节5/6目前未部署）
 void ArmControlGUI::onJoint6SpinChanged(double value)
 {
-    // 阻止UI自动更新导致回弹
-    ui->joint6_slider->blockSignals(true);
-    ui->joint6_spin->blockSignals(true);
-    
-    // 更新滑块值
-    ui->joint6_slider->setValue(static_cast<int>(value));
-    
-    // 设置关节值
-    std::vector<double> joint_values = current_joint_values_;
-    joint_values[5] = value;
-    
-    // 发送统一的关节控制命令
-    sendJointCommand(joint_values);
-    
-    // 等待命令执行完成
-    QApplication::processEvents();
-    
-    // 恢复信号
-    ui->joint6_slider->blockSignals(false);
-    ui->joint6_spin->blockSignals(false);
+    // 关节5/6未部署
+    if (!ignore_spin_events_) {
+        logMessage(QString("警告：关节5/6未部署，无法设置值"));
+    }
 }
 
 // 末端执行器控制槽实现
@@ -2444,62 +2463,38 @@ void ArmControlGUI::updateGUIJointValues()
 // 添加初始化成员变量的函数
 void ArmControlGUI::initializeMembers()
 {
-    // 初始化DH参数和关节限制
-    setupDHParameters();
-    setupJointLimits();
+    // 初始化标志变量
+    ignore_slider_events_ = false;
+    ignore_spin_events_ = false;
     
-    // 机械臂状态初始化
-    current_joint_values_ = {0.0, 0.0, 0.0, 0.0, M_PI/2, 5.0};
-    target_joint_values_ = {0.0, 0.0, 0.0, 0.0, M_PI/2, 5.0};
+    // 初始化关节值数组（6个关节）
+    current_joint_values_.resize(6, 0.0);
     
-    // 关节限制
-    joint_min_values_ = {-M_PI, 0.0, -M_PI/2, 0.0, M_PI/2, 5.0};
-    joint_max_values_ = {M_PI, 43.0, M_PI/2, M_PI, M_PI/2, 15.0};
+    // 初始化检测结果容器
+    detected_objects_.clear();
     
-    // 末端执行器状态（吸盘）
-    vacuum_on_ = false;
-    vacuum_power_ = 50;
+    // 初始化场景渲染器
+    scene_3d_renderer_ = nullptr;
     
-    // 更新UI中的真空功率滑块初始值
-    if (ui && ui->vacuumPowerSlider) {
-        ui->vacuumPowerSlider->setValue(vacuum_power_);
-        ui->vacuumPowerLabel->setText(QString("%1%").arg(vacuum_power_));
-    }
-    
-    // 控制模式
-    current_control_mode_ = ArmControlMode::JOINT_CONTROL;
-    
-    // 视觉相关
-    visual_servo_active_ = false;
-    selected_object_index_ = -1;
-    
-    // 摄像头错误处理相关初始化
-    stereo_camera_error_count_ = 0;
-    is_camera_available_ = false;  // 初始化为不可用，直到找到可用摄像头
-    available_camera_index_ = 0;   // 默认尝试索引0
-    
-    // 尝试查找可用摄像头
-    if (findAvailableCamera()) {
-        is_camera_available_ = true;
-        logMessage(QString("已找到可用摄像头，索引为: %1").arg(available_camera_index_));
-    } else {
-        logMessage("无可用摄像头，将使用占位图像");
-        // 创建占位图像
-        QTimer::singleShot(1000, this, &ArmControlGUI::createPlaceholderImage);
-    }
-    
-    // 设置摄像头重连定时器
-    camera_reconnect_timer_.setSingleShot(false);  // 循环触发
-    connect(&camera_reconnect_timer_, &QTimer::timeout, this, &ArmControlGUI::attemptCameraReconnect);
-    
-    // 更新定时器
+    // 创建更新定时器
     updateTimer = new QTimer(this);
-    updateTimer->setInterval(500); // 2Hz更新，降低刷新频率，减少刷屏问题
-    connect(updateTimer, &QTimer::timeout, this, &ArmControlGUI::updateUI);
-    updateTimer->start();
+    connect(updateTimer, &QTimer::timeout, this, &ArmControlGUI::updateStatus);
+    updateTimer->start(100); // 10Hz更新
     
-    // 日志消息
-    logMessage("系统初始化完成，使用机械臂末端双目摄像头");
+    // 初始化同步器
+    object_detection_sync_ = nullptr;
+    
+    // 其他变量初始化
+    selected_object_id_ = -1;
+    yolo_enabled_ = false;
+    current_image_ = cv::Mat();
+    last_detection_time_ = ros::Time(0);
+    
+    // 默认DH参数
+    dh_params_.clear();
+    
+    // 默认关节限制
+    joint_limits_.clear();
 }
 
 // 添加设置ROS订阅的函数
@@ -3180,4 +3175,326 @@ void ArmControlGUI::connectSignalSlots()
     updateTimer = new QTimer(this);
     connect(updateTimer, &QTimer::timeout, this, &ArmControlGUI::onUpdateGUI);
     updateTimer->start(100);  // 每100ms更新一次
+}
+
+// 关节状态回调函数，用于更新GUI
+void ArmControlGUI::jointStateCallback(const sensor_msgs::JointState::ConstPtr& msg)
+{
+    // 确保消息中有足够的数据
+    if (msg->position.size() < 4) {
+        return; // 数据不完整，直接返回
+    }
+    
+    // 更新当前关节值
+    for (size_t i = 0; i < msg->position.size() && i < current_joint_values_.size(); i++) {
+        current_joint_values_[i] = msg->position[i];
+    }
+    
+    // 更新GUI（在GUI线程中）
+    QMetaObject::invokeMethod(this, "updateGUIJointValues", Qt::QueuedConnection);
+    
+    // 计算正向运动学，获取末端执行器位置
+    updateEndEffectorPosition();
+}
+
+// 更新GUI中的关节值显示
+void ArmControlGUI::updateGUIJointValues()
+{
+    // 防止更新引起事件循环
+    ignore_slider_events_ = true;
+    ignore_spin_events_ = true;
+    
+    // 更新关节1（第一俯仰电机）
+    double joint1_deg = current_joint_values_[0] * 180.0 / M_PI; // 将弧度转换为度数
+    ui->joint1_slider->setValue(static_cast<int>(joint1_deg));
+    ui->joint1_spin->setValue(joint1_deg);
+    
+    // 更新关节2（直线进给电机）
+    ui->joint2_slider->setValue(static_cast<int>(current_joint_values_[1]));
+    ui->joint2_spin->setValue(current_joint_values_[1]);
+    
+    // 更新关节3（绕轴旋转电机）
+    double joint3_deg = current_joint_values_[2] * 180.0 / M_PI;
+    ui->joint3_slider->setValue(static_cast<int>(joint3_deg));
+    ui->joint3_spin->setValue(joint3_deg);
+    
+    // 更新关节4（第二俯仰电机）
+    double joint4_deg = current_joint_values_[3] * 180.0 / M_PI;
+    ui->joint4_slider->setValue(static_cast<int>(joint4_deg));
+    ui->joint4_spin->setValue(joint4_deg);
+    
+    // 恢复事件处理
+    ignore_slider_events_ = false;
+    ignore_spin_events_ = false;
+}
+
+// 更新末端执行器位置
+void ArmControlGUI::updateEndEffectorPosition()
+{
+    // 调用正向运动学计算末端执行器位置
+    QMatrix4x4 transform = computeForwardKinematics();
+    
+    // 从变换矩阵提取位置
+    QVector3D position(transform(0, 3), transform(1, 3), transform(2, 3));
+    
+    // 更新GUI中的位置显示
+    QMetaObject::invokeMethod(this, "updatePositionDisplay", 
+                             Qt::QueuedConnection,
+                             Q_ARG(double, position.x()),
+                             Q_ARG(double, position.y()),
+                             Q_ARG(double, position.z()));
+}
+
+// 更新位置显示
+void ArmControlGUI::updatePositionDisplay(double x, double y, double z)
+{
+    if (ui->pos_x && ui->pos_y && ui->pos_z) {
+        // 避免触发事件
+        ui->pos_x->blockSignals(true);
+        ui->pos_y->blockSignals(true);
+        ui->pos_z->blockSignals(true);
+        
+        // 更新显示
+        ui->pos_x->setValue(x);
+        ui->pos_y->setValue(y);
+        ui->pos_z->setValue(z);
+        
+        // 恢复信号
+        ui->pos_x->blockSignals(false);
+        ui->pos_y->blockSignals(false);
+        ui->pos_z->blockSignals(false);
+        
+        // 更新状态信息
+        QString statusMsg = QString("末端位置: X=%1cm Y=%2cm Z=%3cm").arg(x, 0, 'f', 2).arg(y, 0, 'f', 2).arg(z, 0, 'f', 2);
+        ui->statusbar->showMessage(statusMsg, 2000);
+    }
+}
+
+// 计算正向运动学
+QMatrix4x4 ArmControlGUI::computeForwardKinematics()
+{
+    // DH参数
+    struct DHParam {
+        double theta; // 关节角（弧度）
+        double d;     // 连杆长度
+        double a;     // 连杆偏移
+        double alpha; // 扭转角（弧度）
+    };
+    
+    // 设置当前4个可用关节的DH参数
+    std::vector<DHParam> dh_params = {
+        // theta, d, a, alpha
+        {current_joint_values_[0], 12.0, 0.0, M_PI/2},    // 关节1 - 第一俯仰电机
+        {M_PI/2, current_joint_values_[1], 0.0, M_PI/2},  // 关节2 - 直线进给电机
+        {current_joint_values_[2], 0.0, 15.0, 0.0},       // 关节3 - 绕轴旋转电机
+        {current_joint_values_[3], 0.0, 10.0, 0.0},       // 关节4 - 第二俯仰电机
+    };
+    
+    // 初始变换矩阵（单位矩阵）
+    QMatrix4x4 result;
+    
+    // 依次应用每个关节的变换
+    for (const auto& dh : dh_params) {
+        // 计算DH变换矩阵
+        QMatrix4x4 transform = computeDHTransform(dh.theta, dh.d, dh.a, dh.alpha);
+        
+        // 累积变换
+        result = result * transform;
+    }
+    
+    return result;
+}
+
+// 计算单个DH变换
+QMatrix4x4 ArmControlGUI::computeDHTransform(double theta, double d, double a, double alpha)
+{
+    QMatrix4x4 transform;
+    
+    double ct = cos(theta);
+    double st = sin(theta);
+    double ca = cos(alpha);
+    double sa = sin(alpha);
+    
+    transform(0, 0) = ct;     transform(0, 1) = -st*ca;  transform(0, 2) = st*sa;   transform(0, 3) = a*ct;
+    transform(1, 0) = st;     transform(1, 1) = ct*ca;   transform(1, 2) = -ct*sa;  transform(1, 3) = a*st;
+    transform(2, 0) = 0;      transform(2, 1) = sa;      transform(2, 2) = ca;      transform(2, 3) = d;
+    transform(3, 0) = 0;      transform(3, 1) = 0;       transform(3, 2) = 0;       transform(3, 3) = 1;
+    
+    return transform;
+}
+
+// 添加定时器更新函数
+void ArmControlGUI::updateStatus()
+{
+    // 检查视觉系统是否在线
+    ros::Time now = ros::Time::now();
+    if (now.toSec() - last_detection_time_.toSec() > 5.0) {
+        // 视觉系统可能离线
+        ui->visionStatusLabel->setText("视觉系统: 离线");
+        ui->visionStatusLabel->setStyleSheet("color: red");
+    } else {
+        // 视觉系统在线
+        ui->visionStatusLabel->setText("视觉系统: 在线");
+        ui->visionStatusLabel->setStyleSheet("color: green");
+    }
+    
+    // 更新其他状态信息
+    // ...
+}
+
+// 立体图像回调函数
+void ArmControlGUI::stereoImageCallback(const sensor_msgs::Image::ConstPtr& msg)
+{
+    try {
+        // 将ROS图像消息转换为OpenCV格式
+        cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
+        
+        // 保存当前图像
+        current_image_ = cv_ptr->image.clone();
+        
+        // 转换为Qt图像格式并显示
+        QImage qimg(current_image_.data, current_image_.cols, current_image_.rows, 
+                   current_image_.step, QImage::Format_RGB888);
+        qimg = qimg.rgbSwapped(); // BGR到RGB转换
+        
+        // 设置图像
+        ui->cameraView->setPixmap(QPixmap::fromImage(qimg).scaled(
+            ui->cameraView->width(), ui->cameraView->height(), 
+            Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    }
+    catch (cv_bridge::Exception& e) {
+        ROS_ERROR("cv_bridge异常: %s", e.what());
+    }
+}
+
+// 物体检测结果回调
+void ArmControlGUI::detectionImageCallback(const sensor_msgs::Image::ConstPtr& msg)
+{
+    try {
+        // 将ROS图像消息转换为OpenCV格式
+        cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
+        
+        // 显示包含检测框的图像
+        QImage qimg(cv_ptr->image.data, cv_ptr->image.cols, cv_ptr->image.rows, 
+                   cv_ptr->image.step, QImage::Format_RGB888);
+        qimg = qimg.rgbSwapped(); // BGR到RGB转换
+        
+        // 设置图像
+        ui->detectionView->setPixmap(QPixmap::fromImage(qimg).scaled(
+            ui->detectionView->width(), ui->detectionView->height(), 
+            Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            
+        // 更新检测时间戳
+        last_detection_time_ = ros::Time::now();
+    }
+    catch (cv_bridge::Exception& e) {
+        ROS_ERROR("cv_bridge异常: %s", e.what());
+    }
+}
+
+// YOLO状态回调
+void ArmControlGUI::yoloStatusCallback(const std_msgs::Bool::ConstPtr& msg)
+{
+    yolo_enabled_ = msg->data;
+    
+    // 更新GUI - 必须在主线程中执行
+    QMetaObject::invokeMethod(this, "updateYoloStatus", 
+                             Qt::QueuedConnection,
+                             Q_ARG(bool, yolo_enabled_));
+}
+
+// 更新YOLO状态UI
+void ArmControlGUI::updateYoloStatus(bool enabled)
+{
+    if (ui->enableYoloCheckBox) {
+        ui->enableYoloCheckBox->blockSignals(true);
+        ui->enableYoloCheckBox->setChecked(enabled);
+        ui->enableYoloCheckBox->blockSignals(false);
+    }
+    
+    // 更新状态标签
+    if (ui->yoloStatusLabel) {
+        if (enabled) {
+            ui->yoloStatusLabel->setText("YOLO检测: 已启用");
+            ui->yoloStatusLabel->setStyleSheet("color: green");
+        } else {
+            ui->yoloStatusLabel->setText("YOLO检测: 已禁用");
+            ui->yoloStatusLabel->setStyleSheet("color: red");
+        }
+    }
+}
+
+// 切换视图模式
+void ArmControlGUI::switchCameraViewMode(int mode)
+{
+    // 确认模式在范围内
+    if (mode < 0 || mode > 2) {
+        logMessage("错误: 无效的视图模式");
+        return;
+    }
+    
+    // 发布视图模式切换消息
+    std_msgs::Int32 mode_msg;
+    mode_msg.data = mode;
+    view_mode_pub_.publish(mode_msg);
+    
+    // 记录日志
+    QString mode_str;
+    switch (mode) {
+        case 0: mode_str = "左图模式"; break;
+        case 1: mode_str = "右图模式"; break;
+        case 2: mode_str = "深度图模式"; break;
+    }
+    
+    logMessage(QString("切换到%1").arg(mode_str));
+}
+
+// 添加处理对象检测的函数
+void ArmControlGUI::processDetectedObjects(const std::vector<DetectedObject>& objects)
+{
+    // 清空现有检测表
+    ui->detectionsTable->setRowCount(0);
+    
+    // 保存检测结果
+    detected_objects_ = objects;
+    
+    // 填充表格
+    for (size_t i = 0; i < objects.size(); i++) {
+        const auto& obj = objects[i];
+        
+        // 添加新行
+        int row = ui->detectionsTable->rowCount();
+        ui->detectionsTable->insertRow(row);
+        
+        // 设置表格项
+        ui->detectionsTable->setItem(row, 0, new QTableWidgetItem(QString::number(obj.id)));
+        ui->detectionsTable->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(obj.label)));
+        ui->detectionsTable->setItem(row, 2, new QTableWidgetItem(QString::number(obj.confidence, 'f', 2)));
+        ui->detectionsTable->setItem(row, 3, new QTableWidgetItem(QString::number(obj.position.x(), 'f', 2)));
+        ui->detectionsTable->setItem(row, 4, new QTableWidgetItem(QString::number(obj.position.y(), 'f', 2)));
+        ui->detectionsTable->setItem(row, 5, new QTableWidgetItem(QString::number(obj.position.z(), 'f', 2)));
+    }
+    
+    // 自动调整列宽
+    ui->detectionsTable->resizeColumnsToContents();
+    
+    // 更新3D场景
+    if (scene_3d_renderer_) {
+        scene_3d_renderer_->updateDetectedObjects(detected_objects_);
+    }
+}
+
+// 记录消息到日志区
+void ArmControlGUI::logMessage(const QString& message)
+{
+    if (ui->logTextEdit) {
+        // 获取当前时间
+        QString timestamp = QDateTime::currentDateTime().toString("hh:mm:ss");
+        
+        // 添加带时间戳的消息
+        ui->logTextEdit->append(QString("[%1] %2").arg(timestamp).arg(message));
+        
+        // 滚动到最新内容
+        ui->logTextEdit->verticalScrollBar()->setValue(ui->logTextEdit->verticalScrollBar()->maximum());
+    }
 }

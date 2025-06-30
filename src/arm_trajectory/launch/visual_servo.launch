@@ -5,6 +5,7 @@
     <arg name="yolo_enabled" default="true" doc="是否启用YOLO目标检测" />
     <arg name="yolo_model_path" default="" doc="自定义YOLOv8模型路径" />
     <arg name="yolo_confidence" default="0.5" doc="YOLO检测置信度阈值" />
+    <arg name="use_depth" default="true" doc="是否启用深度图计算" />
     
     <!-- 设置日志级别 -->
     <env name="ROSCONSOLE_CONFIG_FILE" 
@@ -39,6 +40,7 @@
     <node name="stereo_camera_node" pkg="arm_trajectory" type="stereo_camera_node.py" output="screen">
         <param name="camera_index" value="$(arg camera_index)" />
         <param name="frame_rate" value="30" />
+        <param name="use_depth" value="$(arg use_depth)" />
         <param name="stereo_method" value="anaglyph" />
     </node>
     

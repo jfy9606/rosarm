@@ -12,6 +12,7 @@ from std_msgs.msg import Int32  # 添加用于接收视图模式切换的消息�
 try:
     import cv2.ximgproc
     HAVE_XIMGPROC = True
+    rospy.loginfo("cv2.ximgproc available, depth processing enabled")
 except ImportError:
     HAVE_XIMGPROC = False
     rospy.logwarn("cv2.ximgproc not available, advanced depth processing will be disabled")
@@ -25,7 +26,13 @@ class StereoCameraNode:
         # Get parameters
         self.camera_index = int(rospy.get_param('~camera_index', 0))
         self.frame_rate = int(rospy.get_param('~frame_rate', 30))
-        self.use_depth = rospy.get_param('~use_depth', False) and HAVE_XIMGPROC  # 是否生成深度图
+        self.use_depth = rospy.get_param('~use_depth', True)  # 默认启用深度图
+        
+        # 如果cv2.ximgproc不可用，则禁用深度图
+        if not HAVE_XIMGPROC and self.use_depth:
+            rospy.logwarn("Depth processing requested but cv2.ximgproc is not available. Install opencv-contrib-python package.")
+            rospy.logwarn("Depth map generation will be disabled.")
+            self.use_depth = False
         
         # 视图模式: 0=左图, 1=右图, 2=深度图
         self.view_mode = int(rospy.get_param('~view_mode', 0))
@@ -37,7 +44,13 @@ class StereoCameraNode:
         self.left_pub = rospy.Publisher('/stereo_camera/left/image_raw', Image, queue_size=1)
         self.right_pub = rospy.Publisher('/stereo_camera/right/image_raw', Image, queue_size=1)
         self.current_view_pub = rospy.Publisher('/stereo_camera/current_view', Image, queue_size=1)
-        self.depth_pub = rospy.Publisher('/stereo_camera/depth/image_raw', Image, queue_size=1) if self.use_depth else None
+        
+        # 只有在启用深度图且ximgproc可用时才创建深度图发布器
+        if self.use_depth and HAVE_XIMGPROC:
+            self.depth_pub = rospy.Publisher('/stereo_camera/depth/image_raw', Image, queue_size=1)
+        else:
+            self.depth_pub = None
+            
         self.left_info_pub = rospy.Publisher('/stereo_camera/left/camera_info', CameraInfo, queue_size=1)
         self.right_info_pub = rospy.Publisher('/stereo_camera/right/camera_info', CameraInfo, queue_size=1)
         
@@ -50,6 +63,9 @@ class StereoCameraNode:
         self.camera_lock = threading.Lock()
         
         # Initialize stereo processor
+        self.stereo_processor = None
+        self.stereo_processor_right = None
+        self.wls_filter = None
         self.init_stereo_processor()
         
         # Try to open the camera
@@ -75,7 +91,7 @@ class StereoCameraNode:
                 self.view_mode = new_mode
                 
                 # 如果深度模式不可用，切换到左图模式
-                if self.view_mode == 2 and not self.use_depth:
+                if self.view_mode == 2 and (not self.use_depth or not HAVE_XIMGPROC):
                     rospy.logwarn("深度图不可用，切换到左图模式")
                     self.view_mode = 0
         else:
@@ -83,50 +99,57 @@ class StereoCameraNode:
     
     def init_stereo_processor(self):
         """Initialize stereo vision processor based on selected method"""
-        self.stereo_processor = None
-        self.stereo_processor_right = None
-        self.wls_filter = None
-        
-        if self.use_depth and HAVE_XIMGPROC:
-            try:
-                # 创建视差计算器 - SGBM算法
-                self.stereo_processor = cv2.StereoSGBM.create(
-                    minDisparity=0,
-                    numDisparities=128,  # 必须是16的倍数
-                    blockSize=5,
-                    P1=8 * 3 * 5 ** 2,  # 控制视差平滑度的参数
-                    P2=32 * 3 * 5 ** 2,  # 控制视差平滑度的参数
-                    disp12MaxDiff=1,
-                    uniquenessRatio=15,
-                    speckleWindowSize=100,
-                    speckleRange=1,
-                    preFilterCap=63,
-                    mode=1  # 使用cv2.STEREO_SGBM_MODE_SGBM_3WAY的值
-                )
-                
-                # 用于视差后处理
-                self.wls_filter = cv2.ximgproc.createDisparityWLSFilter(
-                    matcher_left=self.stereo_processor
-                )
-                self.stereo_processor_right = cv2.StereoSGBM.create(
-                    minDisparity=-128,
-                    numDisparities=128, 
-                    blockSize=5,
-                    P1=8 * 3 * 5 ** 2,
-                    P2=32 * 3 * 5 ** 2,
-                    disp12MaxDiff=1,
-                    uniquenessRatio=15,
-                    speckleWindowSize=100,
-                    speckleRange=1,
-                    preFilterCap=63,
-                    mode=1  # 使用cv2.STEREO_SGBM_MODE_SGBM_3WAY的值
-                )
-                self.wls_filter.setLambda(8000)
-                self.wls_filter.setSigmaColor(1.5)
-                
-            except Exception as e:
-                rospy.logerr(f"Error initializing stereo processors: {e}")
-                self.use_depth = False
+        # 只在启用深度图且ximgproc可用时初始化
+        if not self.use_depth or not HAVE_XIMGPROC:
+            rospy.loginfo("Depth processing is disabled")
+            return
+            
+        try:
+            rospy.loginfo("Initializing stereo processors for depth calculation")
+            
+            # 创建视差计算器 - SGBM算法
+            self.stereo_processor = cv2.StereoSGBM.create(
+                minDisparity=0,
+                numDisparities=128,  # 必须是16的倍数
+                blockSize=5,
+                P1=8 * 3 * 5 ** 2,  # 控制视差平滑度的参数
+                P2=32 * 3 * 5 ** 2,  # 控制视差平滑度的参数
+                disp12MaxDiff=1,
+                uniquenessRatio=15,
+                speckleWindowSize=100,
+                speckleRange=1,
+                preFilterCap=63,
+                mode=1  # 使用cv2.STEREO_SGBM_MODE_SGBM_3WAY的值
+            )
+            
+            # 用于视差后处理
+            self.wls_filter = cv2.ximgproc.createDisparityWLSFilter(
+                matcher_left=self.stereo_processor
+            )
+            self.stereo_processor_right = cv2.StereoSGBM.create(
+                minDisparity=-128,
+                numDisparities=128, 
+                blockSize=5,
+                P1=8 * 3 * 5 ** 2,
+                P2=32 * 3 * 5 ** 2,
+                disp12MaxDiff=1,
+                uniquenessRatio=15,
+                speckleWindowSize=100,
+                speckleRange=1,
+                preFilterCap=63,
+                mode=1  # 使用cv2.STEREO_SGBM_MODE_SGBM_3WAY的值
+            )
+            self.wls_filter.setLambda(8000)
+            self.wls_filter.setSigmaColor(1.5)
+            
+            rospy.loginfo("Stereo processors initialized successfully")
+            
+        except Exception as e:
+            rospy.logerr(f"Error initializing stereo processors: {e}")
+            self.use_depth = False
+            self.stereo_processor = None
+            self.stereo_processor_right = None
+            self.wls_filter = None
             
     def open_camera(self):
         """Open the camera and set up parameters"""
@@ -222,8 +245,6 @@ class StereoCameraNode:
             self.is_running = False
             return False
     
-
-    
     def get_current_view(self, left_image, right_image):
         """根据当前视图模式返回相应的图像"""
         if self.view_mode == 0:
@@ -232,20 +253,35 @@ class StereoCameraNode:
         elif self.view_mode == 1:
             # 右图模式
             return right_image
-        elif self.view_mode == 2 and self.use_depth:
+        elif self.view_mode == 2 and self.use_depth and HAVE_XIMGPROC:
             # 深度图模式
-            return self.compute_depth_map(left_image, right_image)
+            depth_map = self.compute_depth_map(left_image, right_image)
+            if depth_map is not None:
+                return depth_map
+            else:
+                # 如果深度图计算失败，返回左图
+                rospy.logwarn("深度图计算失败，返回左图")
+                return left_image
         else:
             # 默认返回左图
             return left_image
     
     def compute_depth_map(self, left_image, right_image):
         """Compute depth map from stereo images using semi-global matching"""
+        # 检查是否可以进行深度计算
         if not self.use_depth or not HAVE_XIMGPROC or self.stereo_processor is None:
-            # 返回一个简单的彩色图像而不是深度图
-            return np.zeros_like(left_image)
+            return None
             
         try:
+            # 确保图像是有效的
+            if left_image is None or right_image is None:
+                rospy.logwarn("Invalid images for depth computation")
+                return None
+                
+            if left_image.size == 0 or right_image.size == 0:
+                rospy.logwarn("Empty images for depth computation")
+                return None
+                
             # 确保图像是灰度格式
             if len(left_image.shape) == 3:
                 left_gray = cv2.cvtColor(left_image, cv2.COLOR_BGR2GRAY)
@@ -256,6 +292,16 @@ class StereoCameraNode:
                 right_gray = cv2.cvtColor(right_image, cv2.COLOR_BGR2GRAY)
             else:
                 right_gray = right_image
+            
+            # 检查灰度图是否有效
+            if left_gray.size == 0 or right_gray.size == 0:
+                rospy.logwarn("Empty grayscale images")
+                return None
+                
+            # 检查灰度图尺寸是否匹配
+            if left_gray.shape != right_gray.shape:
+                rospy.logwarn(f"Image size mismatch: left={left_gray.shape}, right={right_gray.shape}")
+                return None
             
             # 计算左右视差图
             left_disp = self.stereo_processor.compute(left_gray, right_gray).astype(np.float32) / 16.0
@@ -274,9 +320,7 @@ class StereoCameraNode:
             
         except Exception as e:
             rospy.logerr(f"Error in depth map computation: {e}")
-            return np.zeros_like(left_image)
-    
-
+            return None
     
     def publish_loop(self):
         """Main loop for capturing and publishing images"""
@@ -412,10 +456,11 @@ class StereoCameraNode:
                 # Compute and publish depth map if enabled
                 if self.use_depth and self.depth_pub is not None:
                     depth_map = self.compute_depth_map(left_image, right_image)
-                    depth_msg = self.bridge.cv2_to_imgmsg(depth_map, "bgr8")
-                    depth_msg.header.stamp = now
-                    depth_msg.header.frame_id = "stereo_depth"
-                    self.depth_pub.publish(depth_msg)
+                    if depth_map is not None:
+                        depth_msg = self.bridge.cv2_to_imgmsg(depth_map, "bgr8")
+                        depth_msg.header.stamp = now
+                        depth_msg.header.frame_id = "stereo_depth"
+                        self.depth_pub.publish(depth_msg)
                 
                 # Publish camera info
                 camera_info_left.header.stamp = now

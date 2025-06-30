@@ -43,7 +43,7 @@
            <item>
             <widget class="QLabel" name="label_joint1">
              <property name="text">
-              <string>底座旋转 (θ1)：±180°</string>
+              <string>关节1 - 第一俯仰电机 (θ1)：±90°</string>
              </property>
             </widget>
            </item>
@@ -52,10 +52,10 @@
              <item>
               <widget class="QSlider" name="joint1_slider">
                <property name="minimum">
-                <number>-180</number>
+                <number>-90</number>
                </property>
                <property name="maximum">
-                <number>180</number>
+                <number>90</number>
                </property>
                <property name="orientation">
                 <enum>Qt::Horizontal</enum>
@@ -68,10 +68,10 @@
              <item>
               <widget class="QDoubleSpinBox" name="joint1_spin">
                <property name="minimum">
-                <double>-180.000000000000000</double>
+                <double>-90.000000000000000</double>
                </property>
                <property name="maximum">
-                <double>180.000000000000000</double>
+                <double>90.000000000000000</double>
                </property>
               </widget>
              </item>
@@ -80,7 +80,7 @@
            <item>
             <widget class="QLabel" name="label_joint2">
              <property name="text">
-              <string>伸缩关节 (d2)：0-43cm</string>
+              <string>关节2 - 直线进给电机 (d2)：0-43cm</string>
              </property>
             </widget>
            </item>
@@ -117,7 +117,7 @@
            <item>
             <widget class="QLabel" name="label_joint3">
              <property name="text">
-              <string>肩部关节 (θ3)：±90°</string>
+              <string>关节3 - 绕轴旋转电机 (θ3)：±180°</string>
              </property>
             </widget>
            </item>
@@ -125,6 +125,43 @@
             <layout class="QHBoxLayout" name="horizontalLayout_4">
              <item>
               <widget class="QSlider" name="joint3_slider">
+               <property name="minimum">
+                <number>-180</number>
+               </property>
+               <property name="maximum">
+                <number>180</number>
+               </property>
+               <property name="orientation">
+                <enum>Qt::Horizontal</enum>
+               </property>
+               <property name="tickPosition">
+                <enum>QSlider::TicksBelow</enum>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QDoubleSpinBox" name="joint3_spin">
+               <property name="minimum">
+                <double>-180.000000000000000</double>
+               </property>
+               <property name="maximum">
+                <double>180.000000000000000</double>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <widget class="QLabel" name="label_joint4">
+             <property name="text">
+              <string>关节4 - 第二俯仰电机 (θ4)：±90°</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <layout class="QHBoxLayout" name="horizontalLayout_5">
+             <item>
+              <widget class="QSlider" name="joint4_slider">
                <property name="minimum">
                 <number>-90</number>
                </property>
@@ -140,7 +177,7 @@
               </widget>
              </item>
              <item>
-              <widget class="QDoubleSpinBox" name="joint3_spin">
+              <widget class="QDoubleSpinBox" name="joint4_spin">
                <property name="minimum">
                 <double>-90.000000000000000</double>
                </property>
@@ -152,46 +189,9 @@
             </layout>
            </item>
            <item>
-            <widget class="QLabel" name="label_joint4">
-             <property name="text">
-              <string>肘部关节 (θ4)：0-180°</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <layout class="QHBoxLayout" name="horizontalLayout_5">
-             <item>
-              <widget class="QSlider" name="joint4_slider">
-               <property name="minimum">
-                <number>0</number>
-               </property>
-               <property name="maximum">
-                <number>180</number>
-               </property>
-               <property name="orientation">
-                <enum>Qt::Horizontal</enum>
-               </property>
-               <property name="tickPosition">
-                <enum>QSlider::TicksBelow</enum>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QDoubleSpinBox" name="joint4_spin">
-               <property name="minimum">
-                <double>0.000000000000000</double>
-               </property>
-               <property name="maximum">
-                <double>180.000000000000000</double>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </item>
-           <item>
             <widget class="QLabel" name="label_joint6">
              <property name="text">
-              <string>末端伸缩 (d6)：5-15cm</string>
+              <string>关节5/6 - 未部署 (暂不可用)</string>
              </property>
             </widget>
            </item>
