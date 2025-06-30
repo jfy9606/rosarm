@@ -23,7 +23,6 @@ find_package(catkin REQUIRED COMPONENTS
   moveit_msgs
   cv_bridge
   image_transport
-  liancheng_socket
   servo_wrist
 )
 
@@ -45,7 +44,6 @@ catkin_package(
     moveit_msgs
     cv_bridge
     image_transport
-    liancheng_socket
     servo_wrist
   DEPENDS Qt5Core Qt5Gui Qt5Widgets Qt5OpenGL OPENGL
 )
@@ -103,8 +101,14 @@ target_link_libraries(arm_gui_node
   ${catkin_LIBRARIES}
 )
 
+# 关节状态发布节点
+add_executable(joint_state_publisher_node src/joint_state_publisher_node.cpp)
+target_link_libraries(joint_state_publisher_node
+  ${catkin_LIBRARIES}
+)
+
 # 安装目标
-install(TARGETS ${PROJECT_NAME} arm_gui_node
+install(TARGETS ${PROJECT_NAME} arm_gui_node joint_state_publisher_node
   ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}

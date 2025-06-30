@@ -309,9 +309,6 @@ void ArmControlGUI::initializeJointControlConnections()
             // 发送停止命令
             logMessage("紧急停止");
             
-            // 停止所有电机
-            sendMotorOrder(0xFF, 0x09, 0, 0, 0, false, 0, 0);
-            
             // 通过向ROS发布停止命令来停止机械臂
             std_msgs::String stop_cmd;
             stop_cmd.data = "stop";
@@ -319,45 +316,18 @@ void ArmControlGUI::initializeJointControlConnections()
         });
     }
     
-    // 添加夹爪控制按钮连接
-    QPushButton* openGripperBtn = ui->centralwidget->findChild<QPushButton*>("openGripperBtn");
-    if (openGripperBtn) {
-        connect(openGripperBtn, &QPushButton::clicked, this, [this]() {
-            logMessage("打开夹爪");
-            sendGripperCommand(true);
-            gripper_open_ = true;
-            updateUI();
-        });
-    }
-    
-    QPushButton* closeGripperBtn = ui->centralwidget->findChild<QPushButton*>("closeGripperBtn");
-    if (closeGripperBtn) {
-        connect(closeGripperBtn, &QPushButton::clicked, this, [this]() {
-            logMessage("关闭夹爪");
-            sendGripperCommand(false);
-            gripper_open_ = false;
-            updateUI();
-        });
-    }
 }
 
 void ArmControlGUI::initializeROS()
 {
-    // 设置发布器
+    // 设置发布器 - 关节控制
     joint_command_pub_ = nh_.advertise<sensor_msgs::JointState>("/arm1/joint_command", 10);
-    gripper_cmd_pub_ = nh_.advertise<std_msgs::Bool>("/arm1/gripper_command", 10);
     vacuum_cmd_pub_ = nh_.advertise<std_msgs::Bool>("/arm1/vacuum_command", 10);
     vacuum_power_pub_ = nh_.advertise<std_msgs::Float64>("/arm1/vacuum_power", 10);
     arm_command_pub_ = nh_.advertise<std_msgs::String>("/arm_commands", 10);
     
-    // 设置电机控制发布器
-    motor_order_pub_ = nh_.advertise<liancheng_socket::MotorOrder>("Controller_motor_order", 10);
-    
     // 设置继电器控制发布器
     relay_order_pub_ = nh_.advertise<std_msgs::String>("RelayOrder", 10);
-    
-    // 设置舵机控制发布器
-    servo_control_pub_ = nh_.advertise<servo_wrist::SerControl>("servo_control_topic", 10);
     
     // 设置摄像头视图模式切换发布器
     camera_view_mode_pub_ = nh_.advertise<std_msgs::Int32>("/stereo_camera/view_mode", 10);
@@ -741,21 +711,15 @@ void ArmControlGUI::onJoint1SliderChanged(int value)
     // 更新UI值
     ui->joint1_spin->setValue(value);
     
-    // 存储当前值
-    current_joint_values_[0] = value * M_PI / 180.0; // 转换为弧度
+    // 设置关节值
+    std::vector<double> joint_values = current_joint_values_;
+    joint_values[0] = value * M_PI / 180.0; // 转换为弧度
     
-    // 使用更大的映射范围控制底座旋转电机
-    // 底座旋转电机控制 - 映射到800-2200范围以提供更大的有效控制区间
-    int motor_pos = map(value, -180, 180, 800, 2200);
-    
-    // 发送电机控制命令，设置速度为100（非零速度）
-    sendMotorOrder(1, 11, 100, 0, 0, true, motor_pos, 30);
+    // 发送统一的关节控制命令
+    sendJointCommand(joint_values);
     
     // 等待命令执行完成
     QApplication::processEvents();
-    
-    // 记录日志
-    logMessage(QString("关节1(底座)调整到: %1度，电机位置:%2").arg(value).arg(motor_pos));
     
     // 恢复信号
     ui->joint1_slider->blockSignals(false);
@@ -771,20 +735,15 @@ void ArmControlGUI::onJoint2SliderChanged(int value)
     // 更新UI值
     ui->joint2_spin->setValue(value);
     
-    // 存储当前值
-    current_joint_values_[1] = value;
+    // 设置关节值
+    std::vector<double> joint_values = current_joint_values_;
+    joint_values[1] = value;
     
-    // 关节2电机控制 - 映射到800-2200范围以提供更大的有效控制区间
-    int motor_pos = map(value, 0, 50, 800, 2200);
-    
-    // 发送电机控制命令，设置速度为100
-    sendMotorOrder(1, 12, 100, 0, 0, true, motor_pos, 30);
+    // 发送统一的关节控制命令
+    sendJointCommand(joint_values);
     
     // 等待命令执行完成
     QApplication::processEvents();
-    
-    // 记录日志
-    logMessage(QString("关节2(伸缩)调整到: %1单位，电机位置:%2").arg(value).arg(motor_pos));
     
     // 恢复信号
     ui->joint2_slider->blockSignals(false);
@@ -800,26 +759,15 @@ void ArmControlGUI::onJoint3SliderChanged(int value)
     // 更新UI值
     ui->joint3_spin->setValue(value);
     
-    // 存储当前值
-    current_joint_values_[2] = value * M_PI / 180.0; // 转换为弧度
+    // 设置关节值
+    std::vector<double> joint_values = current_joint_values_;
+    joint_values[2] = value * M_PI / 180.0; // 转换为弧度
     
-    // 肩部关节电机控制 - 映射到800-2200范围以提供更大的有效控制区间
-    int motor_pos = map(value, -90, 90, 800, 2200);
+    // 发送统一的关节控制命令
+    sendJointCommand(joint_values);
     
-    // 使用示例动作中的电机控制序列，先准备电机，设置速度为200
-    sendMotorOrder(2, 100, 200, 0, 0, false, motor_pos, 10);
+    // 等待命令执行完成
     QApplication::processEvents();
-    
-    // 设置位置模式，保持速度为200
-    sendMotorOrder(2, 0, 200, 0, 0, true, motor_pos, 10);
-    QApplication::processEvents();
-    
-    // 执行移动，保持速度为200
-    sendMotorOrder(2, 99, 200, 0, 0, false, motor_pos, 10);
-    QApplication::processEvents();
-    
-    // 记录日志
-    logMessage(QString("关节3(肩部)调整到: %1度，电机位置:%2").arg(value).arg(motor_pos));
     
     // 恢复信号
     ui->joint3_slider->blockSignals(false);
@@ -835,18 +783,15 @@ void ArmControlGUI::onJoint4SliderChanged(int value)
     // 更新UI值
     ui->joint4_spin->setValue(value);
     
-    // 存储当前值
-    current_joint_values_[3] = value * M_PI / 180.0; // 转换为弧度
+    // 设置关节值
+    std::vector<double> joint_values = current_joint_values_;
+    joint_values[3] = value * M_PI / 180.0; // 转换为弧度
     
-    // 肘部关节电机控制 - 映射到800-2200范围以提供更大的有效控制区间
-    int motor_pos = map(value, 0, 180, 800, 2200);
+    // 发送统一的关节控制命令
+    sendJointCommand(joint_values);
     
-    // 使用示例动作中的夹持电机控制方式，设置速度为100
-    sendMotorOrder(1, 13, 100, 0, 0, true, motor_pos, 30);
+    // 等待命令执行完成
     QApplication::processEvents();
-    
-    // 记录日志
-    logMessage(QString("关节4(肘部)调整到: %1度，电机位置:%2").arg(value).arg(motor_pos));
     
     // 恢复信号
     ui->joint4_slider->blockSignals(false);
@@ -862,18 +807,15 @@ void ArmControlGUI::onJoint6SliderChanged(int value)
     // 更新UI值
     ui->joint6_spin->setValue(value);
     
-    // 存储当前值
-    current_joint_values_[5] = value;
+    // 设置关节值
+    std::vector<double> joint_values = current_joint_values_;
+    joint_values[5] = value;
     
-    // 末端伸缩电机控制 - 映射到800-2200范围以提供更大的有效控制区间
-    int motor_pos = map(value, 5, 15, 800, 2200);
+    // 发送统一的关节控制命令
+    sendJointCommand(joint_values);
     
-    // 发送电机控制命令，设置速度为100
-    sendMotorOrder(1, 14, 100, 0, 0, true, motor_pos, 30);
+    // 等待命令执行完成
     QApplication::processEvents();
-    
-    // 记录日志
-    logMessage(QString("关节6(末端)调整到: %1单位，电机位置:%2").arg(value).arg(motor_pos));
     
     // 恢复信号
     ui->joint6_slider->blockSignals(false);
@@ -889,18 +831,15 @@ void ArmControlGUI::onJoint1SpinChanged(double value)
     // 更新滑块值
     ui->joint1_slider->setValue(static_cast<int>(value));
     
-    // 存储当前值
-    current_joint_values_[0] = value * M_PI / 180.0; // 转换为弧度
+    // 设置关节值
+    std::vector<double> joint_values = current_joint_values_;
+    joint_values[0] = value * M_PI / 180.0; // 转换为弧度
     
-    // 底座旋转电机控制 - 映射到800-2200范围以提供更大的有效控制区间
-    int motor_pos = map(static_cast<int>(value), -180, 180, 800, 2200);
+    // 发送统一的关节控制命令
+    sendJointCommand(joint_values);
     
-    // 发送电机控制命令，设置速度为100
-    sendMotorOrder(1, 11, 100, 0, 0, true, motor_pos, 30);
+    // 等待命令执行完成
     QApplication::processEvents();
-    
-    // 记录日志
-    logMessage(QString("关节1(底座)调整到: %1度，电机位置:%2").arg(value).arg(motor_pos));
     
     // 恢复信号
     ui->joint1_slider->blockSignals(false);
@@ -916,18 +855,15 @@ void ArmControlGUI::onJoint2SpinChanged(double value)
     // 更新滑块值
     ui->joint2_slider->setValue(static_cast<int>(value));
     
-    // 存储当前值
-    current_joint_values_[1] = value;
+    // 设置关节值
+    std::vector<double> joint_values = current_joint_values_;
+    joint_values[1] = value;
     
-    // 关节2电机控制 - 映射到800-2200范围以提供更大的有效控制区间
-    int motor_pos = map(static_cast<int>(value), 0, 50, 800, 2200);
+    // 发送统一的关节控制命令
+    sendJointCommand(joint_values);
     
-    // 发送电机控制命令，设置速度为100
-    sendMotorOrder(1, 12, 100, 0, 0, true, motor_pos, 30);
+    // 等待命令执行完成
     QApplication::processEvents();
-    
-    // 记录日志
-    logMessage(QString("关节2(伸缩)调整到: %1单位，电机位置:%2").arg(value).arg(motor_pos));
     
     // 恢复信号
     ui->joint2_slider->blockSignals(false);
@@ -943,24 +879,15 @@ void ArmControlGUI::onJoint3SpinChanged(double value)
     // 更新滑块值
     ui->joint3_slider->setValue(static_cast<int>(value));
     
-    // 存储当前值
-    current_joint_values_[2] = value * M_PI / 180.0; // 转换为弧度
+    // 设置关节值
+    std::vector<double> joint_values = current_joint_values_;
+    joint_values[2] = value * M_PI / 180.0; // 转换为弧度
     
-    // 肩部关节电机控制 - 映射到800-2200范围以提供更大的有效控制区间
-    int motor_pos = map(static_cast<int>(value), -90, 90, 800, 2200);
+    // 发送统一的关节控制命令
+    sendJointCommand(joint_values);
     
-    // 使用示例动作中的电机控制序列，设置速度为200
-    sendMotorOrder(2, 100, 200, 0, 0, false, motor_pos, 10);
+    // 等待命令执行完成
     QApplication::processEvents();
-    
-    sendMotorOrder(2, 0, 200, 0, 0, true, motor_pos, 10);
-    QApplication::processEvents();
-    
-    sendMotorOrder(2, 99, 200, 0, 0, false, motor_pos, 10);
-    QApplication::processEvents();
-    
-    // 记录日志
-    logMessage(QString("关节3(肩部)调整到: %1度，电机位置:%2").arg(value).arg(motor_pos));
     
     // 恢复信号
     ui->joint3_slider->blockSignals(false);
@@ -976,18 +903,15 @@ void ArmControlGUI::onJoint4SpinChanged(double value)
     // 更新滑块值
     ui->joint4_slider->setValue(static_cast<int>(value));
     
-    // 存储当前值
-    current_joint_values_[3] = value * M_PI / 180.0; // 转换为弧度
+    // 设置关节值
+    std::vector<double> joint_values = current_joint_values_;
+    joint_values[3] = value * M_PI / 180.0; // 转换为弧度
     
-    // 肘部关节电机控制 - 映射到800-2200范围以提供更大的有效控制区间
-    int motor_pos = map(static_cast<int>(value), 0, 180, 800, 2200);
+    // 发送统一的关节控制命令
+    sendJointCommand(joint_values);
     
-    // 使用示例动作中的夹持电机控制方式
-    sendMotorOrder(1, 13, 100, 0, 0, true, motor_pos, 30);
+    // 等待命令执行完成
     QApplication::processEvents();
-    
-    // 记录日志
-    logMessage(QString("关节4(肘部)调整到: %1度，电机位置:%2").arg(value).arg(motor_pos));
     
     // 恢复信号
     ui->joint4_slider->blockSignals(false);
@@ -1003,18 +927,15 @@ void ArmControlGUI::onJoint6SpinChanged(double value)
     // 更新滑块值
     ui->joint6_slider->setValue(static_cast<int>(value));
     
-    // 存储当前值
-    current_joint_values_[5] = value;
+    // 设置关节值
+    std::vector<double> joint_values = current_joint_values_;
+    joint_values[5] = value;
     
-    // 末端伸缩电机控制 - 映射到800-2200范围以提供更大的有效控制区间
-    int motor_pos = map(static_cast<int>(value), 5, 15, 800, 2200);
+    // 发送统一的关节控制命令
+    sendJointCommand(joint_values);
     
-    // 发送电机控制命令
-    sendMotorOrder(1, 14, 100, 0, 0, true, motor_pos, 30);
+    // 等待命令执行完成
     QApplication::processEvents();
-    
-    // 记录日志
-    logMessage(QString("关节6(末端)调整到: %1单位，电机位置:%2").arg(value).arg(motor_pos));
     
     // 恢复信号
     ui->joint6_slider->blockSignals(false);
@@ -1037,30 +958,20 @@ void ArmControlGUI::onMoveToPositionClicked()
     // 记录操作
     logMessage(QString("移动到坐标: (%1, %2, %3)").arg(x).arg(y).arg(z));
     
-    // 将XYZ值映射到电机位置范围(1000-2000)
-    int motor_x = map(static_cast<int>(x), -50, 50, 1000, 2000); // X对应底座旋转
-    int motor_z = map(static_cast<int>(z), 0, 50, 1000, 2000);   // Z对应竖直伸缩
-    int motor_y = map(static_cast<int>(y), 0, 50, 1000, 2000);   // Y对应前后伸缩
+    // 创建目标位姿
+    geometry_msgs::Pose target_pose;
+    target_pose.position.x = x / 100.0; // 转换为米
+    target_pose.position.y = y / 100.0;
+    target_pose.position.z = z / 100.0;
+    target_pose.orientation.w = 1.0; // 简单的默认朝向
     
-    // 先控制底座旋转(X轴映射)
-    sendMotorOrder(1, 11, 0, 0, 0, true, motor_x, 30);
-    logMessage(QString("底座旋转电机位置: %1").arg(motor_x));
-    QApplication::processEvents();
+    // 使用逆运动学计算对应的关节值
+    std::vector<double> joint_values = poseToJoints(target_pose);
     
-    // 控制Z轴高度(肩部电机)
-    sendMotorOrder(2, 100, 100, 0, 0, false, motor_z, 10);
-    QApplication::processEvents();
+    // 发送关节控制命令
+    sendJointCommand(joint_values);
     
-    sendMotorOrder(2, 0, 100, 0, 0, true, motor_z, 10);
-    QApplication::processEvents();
-    
-    sendMotorOrder(2, 99, 100, 0, 0, false, motor_z, 10);
-    logMessage(QString("竖直伸缩电机位置: %1").arg(motor_z));
-    QApplication::processEvents();
-    
-    // 控制Y轴前后伸缩
-    sendMotorOrder(1, 12, 0, 0, 0, true, motor_y, 30);
-    logMessage(QString("前后伸缩电机位置: %1").arg(motor_y));
+    // 等待命令执行完成
     QApplication::processEvents();
     
     // 更新当前末端位置
@@ -1072,21 +983,13 @@ void ArmControlGUI::onHomeButtonClicked()
 {
     logMessage("移动到初始位置");
     
-    // 参照示例动作实现，使用进给电机控制回到初始位置
-    // 执行示例动作中的进给电机归零序列
-    sendMotorOrder(2, 100, 200, 0, 0, false, 2000, 10);
-    QApplication::processEvents();
-    ros::Duration(0.5).sleep();
+    // 设置初始位置的关节值
+    std::vector<double> home_position = {0.0, 0.0, 0.0, 0.0, M_PI/2.0, 5.0};
     
-    sendMotorOrder(2, 0, 200, 0, 0, true, 300, 10);
-    QApplication::processEvents();
-    ros::Duration(0.5).sleep();
+    // 发送关节控制命令
+    sendJointCommand(home_position);
     
-    sendMotorOrder(2, 99, 200, 0, 0, false, 2000, 10);
-    QApplication::processEvents();
-    ros::Duration(1.0).sleep();
-    
-    sendMotorOrder(2, 100, 100, 0, 0, false, 2000, 10);
+    // 等待命令执行完成
     QApplication::processEvents();
     
     // 同时发送标准的回到初始位置命令以保持兼容性
@@ -1617,6 +1520,9 @@ void ArmControlGUI::sendJointCommand(const std::vector<double>& joint_values)
     // 发布关节命令
     joint_command_pub_.publish(joint_cmd);
     
+    // 存储当前关节值
+    current_joint_values_ = joint_values;
+    
     // 计算末端执行器位置（简化版本，实际应使用完整的正向运动学）
     double x = 0.0, y = 0.0, z = 0.0;
     
@@ -1650,6 +1556,19 @@ void ArmControlGUI::sendJointCommand(const std::vector<double>& joint_values)
         last_y = y;
         last_z = z;
     }
+    
+    // 更新3D视图
+    if (scene_3d_renderer_) {
+        scene_3d_renderer_->setRobotPose(current_joint_values_);
+    }
+    
+    // 记录日志
+    QString jointStr = "";
+    for (size_t i = 0; i < joint_values.size(); i++) {
+        if (i > 0) jointStr += ", ";
+        jointStr += QString::number(joint_values[i], 'f', 2);
+    }
+    logMessage(QString("发送关节命令: [%1]").arg(jointStr));
 }
 
 void ArmControlGUI::sendVacuumCommand(bool on, int power)
@@ -1691,54 +1610,40 @@ void ArmControlGUI::sendPickCommand(const std::string& object_id)
             found = true;
             
             // 转换检测到的物体位置到机械臂坐标系(单位厘米)
-            // 显示转换后的坐标
             double x = obj.x;
             double y = obj.y;
             double z = obj.z;
             
             logMessage(QString("物体位置: X=%1, Y=%2, Z=%3").arg(x).arg(y).arg(z));
             
-            // 映射到电机范围(800-2200)
-            int motor_x = map(static_cast<int>(x), -50, 50, 800, 2200);  // 底座旋转
-            int motor_z = map(static_cast<int>(z), 0, 50, 800, 2200);    // 竖直高度
-            int motor_y = map(static_cast<int>(y), 0, 50, 800, 2200);    // 前后伸缩
+            // 1. 计算物体上方位置的关节值（预抓取位置）
+            geometry_msgs::Pose pre_grasp_pose = target_pose;
+            pre_grasp_pose.position.z += 0.05; // 高出物体5cm
             
-            // 1. 先控制底座旋转到目标位置
-            logMessage("步骤1: 旋转底座到目标位置");
-            sendMotorOrder(1, 11, 100, 0, 0, true, motor_x, 30);
+            std::vector<double> pre_grasp_joints = poseToJoints(pre_grasp_pose);
+            
+            // 2. 移动到预抓取位置
+            logMessage("步骤1: 移动到预抓取位置");
+            sendJointCommand(pre_grasp_joints);
             QApplication::processEvents();
             
-            // 2. 控制肩部电机调整高度
-            logMessage("步骤2: 调整机械臂高度");
-            sendMotorOrder(2, 100, 200, 0, 0, false, motor_z, 10);
+            // 3. 计算抓取位置的关节值
+            std::vector<double> grasp_joints = poseToJoints(target_pose);
+            
+            // 4. 移动到抓取位置
+            logMessage("步骤2: 移动到抓取位置");
+            sendJointCommand(grasp_joints);
             QApplication::processEvents();
             
-            sendMotorOrder(2, 0, 200, 0, 0, true, motor_z, 10);
-            QApplication::processEvents();
-            
-            sendMotorOrder(2, 99, 200, 0, 0, false, motor_z, 10);
-            QApplication::processEvents();
-            
-            // 3. 控制伸缩到目标位置
-            logMessage("步骤3: 伸展机械臂到目标位置");
-            sendMotorOrder(1, 12, 100, 0, 0, true, motor_y, 30);
-            QApplication::processEvents();
-            
-            // 4. 打开吸盘
-            logMessage("步骤4: 打开吸盘抓取物体");
+            // 5. 打开吸盘
+            logMessage("步骤3: 开启吸盘");
             sendVacuumCommand(true, vacuum_power_);
             QApplication::processEvents();
+            ros::Duration(0.5).sleep(); // 等待吸取
             
-            // 5. 抬升物体 (提高Z轴高度)
-            logMessage("步骤5: 抬升物体");
-            int lift_pos = map(10, 0, 50, 800, 2200);  // 固定高度10cm
-            sendMotorOrder(2, 100, 200, 0, 0, false, lift_pos, 10);
-            QApplication::processEvents();
-            
-            sendMotorOrder(2, 0, 200, 0, 0, true, lift_pos, 10);
-            QApplication::processEvents();
-            
-            sendMotorOrder(2, 99, 200, 0, 0, false, lift_pos, 10);
+            // 6. 抬升物体（回到预抓取位置）
+            logMessage("步骤4: 抬升物体");
+            sendJointCommand(pre_grasp_joints);
             QApplication::processEvents();
             
             break;
@@ -1831,31 +1736,7 @@ void ArmControlGUI::logMessage(const QString& message)
     ui->logTextEdit->moveCursor(QTextCursor::End);
 }
 
-// 电机控制函数
-void ArmControlGUI::sendMotorOrder(uint8_t station_num, uint8_t form, int16_t vel, uint16_t vel_ac, uint16_t vel_de, bool pos_mode, int32_t pos, uint16_t pos_thr)
-{
-    // 创建电机控制消息
-    liancheng_socket::MotorOrder msg;
-    msg.header.stamp = ros::Time::now();
-    msg.station_num.push_back(station_num);
-    msg.form.push_back(form);
-    msg.vel.push_back(vel);
-    msg.vel_ac.push_back(vel_ac);
-    msg.vel_de.push_back(vel_de);
-    msg.pos_mode.push_back(pos_mode);
-    msg.pos.push_back(pos);
-    msg.pos_thr.push_back(pos_thr);
-    
-    // 发布消息到正确的话题
-    motor_order_pub_.publish(msg);
-    
-    // 记录操作
-    logMessage(QString("发送电机命令: 站点=%1, 表单=%2, 速度=%3, 位置=%4")
-              .arg(station_num).arg(form).arg(vel).arg(pos));
-    
-    // 等待命令执行完成
-    ros::Duration(0.01).sleep();
-}
+// 电机控制函数已移除，统一使用关节控制
 
 void ArmControlGUI::sendRelayOrder(const std::string& command)
 {
@@ -2155,42 +2036,9 @@ void ArmControlGUI::updateUI()
     updateEndEffectorPose();
 }
 
-void ArmControlGUI::sendGripperCommand(bool open)
-{
-    // 创建夹持器命令消息
-    std_msgs::Bool gripper_cmd;
-    gripper_cmd.data = open;
-    
-    // 发布夹持器命令
-    gripper_cmd_pub_.publish(gripper_cmd);
-    
-    // 立即处理事件，避免UI卡顿
-    QApplication::processEvents();
-    
-    // 更新状态
-    gripper_open_ = open;
-}
+// 夹持控制已统一集成到关节控制
 
-// 添加舵机控制函数实现
-void ArmControlGUI::sendServoCommand(int servo_id, int position, int velocity, int acceleration)
-{
-    // 创建舵机控制消息
-    servo_wrist::SerControl msg;
-    msg.servo_id = servo_id;
-    msg.target_position = position;
-    msg.velocity = velocity;
-    msg.acceleration = acceleration;
-    
-    // 发布舵机控制消息
-    servo_control_pub_.publish(msg);
-    
-    // 记录操作
-    logMessage(QString("发送舵机命令: ID=%1, 位置=%2, 速度=%3, 加速度=%4")
-              .arg(servo_id).arg(position).arg(velocity).arg(acceleration));
-    
-    // 等待命令执行完成
-    ros::Duration(0.01).sleep();
-}
+// 舵机控制已统一集成到关节控制
 
 // 添加辅助函数用于映射范围
 int ArmControlGUI::map(int value, int fromLow, int fromHigh, int toLow, int toHigh)
@@ -2499,8 +2347,7 @@ void ArmControlGUI::initializeMembers()
     joint_min_values_ = {-180.0, 0.0, -90.0, 0.0, 0.0, 5.0};
     joint_max_values_ = {180.0, 43.0, 90.0, 180.0, 0.0, 15.0};
     
-    // 末端执行器状态
-    gripper_open_ = true;
+    // 末端执行器状态（吸盘）
     vacuum_on_ = false;
     vacuum_power_ = 50;
     
@@ -2577,7 +2424,6 @@ void ArmControlGUI::setupROSSubscriptions()
     
     // 设置发布器
     joint_command_pub_ = nh_.advertise<sensor_msgs::JointState>("/arm1/joint_command", 10);
-    gripper_cmd_pub_ = nh_.advertise<std_msgs::Bool>("/arm1/gripper_command", 10);
     vacuum_cmd_pub_ = nh_.advertise<std_msgs::Bool>("/arm1/vacuum_command", 10);
     vacuum_power_pub_ = nh_.advertise<std_msgs::Float64>("/arm1/vacuum_power", 10);
     arm_command_pub_ = nh_.advertise<std_msgs::String>("/arm_commands", 10);

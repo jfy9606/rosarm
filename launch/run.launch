@@ -11,18 +11,10 @@
 
   <!-- 核心功能节点 -->
   
-  <!-- 电机控制节点 -->
-  <node name="talker" pkg="liancheng_socket" type="talk_test" output="screen">
-  </node>
+  <!-- 电机控制已通过标准ROS控制实现 -->
   
-  <!-- 串口通信节点 -->
-  <node name="serial" pkg="liancheng_socket" type="liancheng_serial" output="screen">
-    <param name="port" value="$(arg serial_port)" />
-    <param name="baud_rate" value="115200" />
-  </node>
-  
-  <!-- 关节状态发布节点 -->
-  <node name="joint_publisher" pkg="liancheng_socket" type="joint_state_publisher" output="screen">
+  <!-- 关节状态发布节点 - 使用arm_gui中的实现 -->
+  <node name="joint_publisher" pkg="arm_gui" type="joint_state_publisher_node" output="screen">
   </node>
   
   <!-- 舵机控制节点 -->

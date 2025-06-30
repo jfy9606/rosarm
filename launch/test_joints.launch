@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <launch>
   <!-- 启动测试关节发布器 -->
-  <node name="test_joint_publisher" pkg="liancheng_socket" type="test_joint_publisher" output="screen">
+  <node name="joint_publisher" pkg="arm_gui" type="joint_state_publisher_node" output="screen">
   </node>
   
   <!-- 启动GUI节点 -->

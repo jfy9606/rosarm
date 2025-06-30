@@ -32,7 +32,6 @@
 #include <geometry_msgs/Pose.h>
 #include <geometry_msgs/PoseArray.h>
 #include <cv_bridge/cv_bridge.h>
-#include "liancheng_socket/MotorOrder.h"
 #include <servo_wrist/SerControl.h>
 #include <std_srvs/SetBool.h>
 
@@ -226,9 +225,6 @@ private:
     
     // ROS相关
     ros::NodeHandle& nh_;
-    ros::Publisher joint_cmd_pub_;
-    ros::Publisher gripper_cmd_pub_;
-    ros::Publisher vacuum_cmd_pub_;
     ros::Subscriber joint_state_sub_;
     ros::Subscriber stereo_merged_sub_;
     ros::Subscriber depth_image_sub_;     // 添加深度图像订阅
@@ -239,12 +235,10 @@ private:
     
     // 额外ROS相关
     ros::Publisher joint_command_pub_;
-    ros::Publisher vacuum_command_pub_;
     ros::Publisher arm_command_pub_;
-    ros::Publisher motor_order_pub_;
     ros::Publisher relay_order_pub_;
-    ros::Publisher servo_control_pub_;
-    ros::Publisher vacuum_power_pub_;
+    ros::Publisher vacuum_cmd_pub_;       // 吸盘开关控制
+    ros::Publisher vacuum_power_pub_;     // 吸盘功率控制
     ros::Publisher camera_view_mode_pub_; // 用于发布摄像头视图模式
     
     // 消息过滤器同步器
@@ -264,7 +258,6 @@ private:
     // 摄像头视图状态
     int camera_view_mode_ = 0; // 0=左图，1=右图，2=深度图
     geometry_msgs::Pose current_end_pose_;
-    bool gripper_open_;
     bool vacuum_on_;
     int vacuum_power_;
     
@@ -300,13 +293,10 @@ private:
 
     // 机械臂控制函数
     void sendJointCommand(const std::vector<double>& positions);
-    void sendGripperCommand(bool open);
     void sendVacuumCommand(bool on, int power = 100);
     void sendHomeCommand();
     void sendPickCommand(const std::string& object_id);
     void sendPlaceCommand(double x, double y, double z);
-    void sendMotorOrder(uint8_t station_num, uint8_t form, int16_t vel, uint16_t vel_ac, uint16_t vel_de, bool pos_mode, int32_t pos, uint16_t pos_thr);
-    void sendServoCommand(int servo_id, int position, int velocity = 1000, int acceleration = 100);
     void sendPickObjectCommand(int object_index);
 
     // 辅助函数

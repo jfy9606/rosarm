@@ -56,6 +56,9 @@
     </node>
   </group>
   
+  <!-- 启动关节状态发布器 -->
+  <include file="$(find arm_gui)/launch/joint_state_publisher.launch" />
+
   <!-- 启动GUI界面 -->
   <node pkg="arm_gui" type="arm_gui_node" name="arm_gui_node" output="screen">
     <!-- GUI参数 -->

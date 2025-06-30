@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- 启动关节状态发布节点 -->
+  <node pkg="arm_gui" type="joint_state_publisher_node" name="joint_state_publisher" output="screen">
+  </node>
+  
+  <!-- 手动发布默认值 -->
+  <group ns="default_joint_values">
+    <!-- 模拟一些电机位置数据，用于初始化和测试 -->
+    <node pkg="rostopic" type="rostopic" name="motor1_position" 
+          args="pub -r 1 /motor1/position std_msgs/Int32 'data: 1500'" />
+          
+    <node pkg="rostopic" type="rostopic" name="motor2_position" 
+          args="pub -r 1 /motor2/position std_msgs/Int32 'data: 800'" />
+          
+    <node pkg="rostopic" type="rostopic" name="motor3_position" 
+          args="pub -r 1 /motor3/position std_msgs/Int32 'data: 1500'" />
+          
+    <node pkg="rostopic" type="rostopic" name="motor4_position" 
+          args="pub -r 1 /motor4/position std_msgs/Int32 'data: 800'" />
+          
+    <node pkg="rostopic" type="rostopic" name="motor5_position" 
+          args="pub -r 1 /motor5/position std_msgs/Int32 'data: 1500'" />
+          
+    <node pkg="rostopic" type="rostopic" name="motor6_position" 
+          args="pub -r 1 /motor6/position std_msgs/Int32 'data: 800'" />
+  </group>
+</launch> 

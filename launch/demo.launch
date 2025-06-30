@@ -1,18 +1,7 @@
 <?xml version="1.0"?>
 <launch>
-  <!-- 示例动作节点 -->
-  <node name="demo_actions" pkg="liancheng_socket" type="talk_test" output="screen">
-    <!-- 无需参数，该节点会提供示例动作 -->
-  </node>
-  
-  <!-- 串口通信节点 -->
-  <node name="serial_comm" pkg="liancheng_socket" type="liancheng_serial" output="screen">
-    <!-- 确保该节点使用ttyUSB0 -->
-    <param name="port" value="/dev/ttyUSB0" />
-  </node>
-  
   <!-- 关节状态发布节点 -->
-  <node name="joint_publisher" pkg="liancheng_socket" type="joint_state_publisher" output="screen">
+  <node name="joint_publisher" pkg="arm_gui" type="joint_state_publisher_node" output="screen">
   </node>
   
   <!-- 舵机控制节点 -->
