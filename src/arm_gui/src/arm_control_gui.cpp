@@ -2464,6 +2464,12 @@ void ArmControlGUI::initializeMembers()
     vacuum_on_ = false;
     vacuum_power_ = 50;
     
+    // 更新UI中的真空功率滑块初始值
+    if (ui && ui->vacuumPowerSlider) {
+        ui->vacuumPowerSlider->setValue(vacuum_power_);
+        ui->vacuumPowerLabel->setText(QString("%1%").arg(vacuum_power_));
+    }
+    
     // 控制模式
     current_control_mode_ = ArmControlMode::JOINT_CONTROL;
     
