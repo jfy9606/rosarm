@@ -70,27 +70,6 @@ ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
         connect(cameraSwitchButton, &QPushButton::clicked, this, &ArmControlGUI::onCameraSwitchButtonClicked);
     }
     
-    // 添加深度视图切换按钮（添加到相机视图模式标签旁边）
-    QLabel* cameraViewModeLabel = findChild<QLabel*>("cameraViewModeLabel");
-    QPushButton* depthViewToggleButton = findChild<QPushButton*>("depthViewToggleButton");
-    
-    // 只有在按钮不存在且标签存在时才创建按钮
-    if (cameraViewModeLabel && cameraViewModeLabel->parentWidget() && !depthViewToggleButton) {
-        depthViewToggleButton = new QPushButton("显示深度视图", cameraViewModeLabel->parentWidget());
-        depthViewToggleButton->setObjectName("depthViewToggleButton");
-        depthViewToggleButton->setMinimumWidth(120);
-        
-        // 找到相机视图模式标签的布局
-        QLayout* parentLayout = cameraViewModeLabel->parentWidget()->layout();
-        if (parentLayout) {
-            // 将按钮添加到布局中
-            parentLayout->addWidget(depthViewToggleButton);
-        }
-        
-        // 连接点击事件
-        connect(depthViewToggleButton, &QPushButton::clicked, this, &ArmControlGUI::onDepthViewToggleButtonClicked);
-    }
-    
     // 更新GUI以显示初始关节值
     updateGUIJointValues();
     
@@ -1410,22 +1389,8 @@ void ArmControlGUI::updateVacuumStatus()
 
 void ArmControlGUI::updateCameraViews()
 {
-    // 决定显示哪个图像：深度图或普通相机图像
+    // 决定显示哪个图像：使用当前相机图像
     QImage* sourceImage = &current_camera_image_;
-    
-    if (show_depth_view_) {
-        // 如果选择显示深度图，且深度图不为空
-        if (!current_depth_image_.isNull()) {
-            sourceImage = &current_depth_image_;
-        } else {
-            // 如果深度图为空，记录日志但仍使用普通图像
-            static bool warned = false;
-            if (!warned) {
-                logMessage("深度图像不可用，显示普通图像");
-                warned = true;
-            }
-        }
-    }
     
     // 如果没有图像，跳过
     if (sourceImage->isNull()) {
@@ -2649,25 +2614,4 @@ void ArmControlGUI::depthImageCallback(const sensor_msgs::Image::ConstPtr& msg)
     catch (const std::exception& e) {
         ROS_ERROR("处理深度图像时出现异常: %s", e.what());
     }
-}
-
-void ArmControlGUI::onDepthViewToggleButtonClicked()
-{
-    // 切换深度视图显示状态
-    show_depth_view_ = !show_depth_view_;
-    
-    // 更新标签文字
-    QPushButton* depthViewToggleButton = findChild<QPushButton*>("depthViewToggleButton");
-    if (depthViewToggleButton) {
-        if (show_depth_view_) {
-            depthViewToggleButton->setText("显示普通视图");
-            logMessage("切换为深度视图模式");
-        } else {
-            depthViewToggleButton->setText("显示深度视图");
-            logMessage("切换为普通视图模式");
-        }
-    }
-    
-    // 更新视图
-    updateCameraViews();
 }

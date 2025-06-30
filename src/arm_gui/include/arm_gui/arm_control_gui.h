@@ -203,9 +203,6 @@ private slots:
     // 摄像头视图切换
     void onCameraSwitchButtonClicked();
     
-    // 深度视图切换
-    void onDepthViewToggleButtonClicked();
-    
     // 将这两个函数移动到槽中
     void updateCameraViews();
     void updateDetectionsTable();
@@ -261,22 +258,33 @@ private:
     bool vacuum_on_;
     int vacuum_power_;
     
+    // 摄像头相关
+    QImage current_camera_image_;       // 当前相机图像
+    QImage current_depth_image_;        // 当前深度图像
+    QImage left_camera_image_;          // 左摄像头图像
+    QImage right_camera_image_;         // 右摄像头图像
+    bool is_camera_available_ = false;  // 摄像头是否可用
+    int stereo_camera_error_count_ = 0; // 摄像头错误计数
+    int available_camera_index_ = 0;    // 可用的摄像头索引
+    QTimer camera_reconnect_timer_;     // 摄像头重连定时器
+    
     // 视觉相关
-    QImage current_camera_image_;
-    QImage current_depth_image_;        // 深度图像
-    QImage left_camera_image_;
-    std::vector<DetectedObject> detected_objects_;
-    int selected_object_index_;
-    bool visual_servo_active_;
-    bool show_depth_view_ = false;      // 是否显示深度视图
+    std::vector<DetectedObject> detected_objects_; // 检测到的物体列表
+    int selected_object_index_ = -1;    // 选中的物体索引
+    bool visual_servo_active_ = false;  // 视觉伺服是否激活
     
-    // 3D场景渲染器
-    Scene3DRenderer* scene_3d_renderer_;
-
     // 相机参数
-    QMatrix3x3 camera_intrinsic_;
-    QMatrix4x4 camera_extrinsic_;
+    QMatrix4x4 camera_intrinsic_;       // 相机内参矩阵
+    QMatrix4x4 camera_extrinsic_;       // 相机外参矩阵
+    QMatrix4x4 camera_projection_;      // 相机投影矩阵
+    QMatrix4x4 camera_transform_;       // 相机变换矩阵
+    float camera_focal_length_ = 500.0f;// 相机焦距
+    float camera_cx_ = 320.0f;          // 相机光心x坐标
+    float camera_cy_ = 240.0f;          // 相机光心y坐标
     
+    // 3D视图相关
+    Scene3DRenderer* scene_3d_renderer_ = nullptr; // 3D场景渲染器
+
     // 3D场景中的物体
     std::vector<std::pair<QVector3D, QColor>> scene_objects_;
 
@@ -340,12 +348,6 @@ private:
     // 中继控制命令
     void sendRelayOrder(const std::string& command);
 
-    // 添加摄像头错误处理相关变量
-    QTimer camera_reconnect_timer_; // 摄像头重连定时器
-    int stereo_camera_error_count_; // 摄像头错误计数
-    bool is_camera_available_;      // 摄像头是否可用
-    int available_camera_index_;    // 可用的摄像头索引
-    
     // 添加摄像头错误处理函数
     void handleCameraError(const std::string& error_msg);
     void createPlaceholderImage();
