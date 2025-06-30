@@ -30,7 +30,9 @@ liancheng_socket
 /home/jfy/arm/rosarm/devel/.private/liancheng_socket/lib/liancheng_socket/canusb /home/jfy/arm/rosarm/devel/lib/liancheng_socket/canusb
 /home/jfy/arm/rosarm/devel/.private/liancheng_socket/lib/liancheng_socket/liancheng_serial /home/jfy/arm/rosarm/devel/lib/liancheng_socket/liancheng_serial
 /home/jfy/arm/rosarm/devel/.private/liancheng_socket/lib/liancheng_socket/liancheng_server /home/jfy/arm/rosarm/devel/lib/liancheng_socket/liancheng_server
+/home/jfy/arm/rosarm/devel/.private/liancheng_socket/lib/liancheng_socket/joint_state_publisher /home/jfy/arm/rosarm/devel/lib/liancheng_socket/joint_state_publisher
 /home/jfy/arm/rosarm/devel/.private/liancheng_socket/lib/liancheng_socket/talk_test /home/jfy/arm/rosarm/devel/lib/liancheng_socket/talk_test
+/home/jfy/arm/rosarm/devel/.private/liancheng_socket/lib/liancheng_socket/test_joint_publisher /home/jfy/arm/rosarm/devel/lib/liancheng_socket/test_joint_publisher
 /home/jfy/arm/rosarm/devel/.private/liancheng_socket/include/liancheng_socket/ReadOutput.h /home/jfy/arm/rosarm/devel/include/liancheng_socket/ReadOutput.h
 /home/jfy/arm/rosarm/devel/.private/liancheng_socket/include/liancheng_socket/MotorOrder.h /home/jfy/arm/rosarm/devel/include/liancheng_socket/MotorOrder.h
 /home/jfy/arm/rosarm/devel/.private/liancheng_socket/include/liancheng_socket/SwitchOrder.h /home/jfy/arm/rosarm/devel/include/liancheng_socket/SwitchOrder.h

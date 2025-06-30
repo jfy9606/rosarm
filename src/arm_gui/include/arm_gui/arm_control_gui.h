@@ -204,6 +204,9 @@ private slots:
     // 摄像头视图切换
     void onCameraSwitchButtonClicked();
     
+    // 深度视图切换
+    void onDepthViewToggleButtonClicked();
+    
     // 将这两个函数移动到槽中
     void updateCameraViews();
     void updateDetectionsTable();
@@ -228,6 +231,7 @@ private:
     ros::Publisher vacuum_cmd_pub_;
     ros::Subscriber joint_state_sub_;
     ros::Subscriber stereo_merged_sub_;
+    ros::Subscriber depth_image_sub_;     // 添加深度图像订阅
     ros::Subscriber detection_image_sub_;
     ros::Subscriber detection_poses_sub_;
     ros::Subscriber yolo_status_sub_;
@@ -266,10 +270,12 @@ private:
     
     // 视觉相关
     QImage current_camera_image_;
+    QImage current_depth_image_;        // 深度图像
     QImage left_camera_image_;
     std::vector<DetectedObject> detected_objects_;
     int selected_object_index_;
     bool visual_servo_active_;
+    bool show_depth_view_ = false;      // 是否显示深度视图
     
     // 3D场景渲染器
     Scene3DRenderer* scene_3d_renderer_;
@@ -284,6 +290,7 @@ private:
     // ROS回调函数
     void jointStateCallback(const sensor_msgs::JointState::ConstPtr& msg);
     void stereoMergedCallback(const sensor_msgs::Image::ConstPtr& msg);
+    void depthImageCallback(const sensor_msgs::Image::ConstPtr& msg);
     void detectionImageCallback(const sensor_msgs::Image::ConstPtr& msg);
     void detectionPosesCallback(const geometry_msgs::PoseArray::ConstPtr& msg);
     void yoloStatusCallback(const std_msgs::Bool::ConstPtr& msg);

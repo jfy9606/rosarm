@@ -70,6 +70,24 @@ ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
         connect(cameraSwitchButton, &QPushButton::clicked, this, &ArmControlGUI::onCameraSwitchButtonClicked);
     }
     
+    // 添加深度视图切换按钮（添加到相机视图模式标签旁边）
+    QLabel* cameraViewModeLabel = findChild<QLabel*>("cameraViewModeLabel");
+    if (cameraViewModeLabel && cameraViewModeLabel->parentWidget()) {
+        QPushButton* depthViewToggleButton = new QPushButton("显示深度视图", cameraViewModeLabel->parentWidget());
+        depthViewToggleButton->setObjectName("depthViewToggleButton");
+        depthViewToggleButton->setMinimumWidth(120);
+        
+        // 找到相机视图模式标签的布局
+        QLayout* parentLayout = cameraViewModeLabel->parentWidget()->layout();
+        if (parentLayout) {
+            // 将按钮添加到布局中
+            parentLayout->addWidget(depthViewToggleButton);
+        }
+        
+        // 连接点击事件
+        connect(depthViewToggleButton, &QPushButton::clicked, this, &ArmControlGUI::onDepthViewToggleButtonClicked);
+    }
+    
     // 更新GUI以显示初始关节值
     updateGUIJointValues();
     
@@ -195,7 +213,8 @@ void ArmControlGUI::initializeGUI()
     
     // 设置吸盘功率滑块范围
     ui->vacuumPowerSlider->setRange(0, 100);
-    ui->vacuumPowerSlider->setValue(100);
+    ui->vacuumPowerSlider->setValue(50);  // 使用默认值50%，与vacuum_power_保持一致
+    ui->vacuumPowerLabel->setText(QString("%1%").arg(50));
     
     // 设置关节控制连接
     connect(ui->joint1_slider, &QSlider::valueChanged, this, &ArmControlGUI::onJoint1SliderChanged);
@@ -348,6 +367,9 @@ void ArmControlGUI::initializeROS()
     
     // 订阅当前视图图像（而不是合成立体图像）
     stereo_merged_sub_ = nh_.subscribe("/stereo_camera/current_view", 1, &ArmControlGUI::stereoMergedCallback, this);
+    
+    // 订阅深度图像
+    depth_image_sub_ = nh_.subscribe("/stereo_camera/depth", 1, &ArmControlGUI::depthImageCallback, this);
     
     // 订阅检测图像
     detection_image_sub_ = nh_.subscribe("/detections/image", 1, &ArmControlGUI::detectionImageCallback, this);
@@ -1482,8 +1504,25 @@ void ArmControlGUI::updateVacuumStatus()
 
 void ArmControlGUI::updateCameraViews()
 {
+    // 决定显示哪个图像：深度图或普通相机图像
+    QImage* sourceImage = &current_camera_image_;
+    
+    if (show_depth_view_) {
+        // 如果选择显示深度图，且深度图不为空
+        if (!current_depth_image_.isNull()) {
+            sourceImage = &current_depth_image_;
+        } else {
+            // 如果深度图为空，记录日志但仍使用普通图像
+            static bool warned = false;
+            if (!warned) {
+                logMessage("深度图像不可用，显示普通图像");
+                warned = true;
+            }
+        }
+    }
+    
     // 如果没有图像，跳过
-    if (current_camera_image_.isNull()) {
+    if (sourceImage->isNull()) {
         // 如果没有图像但需要显示UI，则创建占位图像
         if (!is_camera_available_) {
             createPlaceholderImage();
@@ -1495,7 +1534,7 @@ void ArmControlGUI::updateCameraViews()
     QSize viewSize = ui->cameraView->size();
     
     // 缩放图像以适应视图
-    QImage scaledImage = current_camera_image_.scaled(viewSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    QImage scaledImage = sourceImage->scaled(viewSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
     
     // 创建一个带有标记的副本
     QImage displayImage = scaledImage.copy();
@@ -2728,4 +2767,52 @@ void ArmControlGUI::topicCallback_pose(const geometry_msgs::Pose& pose)
         
         ui_processing_ = false;
     }
+}
+
+void ArmControlGUI::depthImageCallback(const sensor_msgs::Image::ConstPtr& msg)
+{
+    try {
+        // 将ROS图像转换为OpenCV格式
+        cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
+        cv::Mat depth_mat = cv_ptr->image;
+        
+        // 确保图像不为空
+        if (depth_mat.empty()) {
+            ROS_WARN("接收到的深度图为空");
+            return;
+        }
+
+        // 将深度图转换为QImage
+        current_depth_image_ = cvMatToQImage(depth_mat);
+        
+        // 更新相机视图（线程安全方式）
+        QMetaObject::invokeMethod(this, "updateCameraViews", Qt::QueuedConnection);
+    }
+    catch (const cv_bridge::Exception& e) {
+        ROS_ERROR("cv_bridge异常: %s", e.what());
+    }
+    catch (const std::exception& e) {
+        ROS_ERROR("处理深度图像时出现异常: %s", e.what());
+    }
+}
+
+void ArmControlGUI::onDepthViewToggleButtonClicked()
+{
+    // 切换深度视图显示状态
+    show_depth_view_ = !show_depth_view_;
+    
+    // 更新标签文字
+    QPushButton* depthViewToggleButton = findChild<QPushButton*>("depthViewToggleButton");
+    if (depthViewToggleButton) {
+        if (show_depth_view_) {
+            depthViewToggleButton->setText("显示普通视图");
+            logMessage("切换为深度视图模式");
+        } else {
+            depthViewToggleButton->setText("显示深度视图");
+            logMessage("切换为普通视图模式");
+        }
+    }
+    
+    // 更新视图
+    updateCameraViews();
 }
