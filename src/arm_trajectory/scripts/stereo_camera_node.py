@@ -48,8 +48,10 @@ class StereoCameraNode:
         # 只有在启用深度图且ximgproc可用时才创建深度图发布器
         if self.use_depth and HAVE_XIMGPROC:
             self.depth_pub = rospy.Publisher('/stereo_camera/depth/image_raw', Image, queue_size=1)
+            self.raw_depth_pub = rospy.Publisher('/stereo_camera/depth/raw', Image, queue_size=1)
         else:
             self.depth_pub = None
+            self.raw_depth_pub = None
             
         self.left_info_pub = rospy.Publisher('/stereo_camera/left/camera_info', CameraInfo, queue_size=1)
         self.right_info_pub = rospy.Publisher('/stereo_camera/right/camera_info', CameraInfo, queue_size=1)
@@ -310,13 +312,31 @@ class StereoCameraNode:
             # 使用WLS滤波器进行后处理优化
             filtered_disp = self.wls_filter.filter(left_disp, left_gray, disparity_map_right=right_disp)
             
-            # 归一化视差图以便显示
-            norm_disp = cv2.normalize(filtered_disp, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+            # 视差转深度（基于相机参数）
+            # baseline(基线) * focal_length(焦距) / disparity(视差)
+            # 假设基线和焦距
+            baseline = 0.06  # 6cm，根据实际双目相机参数调整
+            focal_length = 500.0  # 像素单位，根据实际相机内参调整
             
-            # 生成彩色深度图
-            depth_colormap = cv2.applyColorMap(norm_disp, cv2.COLORMAP_JET)
+            # 避免除以零
+            mask = filtered_disp > 0
+            depth_map = np.zeros_like(filtered_disp)
+            depth_map[mask] = (baseline * focal_length) / filtered_disp[mask]
             
-            return depth_colormap
+            # 限制深度范围在合理值内
+            depth_map = np.clip(depth_map, 0.1, 5.0)
+            
+            # 根据视图模式返回不同格式的深度图
+            if self.view_mode == 2:  # 当用于视图显示时
+                # 生成彩色深度图用于显示
+                # 归一化视差图
+                norm_disp = cv2.normalize(filtered_disp, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+                # 生成彩色深度图
+                depth_colormap = cv2.applyColorMap(norm_disp, cv2.COLORMAP_JET)
+                return depth_colormap
+            else:
+                # 返回原始深度图（用于保存精确的深度值）
+                return depth_map
             
         except Exception as e:
             rospy.logerr(f"Error in depth map computation: {e}")
@@ -453,14 +473,41 @@ class StereoCameraNode:
                 current_view_msg.header.frame_id = "stereo_camera"
                 self.current_view_pub.publish(current_view_msg)
                 
-                # Compute and publish depth map if enabled
+                # Publish depth map if enabled
                 if self.use_depth and self.depth_pub is not None:
                     depth_map = self.compute_depth_map(left_image, right_image)
                     if depth_map is not None:
-                        depth_msg = self.bridge.cv2_to_imgmsg(depth_map, "bgr8")
-                        depth_msg.header.stamp = now
-                        depth_msg.header.frame_id = "stereo_depth"
-                        self.depth_pub.publish(depth_msg)
+                        try:
+                            # 检查深度图的类型
+                            if len(depth_map.shape) == 2:  # 单通道深度图 (32FC1)
+                                # 将浮点深度图转换为彩色可视化图
+                                # 归一化深度图
+                                min_val, max_val = 0.1, 5.0  # 假设深度范围
+                                depth_normalized = np.clip(depth_map, min_val, max_val)
+                                depth_normalized = ((depth_normalized - min_val) / (max_val - min_val) * 255).astype(np.uint8)
+                                # 创建彩色深度图
+                                depth_colormap = cv2.applyColorMap(depth_normalized, cv2.COLORMAP_JET)
+                                # 发布彩色深度图
+                                depth_msg = self.bridge.cv2_to_imgmsg(depth_colormap, "bgr8")
+                                
+                                # 同时发布原始深度图（保留精确的深度信息）
+                                raw_depth_msg = self.bridge.cv2_to_imgmsg(depth_map, "32FC1")
+                                raw_depth_msg.header.stamp = now
+                                raw_depth_msg.header.frame_id = "stereo_depth_raw"
+                                if hasattr(self, 'raw_depth_pub') and self.raw_depth_pub is not None:
+                                    self.raw_depth_pub.publish(raw_depth_msg)
+                            else:  # 彩色深度图 (已经是BGR格式)
+                                depth_msg = self.bridge.cv2_to_imgmsg(depth_map, "bgr8")
+                            
+                            # 发布深度图
+                            depth_msg.header.stamp = now
+                            depth_msg.header.frame_id = "stereo_depth"
+                            self.depth_pub.publish(depth_msg)
+                            
+                        except cv_bridge.CvBridgeError as e:
+                            rospy.logerr(f"深度图像转换错误: {e}")
+                        except Exception as e:
+                            rospy.logerr(f"深度图像转换错误: {e}")
                 
                 # Publish camera info
                 camera_info_left.header.stamp = now

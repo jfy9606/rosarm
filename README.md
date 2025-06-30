@@ -131,14 +131,65 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
    rosrun liancheng_socket test_joint_publisher
    ```
 
+### "深度图不可用，切换到左图模式"错误
+
+如果系统显示"深度图不可用，切换到左图模式"错误：
+
+1. 确认已安装opencv-contrib-python：
+   ```bash
+   # 检查是否安装了opencv-contrib-python
+   pip3 list | grep opencv-contrib-python
+   
+   # 如果未安装，请安装
+   pip3 install opencv-contrib-python
+   
+   # 验证ximgproc模块是否可用
+   python3 -c "import cv2.ximgproc; print('ximgproc可用')"
+   ```
+
+2. 检查摄像头配置：
+   ```bash
+   # 检查摄像头是否支持双目模式
+   v4l2-ctl --list-formats-ext -d /dev/video0
+   
+   # 确认launch文件中正确启用深度图处理
+   # 在visual_servo.launch文件中，确保use_depth参数设为true
+   ```
+
+3. 重启摄像头节点：
+   ```bash
+   # 重启立体相机节点
+   rosnode kill /stereo_camera_node
+   roslaunch arm_trajectory visual_servo.launch
+   ```
+
+4. 尝试切换到深度图模式：
+   ```bash
+   # 发布视图模式切换消息（2表示深度图模式）
+   rostopic pub -1 /stereo_camera/view_mode std_msgs/Int32 "data: 2"
+   ```
+
 ## 系统组件
 
 系统由以下主要组件组成：
 
 1. **摄像头** - 支持高分辨率USB摄像头，包括宽幅摄像头
-2. **图像处理** - 使用OpenCV和YOLO进行图像处理和目标检测
+2. **图像处理** ：
+   - 使用OpenCV和YOLO进行图像处理和目标检测
+   - 支持深度图处理 - 使用opencv-contrib-python中的ximgproc模块进行立体匹配和深度图生成
 3. **机械臂控制** - 基于ROS的机械臂控制界面和轨迹规划
 4. **关节状态发布** - 负责将电机命令转换为关节状态并发布到/arm1/joint_states话题
+
+### 机械臂关节配置
+
+当前系统有四个可用关节，每个关节的功能如下：
+
+1. **关节1** - 俯仰电机（第一级俯仰）
+2. **关节2** - 直线进给电机（伸缩）
+3. **关节3** - 绕轴旋转电机（旋转）
+4. **关节4** - 俯仰电机（第二级俯仰）
+
+注：系统设计有六个关节，但当前只有上述四个关节可用。另外两个关节处于未部署状态。
 
 ## 系统特性
 
@@ -442,95 +493,4 @@ roslaunch run.launch enable_yolo:=true
 各节点之间通过ROS话题进行通信，主要话题包括：
 
 - `/camera/image_raw` - 摄像头图像
-- `/camera/detections` - 目标检测结果
-- `/detection_image` - 包含检测结果的可视化图像
-- `/arm1/joint_states` - 机械臂关节状态
-- `/Controller_motor_order` - 电机命令
-
-## 工具说明
-
-系统提供了几个有用的工具脚本：
-
-1. `camera_test.py` - 测试摄像头并显示参数信息
-2. `camera_direct.py` - 不使用ROS直接访问摄像头
-3. `camera_node.py` - ROS摄像头节点
-4. `test_joint_publisher` - 发布模拟关节数据用于测试
-
-## 许可证
-
-本项目基于MIT许可证发布 - 详见 [LICENSE](LICENSE) 文件。
-
-## 致谢
-
-- 感谢所有贡献者和使用者
-- 特别感谢ROS和OpenCV社区
-
-## GUI界面功能
-
-GUI界面提供了以下功能：
-
-1. **关节控制**：通过滑块直接控制机械臂各关节
-2. **视觉检测控制**：
-   - 启用/禁用YOLO目标检测
-   - 显示检测到的物体
-   - 从检测表格中选择物体进行操作
-3. **路径规划控制**：
-   - 扫描场景中的物体
-   - 规划从选定物体到指定放置区的路径
-   - 执行规划的路径
-   - 可视化工作空间
-4. **末端执行器控制**：
-   - 控制夹持器开合
-   - 控制吸盘吸附
-5. **示例动作**：预设的演示动作
-6. **3D视图**：显示机械臂当前姿态和检测到的物体
-
-## 启动方式
-
-启动完整系统：
-
-```bash
-source devel/setup.bash
-roslaunch arm_gui arm_gui.launch
-```
-
-仅启动GUI界面（不包含路径规划和视觉处理）：
-
-```bash
-source devel/setup.bash
-roslaunch arm_gui arm_gui.launch with_path_planner:=false with_trajectory_planner:=false with_vision_arm_bridge:=false
-```
-
-测试机械臂3D渲染（发布模拟关节数据）：
-
-```bash
-source devel/setup.bash
-roslaunch test_joints.launch
-```
-
-## 使用方法
-
-1. 启动系统后，GUI界面会显示机械臂控制面板
-2. 在"视觉检测"区域勾选"启用YOLO目标检测"以开始检测物体
-3. 点击"扫描物体"按钮扫描工作空间中的物体
-4. 在检测表格中选择要操作的物体
-5. 在"路径规划"区域选择放置区，然后点击"规划路径"
-6. 点击"执行路径"开始执行抓取和放置任务
-7. 点击"可视化工作空间"可以在RViz中查看工作空间布局
-
-## 系统架构
-
-系统由以下主要模块组成：
-
-- **arm_gui**：图形用户界面
-- **stereo_vision**：立体视觉和目标检测
-- **arm_trajectory**：路径规划和轨迹生成
-- **servo_wrist**：舵机控制
-- **liancheng_socket**：通信网络和关节状态发布
-
-## 注意事项
-
-- 确保摄像头设备可用
-- 路径规划需要正确配置的DH参数和关节限制
-- 视觉检测需要正确的相机标定参数
-- 确保关节状态发布节点正常运行，否则3D视图无法显示机械臂
+- `/camera/detections`
