@@ -465,17 +465,34 @@ void ArmControlGUI::updateGUIJointValues()
 // Helper math functions
 double ArmControlGUI::degToRad(double deg)
 {
+    if (!kinematics_utils_) {
+        // Fallback if kinematics_utils_ is not initialized
+        return deg * M_PI / 180.0;
+    }
     return kinematics_utils_->degToRad(deg);
 }
 
 double ArmControlGUI::radToDeg(double rad)
 {
+    if (!kinematics_utils_) {
+        // Fallback if kinematics_utils_ is not initialized
+        return rad * 180.0 / M_PI;
+    }
     return kinematics_utils_->radToDeg(rad);
 }
 
 // 使用KinematicsUtils实现正向运动学计算
 geometry_msgs::Pose ArmControlGUI::forwardKinematics(const std::vector<double>& joint_values)
 {
+    if (!kinematics_utils_) {
+        // Fallback if kinematics_utils_ is not initialized
+        geometry_msgs::Pose default_pose;
+        default_pose.position.x = 0.0;
+        default_pose.position.y = 0.0;
+        default_pose.position.z = 0.3;  // 30cm default height
+        default_pose.orientation.w = 1.0;
+        return default_pose;
+    }
     return kinematics_utils_->forwardKinematics(joint_values);
 }
 
@@ -483,6 +500,11 @@ geometry_msgs::Pose ArmControlGUI::forwardKinematics(const std::vector<double>& 
 std::vector<double> ArmControlGUI::inverseKinematics(const geometry_msgs::Pose& target_pose, 
                                                    const std::vector<double>& initial_guess)
 {
+    if (!kinematics_utils_) {
+        // Fallback if kinematics_utils_ is not initialized
+        ROS_ERROR("Kinematics utilities not initialized, cannot perform inverse kinematics");
+        return std::vector<double>();
+    }
     return kinematics_utils_->inverseKinematics(target_pose, initial_guess);
 }
 
@@ -957,6 +979,11 @@ void ArmControlGUI::createMenus() {}
 void ArmControlGUI::setupCameraParameters() {}
 bool ArmControlGUI::checkJointLimits(const std::vector<double>& joint_values)
 {
+    if (!kinematics_utils_) {
+        // Fallback if kinematics_utils_ is not initialized
+        ROS_ERROR("Kinematics utilities not initialized, cannot check joint limits");
+        return false;
+    }
     return kinematics_utils_->checkJointLimits(joint_values);
 }
 void ArmControlGUI::sendRelayOrder(const std::string& command) {}
@@ -1125,14 +1152,22 @@ void ArmControlGUI::onEndEffectorDragged(QVector3D position) {}
 void ArmControlGUI::setupJointLimits()
 {
     // 使用KinematicsUtils设置关节限制
-    kinematics_utils_->setupJointLimits();
-    ROS_INFO("关节限制已设置");
+    if (kinematics_utils_) {
+        kinematics_utils_->setupJointLimits();
+        ROS_INFO("关节限制已设置");
+    } else {
+        ROS_ERROR("Kinematics utilities not initialized, cannot set up joint limits");
+    }
 }
 void ArmControlGUI::setupDHParameters()
 {
     // 使用KinematicsUtils设置DH参数
-    kinematics_utils_->setupDHParameters();
-    ROS_INFO("DH参数已设置");
+    if (kinematics_utils_) {
+        kinematics_utils_->setupDHParameters();
+        ROS_INFO("DH参数已设置");
+    } else {
+        ROS_ERROR("Kinematics utilities not initialized, cannot set up DH parameters");
+    }
 }
 
 // 实现左视图切换按钮槽函数
