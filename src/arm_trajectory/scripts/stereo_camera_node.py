@@ -251,7 +251,6 @@ class StereoCameraNode:
                         self.camera.set(cv2.CAP_PROP_FPS, self.frame_rate)
                         
                         # 尝试在超时前读取几帧
-                        success = False
                         for attempt in range(5):  # 增加到5次尝试
                             try:
                                 # 设置读取超时
@@ -272,10 +271,10 @@ class StereoCameraNode:
                                 # 如果读取超时，可能是相机驱动问题
                                 if elapsed > 5.0:  # 如果读取耗时超过5秒
                                     rospy.logwarn(f"相机读取超时 ({elapsed:.1f}秒)")
-                                    
-                            if ret and test_frame is not None and test_frame.size > 0:
-                                height, width = test_frame.shape[:2]
-                                rospy.loginfo(f"相机已成功打开，设备: {device}, 分辨率: {width}x{height}, 帧率: {self.frame_rate}")
+                                
+                                if ret and test_frame is not None and test_frame.size > 0:
+                                    height, width = test_frame.shape[:2]
+                                    rospy.loginfo(f"相机已成功打开，设备: {device}, 分辨率: {width}x{height}, 帧率: {self.frame_rate}")
                                     
                                     # 检查实际获取的分辨率是否符合预期
                                     if abs(width - camera_width) > 10 or abs(height - camera_height) > 10:
@@ -286,11 +285,11 @@ class StereoCameraNode:
                                     self.image_width = width
                                     self.image_height = height
                                     
-                                self.is_running = True
-                                self.is_reconnecting = False  # 确保重连标志被重置
-                                self.frame_count_fail = 0     # 重置失败计数
-                                return True
-                            else:
+                                    self.is_running = True
+                                    self.is_reconnecting = False  # 确保重连标志被重置
+                                    self.frame_count_fail = 0     # 重置失败计数
+                                    return True
+                                else:
                                     # 如果读取失败，等待后重试
                                     rospy.logwarn(f"读取测试帧失败，尝试 {attempt+1}/5")
                                     try:
@@ -694,9 +693,8 @@ class StereoCameraNode:
                     except Exception as e:
                         rospy.logwarn(f"读取帧时间计算错误: {e}")
                         # 如果无法获取时间，继续尝试读取帧
-                    success, frame = self.camera.read()
+                        success, frame = self.camera.read()
                         elapsed = 0  # 设置一个默认值
-                    
                     # 定期输出诊断信息
                     try:
                         current_time = time_module.time()
