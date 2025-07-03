@@ -263,7 +263,7 @@ class StereoCameraNode:
                                 except Exception as e:
                                     rospy.logwarn(f"读取帧时时间计算错误: {e}")
                                     # 如果无法获取时间，继续尝试读取帧
-                            ret, test_frame = self.camera.read()
+                                    ret, test_frame = self.camera.read()
                                     elapsed = 0  # 设置一个默认值
                                 
                                 # 记录读取耗时
