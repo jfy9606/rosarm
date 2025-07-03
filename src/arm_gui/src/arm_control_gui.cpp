@@ -7,6 +7,16 @@
 #include <QTimer>
 #include <QCloseEvent>
 #include <cmath>
+#include <ros/ros.h>
+#include <opencv2/opencv.hpp>
+#include <cv_bridge/cv_bridge.h>
+#include <sensor_msgs/image_encodings.h>
+#include <QMainWindow>
+#include <QPushButton>
+#include <QLabel>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QTextEdit>
 
 ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     : QMainWindow(parent), ui(new Ui::ArmControlMainWindow), nh_(nh),
@@ -122,6 +132,129 @@ void ArmControlGUI::setupUi()
     ui->joint3Spin->setRange(-90.0, 90.0);
     ui->joint4Spin->setRange(0.0, 180.0);
     ui->joint6Spin->setRange(5.0, 15.0);
+    
+    // 检查并创建可能缺失的UI元素
+    createMissingUIElements();
+}
+
+// 创建缺失的UI元素
+void ArmControlGUI::createMissingUIElements()
+{
+    // 查找cameraView，如果不存在则创建
+    QLabel* cameraView = findChild<QLabel*>("cameraView");
+    if (!cameraView) {
+        cameraView = new QLabel(this);
+        cameraView->setObjectName("cameraView");
+        cameraView->setText("相机视图");
+        cameraView->setMinimumSize(640, 480);
+        cameraView->setAlignment(Qt::AlignCenter);
+        cameraView->setStyleSheet("background-color: #333333; color: white;");
+        
+        // 添加到布局
+        QVBoxLayout* cameraLayout = new QVBoxLayout();
+        cameraLayout->setObjectName("cameraLayout");
+        cameraLayout->addWidget(cameraView);
+        
+        // 查找右侧面板
+        QWidget* rightPanel = findChild<QWidget*>("rightPanel");
+        if (rightPanel) {
+            QBoxLayout* rightLayout = qobject_cast<QBoxLayout*>(rightPanel->layout());
+            if (rightLayout) {
+                rightLayout->insertLayout(0, cameraLayout);
+            }
+        } else {
+            // 如果没有找到右侧面板，尝试添加到中央部件
+            QVBoxLayout* centralLayout = new QVBoxLayout(ui->centralwidget);
+            centralLayout->addLayout(cameraLayout);
+        }
+        
+        // 使其可接收事件
+        cameraView->installEventFilter(this);
+    }
+    
+    // 创建视图切换按钮面板
+    QWidget* cameraControls = findChild<QWidget*>("cameraControls");
+    if (!cameraControls) {
+        cameraControls = new QWidget(this);
+        cameraControls->setObjectName("cameraControls");
+        
+        QHBoxLayout* controlLayout = new QHBoxLayout(cameraControls);
+        controlLayout->setObjectName("cameraControlsLayout");
+        controlLayout->setContentsMargins(0, 0, 0, 0);
+        
+        // 创建左视图按钮
+        QPushButton* leftViewButton = findChild<QPushButton*>("leftViewButton");
+        if (!leftViewButton) {
+            leftViewButton = new QPushButton("左视图", cameraControls);
+            leftViewButton->setObjectName("leftViewButton");
+            leftViewButton->setToolTip("显示左相机视图");
+            connect(leftViewButton, &QPushButton::clicked, this, &ArmControlGUI::onLeftViewButtonClicked);
+            controlLayout->addWidget(leftViewButton);
+        }
+        
+        // 创建右视图按钮
+        QPushButton* rightViewButton = findChild<QPushButton*>("rightViewButton");
+        if (!rightViewButton) {
+            rightViewButton = new QPushButton("右视图", cameraControls);
+            rightViewButton->setObjectName("rightViewButton");
+            rightViewButton->setToolTip("显示右相机视图");
+            connect(rightViewButton, &QPushButton::clicked, this, &ArmControlGUI::onRightViewButtonClicked);
+            controlLayout->addWidget(rightViewButton);
+        }
+        
+        // 创建深度视图按钮
+        QPushButton* depthViewButton = findChild<QPushButton*>("depthViewButton");
+        if (!depthViewButton) {
+            depthViewButton = new QPushButton("深度视图", cameraControls);
+            depthViewButton->setObjectName("depthViewButton");
+            depthViewButton->setToolTip("显示深度视图");
+            depthViewButton->setEnabled(false); // 初始禁用
+            connect(depthViewButton, &QPushButton::clicked, this, &ArmControlGUI::onDepthViewButtonClicked);
+            controlLayout->addWidget(depthViewButton);
+        }
+        
+        // 查找cameraLayout并添加控制面板
+        QLayout* cameraLayout = findChild<QLayout*>("cameraLayout");
+        if (cameraLayout) {
+            cameraLayout->addWidget(cameraControls);
+        } else {
+            // 如果没有找到cameraLayout，添加到现有的布局
+            QLabel* cameraView = findChild<QLabel*>("cameraView");
+            if (cameraView) {
+                QLayout* parentLayout = cameraView->parentWidget()->layout();
+                if (parentLayout) {
+                    parentLayout->addWidget(cameraControls);
+                }
+            }
+        }
+    }
+    
+    // 创建深度视图
+    QLabel* depthView = findChild<QLabel*>("depthView");
+    if (!depthView) {
+        depthView = new QLabel(this);
+        depthView->setObjectName("depthView");
+        depthView->setText("深度视图");
+        depthView->setMinimumSize(320, 240);
+        depthView->setMaximumHeight(240);
+        depthView->setAlignment(Qt::AlignCenter);
+        depthView->setStyleSheet("background-color: #333333; color: white;");
+        
+        // 查找cameraLayout并添加深度视图
+        QLayout* cameraLayout = findChild<QLayout*>("cameraLayout");
+        if (cameraLayout) {
+            cameraLayout->addWidget(depthView);
+        } else {
+            // 如果没有找到cameraLayout，添加到现有的布局
+            QLabel* cameraView = findChild<QLabel*>("cameraView");
+            if (cameraView) {
+                QLayout* parentLayout = cameraView->parentWidget()->layout();
+                if (parentLayout) {
+                    parentLayout->addWidget(depthView);
+                }
+            }
+        }
+    }
 }
 
 void ArmControlGUI::connectSignalSlots()
@@ -617,9 +750,9 @@ void ArmControlGUI::updateCameraView()
     ui_processing_ = true;
     
     // 根据当前可用图像更新相机视图
-    if (!current_camera_image_.isNull()) {
+    if (!current_camera_image_.isNull() && ui->cameraView) {
         ui->cameraView->setPixmap(QPixmap::fromImage(current_camera_image_));
-    } else {
+    } else if (ui->cameraView) {
         // 如果当前视图不可用，尝试使用默认的左视图
         if (!left_camera_image_.isNull()) {
             ui->cameraView->setPixmap(QPixmap::fromImage(left_camera_image_));
@@ -630,26 +763,35 @@ void ArmControlGUI::updateCameraView()
         }
     }
     
-    // 处理深度视图
+    // 处理深度视图 - 检查UI元素是否存在
     if (!current_depth_image_.isNull()) {
-        if (ui->depthViewButton->isEnabled() == false) {
-            ui->depthViewButton->setEnabled(true);
+        QPushButton* depthViewButton = findChild<QPushButton*>("depthViewButton");
+        if (depthViewButton && !depthViewButton->isEnabled()) {
+            depthViewButton->setEnabled(true);
         }
         
         // 如果当前是深度视图模式，同时显示在主视图中
-        if (camera_view_mode_ == 2) {
+        if (camera_view_mode_ == 2 && ui->cameraView) {
             ui->cameraView->setPixmap(QPixmap::fromImage(current_depth_image_));
         }
         
-        // 将深度图显示在辅助视图中
-        ui->depthView->setPixmap(QPixmap::fromImage(current_depth_image_));
+        // 将深度图显示在辅助视图中（如果存在）
+        QLabel* depthView = findChild<QLabel*>("depthView");
+        if (depthView) {
+            depthView->setPixmap(QPixmap::fromImage(current_depth_image_));
+        }
     } else {
         // 如果深度图不可用
-        if (ui->depthViewButton->isEnabled() == true) {
-            ui->depthViewButton->setEnabled(false);
+        QPushButton* depthViewButton = findChild<QPushButton*>("depthViewButton");
+        if (depthViewButton && depthViewButton->isEnabled()) {
+            depthViewButton->setEnabled(false);
         }
-        ui->depthView->clear();
-        ui->depthView->setText("深度图不可用");
+        
+        QLabel* depthView = findChild<QLabel*>("depthView");
+        if (depthView) {
+            depthView->clear();
+            depthView->setText("深度图不可用");
+        }
         
         // 如果当前是深度视图模式但深度图不可用，切换回左视图
         if (camera_view_mode_ == 2) {
@@ -665,21 +807,31 @@ void ArmControlGUI::updateConnectionStatus() {}
 void ArmControlGUI::updateJointControlWidgets() {}
 void ArmControlGUI::initializeGUI()
 {
-    // 初始化相机视图相关UI
-    if (ui->leftViewButton) {
-        ui->leftViewButton->setToolTip("显示左相机视图");
-        connect(ui->leftViewButton, &QPushButton::clicked, this, &ArmControlGUI::onLeftViewButtonClicked);
+    // 初始化相机视图相关UI（先查找是否存在这些按钮）
+    QPushButton* leftViewButton = findChild<QPushButton*>("leftViewButton");
+    if (leftViewButton) {
+        leftViewButton->setToolTip("显示左相机视图");
+        connect(leftViewButton, &QPushButton::clicked, this, &ArmControlGUI::onLeftViewButtonClicked);
+    } else {
+        // 如果按钮不存在，可以考虑动态创建
+        ROS_WARN("leftViewButton not found in UI");
     }
     
-    if (ui->rightViewButton) {
-        ui->rightViewButton->setToolTip("显示右相机视图");
-        connect(ui->rightViewButton, &QPushButton::clicked, this, &ArmControlGUI::onRightViewButtonClicked);
+    QPushButton* rightViewButton = findChild<QPushButton*>("rightViewButton");
+    if (rightViewButton) {
+        rightViewButton->setToolTip("显示右相机视图");
+        connect(rightViewButton, &QPushButton::clicked, this, &ArmControlGUI::onRightViewButtonClicked);
+    } else {
+        ROS_WARN("rightViewButton not found in UI");
     }
     
-    if (ui->depthViewButton) {
-        ui->depthViewButton->setToolTip("显示深度视图");
-        ui->depthViewButton->setEnabled(false); // 初始禁用，等待深度图可用时启用
-        connect(ui->depthViewButton, &QPushButton::clicked, this, &ArmControlGUI::onDepthViewButtonClicked);
+    QPushButton* depthViewButton = findChild<QPushButton*>("depthViewButton");
+    if (depthViewButton) {
+        depthViewButton->setToolTip("显示深度视图");
+        depthViewButton->setEnabled(false); // 初始禁用，等待深度图可用时启用
+        connect(depthViewButton, &QPushButton::clicked, this, &ArmControlGUI::onDepthViewButtonClicked);
+    } else {
+        ROS_WARN("depthViewButton not found in UI");
     }
     
     // 初始化图像
@@ -759,7 +911,8 @@ void ArmControlGUI::stereoMergedCallback(const sensor_msgs::Image::ConstPtr& msg
 {
     try {
         // 将ROS图像消息转换为OpenCV格式
-        cv::Mat cv_image = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8)->image;
+        cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
+        cv::Mat cv_image = cv_ptr->image;
         
         if (!cv_image.empty()) {
             // 保存当前图像
@@ -802,13 +955,11 @@ void ArmControlGUI::stereoMergedCallback(const sensor_msgs::Image::ConstPtr& msg
 void ArmControlGUI::depthImageCallback(const sensor_msgs::Image::ConstPtr& msg)
 {
     try {
-        // 转换深度图像为OpenCV格式
-        cv::Mat depth_cv;
-        
         // 根据深度图编码格式进行不同处理
         if (msg->encoding == "32FC1") {
             // 原始深度图 - 转换为可视化格式
-            cv::Mat depth_float = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::TYPE_32FC1)->image;
+            cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::TYPE_32FC1);
+            cv::Mat depth_float = cv_ptr->image;
             
             // 寻找有效深度值的范围
             double min_val = 0.1, max_val = 5.0; // 默认范围
@@ -832,7 +983,8 @@ void ArmControlGUI::depthImageCallback(const sensor_msgs::Image::ConstPtr& msg)
         }
         else if (msg->encoding == "16UC1") {
             // 16位无符号整数深度图
-            cv::Mat depth_16u = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::TYPE_16UC1)->image;
+            cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::TYPE_16UC1);
+            cv::Mat depth_16u = cv_ptr->image;
             
             // 转换为可视化格式
             cv::Mat depth_norm, depth_color;
@@ -845,7 +997,8 @@ void ArmControlGUI::depthImageCallback(const sensor_msgs::Image::ConstPtr& msg)
         }
         else if (msg->encoding == "bgr8") {
             // 已经是彩色深度图
-            cv::Mat depth_color = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8)->image;
+            cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
+            cv::Mat depth_color = cv_ptr->image;
             current_depth_image_ = cvMatToQImage(depth_color);
         }
         else {
@@ -918,4 +1071,26 @@ void ArmControlGUI::onDepthViewButtonClicked()
 void ArmControlGUI::on_depthViewButton_clicked()
 {
     onDepthViewButtonClicked();
+}
+
+// 添加日志消息
+void ArmControlGUI::logMessage(const QString& message)
+{
+    // 记录日志到状态栏
+    statusBar()->showMessage(message, 3000);  // 显示3秒
+    
+    // 如果有日志区域，同时记录到日志区域
+    QTextEdit* logArea = findChild<QTextEdit*>("logTextEdit");
+    if (logArea) {
+        QString timestamp = QDateTime::currentDateTime().toString("[yyyy-MM-dd hh:mm:ss] ");
+        logArea->append(timestamp + message);
+        
+        // 滚动到最新的消息
+        QTextCursor cursor = logArea->textCursor();
+        cursor.movePosition(QTextCursor::End);
+        logArea->setTextCursor(cursor);
+    }
+    
+    // 同时输出到ROS日志
+    ROS_INFO("%s", message.toStdString().c_str());
 }

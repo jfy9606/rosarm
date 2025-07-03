@@ -11,6 +11,9 @@
 ```bash
 # 安装ultralytics用于YOLOv8目标检测
 pip3 install ultralytics
+
+# 安装opencv-contrib-python用于立体视觉和深度图处理
+pip3 install opencv-contrib-python
 ```
 
 ### 2. 验证安装
@@ -133,7 +136,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 ### "深度图不可用，切换到左图模式"错误
 
-如果系统显示"深度图不可用，切换到左图模式"错误：
+如果系统显示"深度图不可用，切换到左图模式"或"cv2.ximgproc not available, advanced depth processing will be disabled"错误：
 
 1. 确认已安装opencv-contrib-python：
    ```bash
@@ -238,7 +241,7 @@ sudo apt update
 ```bash
 # 安装ROS基本依赖
 sudo apt-get update
-sudo apt-get install ros-noetic-image-view ros-noetic-tf2-ros ros-noetic-cv-bridge ros-noetic-serial ros-noetic-moveit-msgs ros-noetic-geometry-msgs ros-noetic-sensor-msgs ros-noetic-image-transport
+sudo apt-get install ros-noetic-image-view ros-noetic-tf2-ros ros-noetic-cv-bridge ros-noetic-serial ros-noetic-moveit-msgs ros-noetic-geometry-msgs ros-noetic-sensor-msgs ros-noetic-image-transport ros-noetic-cmake-modules
 
 # 安装Qt5依赖
 sudo apt-get install qtbase5-dev qt5-default qtchooser qttools5-dev-tools qttools5-dev libqt5core5a libqt5gui5 libqt5widgets5 libqt5opengl5 libqt5opengl5-dev ros-noetic-rqt* ros-noetic-qt-gui* -y
@@ -250,7 +253,7 @@ echo 'export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH' >> ~/.b
 source ~/.bashrc
 
 # 安装系统依赖
-sudo apt-get install libopengl0 libglx0 libgl1-mesa-dev -y
+sudo apt-get install libopengl0 libglx0 libgl1-mesa-dev freeglut3-dev -y
 
 # 安装Python依赖
 pip3 install numpy opencv-contrib-python torch torchvision ultralytics
@@ -478,6 +481,40 @@ roslaunch run.launch enable_yolo:=true
     
     # 检查关节数据是否正确发布
     rostopic echo /arm1/joint_states -n 1
+    ```
+
+12. **节点无法启动（Cannot locate node）错误**
+    - 如果遇到 `ERROR: cannot launch node of type [package_name/node_name]: Cannot locate node` 错误：
+    ```bash
+    # 检查节点可执行文件是否存在
+    find ~/arm/rosarm/devel/lib -name "node_name"
+    
+    # 检查节点可执行文件是否有执行权限
+    chmod +x ~/arm/rosarm/devel/lib/package_name/node_name
+    
+    # 检查CMakeLists.txt中是否正确定义了节点
+    cat ~/arm/rosarm/src/package_name/CMakeLists.txt | grep add_executable
+    
+    # 重新编译工作空间
+    cd ~/arm/rosarm && catkin build
+    source devel/setup.bash
+    ```
+
+13. **模块导入错误（No module named 'package.msg'）**
+    - 如果遇到 `ModuleNotFoundError: No module named 'package_name.msg'` 错误：
+    ```bash
+    # 检查消息文件是否存在
+    find ~/arm/rosarm/src -name "*.msg"
+    
+    # 检查CMakeLists.txt中是否启用了消息生成
+    # 确保add_message_files部分已取消注释并包含正确的.msg文件
+    
+    # 重新编译工作空间
+    cd ~/arm/rosarm && catkin build
+    source devel/setup.bash
+    
+    # 验证消息是否已生成
+    find ~/arm/rosarm/devel -path "*package_name/msg*"
     ```
 
 ## 系统架构

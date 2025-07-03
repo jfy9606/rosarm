@@ -155,6 +155,7 @@ private:
     // Initialize functions
     void initializeGUI();
     void initializeMembers();
+    void createMissingUIElements();  // 添加缺失UI元素的函数
     void initializeROS();
     void initializeOpenGL();
     void initializeJointControlConnections();
