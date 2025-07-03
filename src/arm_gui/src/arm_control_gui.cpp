@@ -105,6 +105,9 @@ void ArmControlGUI::initializeROS()
         // 初始化订阅者
         joint_state_sub_ = nh_.subscribe("joint_states", 1, 
                                       &ArmControlGUI::jointStateCallback, this);
+        
+        // 设置相机相关的ROS订阅和发布
+        setupROSSubscriptions();
     }
     catch (const std::exception& e) {
         QMessageBox::critical(this, "ROS初始化错误", QString("ROS初始化失败: %1").arg(e.what()));

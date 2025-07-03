@@ -19,61 +19,58 @@ class VisualServoController:
     
     def __init__(self):
         """初始化视觉伺服控制器"""
-        # 初始化ROS节点
         rospy.init_node('visual_servo_controller', anonymous=True)
         
-        # 机械臂状态
-        self.arm_ready = False
-        self.gripper_open = True
-        self.vacuum_on = False
-        self.vacuum_power = 50  # 默认吸力50%
-        self.current_joint_values = [0, 0, 0, 0, 0, 0]  # 当前关节值
-        self.current_end_position = [0, 0, 0]  # 末端位置 [x, y, z]
-        
-        # 视觉检测结果
-        self.detected_objects = []  # 检测到的物体列表
-        self.selected_object = None  # 当前选中的物体
-        self.target_position = None  # 目标位置
-        
-        # 视觉伺服控制参数
-        self.visual_servo_enabled = False  # 是否启用视觉伺服控制
-        self.servo_target_object = None  # 视觉伺服的目标物体
-        self.distance_threshold = 0.05  # 距离阈值，单位米，小于此值认为已接近物体
-        self.approach_speed = 0.01  # 接近速度，单位米/秒
-        self.z_offset = 0.05  # 抓取前的Z轴偏移，单位米
-        
-        # 双目摄像头参数
-        self.bridge = cv_bridge.CvBridge()
+        # 初始化成员变量
         self.left_image = None
         self.right_image = None
         self.depth_image = None
+        self.detected_objects = []
+        self.current_joint_values = [0.0] * 6
+        self.arm_ready = False
+        self.visual_servo_enabled = False
+        self.servo_target_object = None
+        self.vacuum_on = False
+        self.vacuum_power = 50  # 默认吸盘功率50%
+        
+        # 相机内参
         self.camera_intrinsic = np.array([
-            [500, 0, 320],
-            [0, 500, 240],
-            [0, 0, 1]
-        ])  # 相机内参矩阵（示例值，需要根据实际相机标定）
-        self.baseline = 0.1  # 双目相机基线长度，单位米
+            [525.0, 0.0, 320.0],
+            [0.0, 525.0, 240.0],
+            [0.0, 0.0, 1.0]
+        ])
         
-        # 订阅话题
-        self.detection_sub = rospy.Subscriber('/detections/poses', PoseArray, self.detection_callback)
-        self.joint_state_sub = rospy.Subscriber('/arm1/joint_states', JointState, self.joint_state_callback)
-        self.command_sub = rospy.Subscriber('/arm_commands', String, self.command_callback)
-        self.left_image_sub = rospy.Subscriber('/stereo_camera/left/image_raw', Image, self.left_image_callback)
-        self.right_image_sub = rospy.Subscriber('/stereo_camera/right/image_raw', Image, self.right_image_callback)
-        self.depth_image_sub = rospy.Subscriber('/stereo_camera/depth/image_raw', Image, self.depth_image_callback)
+        # 双目相机基线（单位：米）
+        self.baseline = 0.06  # 假设双目相机基线为6cm
         
-        # 发布话题
-        self.joint_command_pub = rospy.Publisher('/arm1/joint_command', JointState, queue_size=10)
-        self.gripper_command_pub = rospy.Publisher('/arm1/gripper_command', Bool, queue_size=10)
-        self.vacuum_command_pub = rospy.Publisher('/arm1/vacuum_command', Bool, queue_size=10)
-        self.vacuum_power_pub = rospy.Publisher('/arm1/vacuum_power', Float64, queue_size=10)
-        self.status_pub = rospy.Publisher('/arm_status', String, queue_size=10)
-        self.servo_control_pub = rospy.Publisher('/servo_control', SerControl, queue_size=10)
+        # 创建CV bridge
+        self.bridge = cv_bridge.CvBridge()
         
-        # 创建定时器，用于周期性执行视觉伺服控制
-        self.servo_timer = rospy.Timer(rospy.Duration(0.1), self.visual_servo_control)
+        # 设置订阅者
+        self.left_image_sub = rospy.Subscriber('/stereo_camera/left/image_raw', Image, 
+                                             self.left_image_callback)
+        self.right_image_sub = rospy.Subscriber('/stereo_camera/right/image_raw', Image, 
+                                              self.right_image_callback)
+        # 订阅原始深度图，而不是彩色深度图
+        self.depth_image_sub = rospy.Subscriber('/stereo_camera/depth/raw', Image, 
+                                              self.depth_image_callback)
+        self.detection_sub = rospy.Subscriber('/object_detection/detections', Image,
+                                           self.detection_callback)
+        self.joint_state_sub = rospy.Subscriber('/joint_states', JointState,
+                                             self.joint_state_callback)
+        self.command_sub = rospy.Subscriber('/visual_servo/command', String,
+                                         self.command_callback)
         
-        rospy.loginfo("视觉伺服控制器已初始化")
+        # 设置发布者
+        self.joint_command_pub = rospy.Publisher('/arm1/joint_command', JointState, queue_size=1)
+        self.vacuum_command_pub = rospy.Publisher('/vacuum/command', Bool, queue_size=1)
+        self.vacuum_power_pub = rospy.Publisher('/vacuum/power', Float64, queue_size=1)
+        self.status_pub = rospy.Publisher('/visual_servo/status', String, queue_size=1)
+        
+        # 设置定时器，用于视觉伺服控制
+        self.timer = rospy.Timer(rospy.Duration(0.1), self.visual_servo_control)
+        
+        rospy.loginfo("视觉伺服控制器初始化完成")
     
     def detection_callback(self, msg):
         """处理物体检测结果"""
@@ -147,26 +144,19 @@ class VisualServoController:
             rospy.logerr(f"右相机图像转换错误: {e}")
     
     def depth_image_callback(self, msg):
-        """处理深度图像"""
+        """处理深度图像回调"""
         try:
-            # 检查图像的编码格式
+            # 处理原始深度图像
             if msg.encoding == "32FC1":
-                # 原始深度图 - 包含实际距离数据
+                # 原始深度图 - 直接使用
                 self.depth_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
-                rospy.loginfo("接收到原始深度图数据，可用于距离计算")
+                rospy.logdebug("接收到原始深度图数据，单位为米")
             elif msg.encoding == "16UC1":
-                # 另一种常见的深度图编码格式
-                self.depth_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
                 # 需要将16位深度数据转换为实际距离
+                self.depth_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
                 scale_factor = 0.001  # 通常为1mm
                 self.depth_image = self.depth_image.astype(np.float32) * scale_factor
-                rospy.loginfo("接收到16位深度图数据，已转换为米单位")
-            elif msg.encoding == "bgr8":
-                # 如果接收到的是彩色深度图，不能直接用于距离计算
-                depth_bgr = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
-                rospy.loginfo("收到彩色深度图，需要原始深度数据进行准确的距离计算")
-                # 这里不能使用彩色深度图计算距离
-                self.depth_image = None
+                rospy.logdebug("接收到16位深度图数据，已转换为米单位")
             else:
                 rospy.logwarn(f"不支持的深度图像编码格式: {msg.encoding}")
                 self.depth_image = None
