@@ -62,7 +62,13 @@ class StereoCameraNode:
         # Initialize camera
         self.camera = None
         self.is_running = False
+        self.is_reconnecting = False  # 添加重连标志
+        self.frame_count_fail = 0     # 添加失败帧计数
         self.camera_lock = threading.Lock()
+        
+        # Initialize frames
+        self.left_frame = None
+        self.right_frame = None
         
         # Initialize stereo processor
         self.stereo_processor = None
@@ -202,20 +208,24 @@ class StereoCameraNode:
                         height, width = test_frame.shape[:2]
                         rospy.loginfo(f"相机已成功打开，分辨率: {width}x{height}, 帧率: {self.frame_rate}")
                         self.is_running = True
-                        self.is_reconnecting = False
+                        self.is_reconnecting = False  # 确保重连标志被重置
+                        self.frame_count_fail = 0     # 重置失败计数
                         return True
                     else:
                         rospy.logerr("相机打开成功但无法读取图像")
                         self.camera.release()
                         self.camera = None
+                        self.is_reconnecting = True   # 设置重连标志
                         return False
                 else:
                     rospy.logerr(f"无法打开相机设备: {device_path}")
+                    self.is_reconnecting = True       # 设置重连标志
                     return False
                 
         except Exception as e:
             rospy.logerr(f"打开相机时出错: {e}")
             self.is_running = False
+            self.is_reconnecting = True               # 设置重连标志
             return False
     
     def get_current_view(self, left_image, right_image):
@@ -389,7 +399,7 @@ class StereoCameraNode:
                     if self.camera is None or not self.camera.isOpened():
                         if not self.is_reconnecting:
                             self.is_reconnecting = True
-                            rospy.logwarn("Camera connection lost, attempting to reconnect...")
+                            rospy.logwarn("摄像头连接丢失，尝试重新连接...")
                             self.open_camera()
                         rate.sleep()
                         continue
@@ -398,10 +408,9 @@ class StereoCameraNode:
                     success, frame = self.camera.read()
                     
                     if not success:
-                        frame_count_fail = getattr(self, 'frame_count_fail', 0) + 1
-                        self.frame_count_fail = frame_count_fail
+                        self.frame_count_fail += 1
                         
-                        if frame_count_fail > 5:  # 连续5次失败，尝试重新打开摄像头
+                        if self.frame_count_fail > 5:  # 连续5次失败，尝试重新打开摄像头
                             rospy.logwarn("摄像头读取失败，尝试重新连接...")
                             self.camera.release()
                             self.camera = None
@@ -498,25 +507,17 @@ class StereoCameraNode:
         rospy.loginfo("Shutting down stereo camera node")
         self.is_running = False
         
-        # 确保正确释放GStreamer资源
+        # 确保正确释放相机资源
         with self.camera_lock:
             if self.camera is not None:
-                # 1. 先停止管道
-                if hasattr(self.camera, 'cap'):
-                    if hasattr(self.camera.cap, 'pipeline') and self.camera.cap.pipeline:
-                        import gi
-                        gi.require_version('Gst', '1.0')
-                        from gi.repository import Gst
-                        if hasattr(self.camera.cap.pipeline, 'set_state'):
-                            self.camera.cap.pipeline.set_state(Gst.State.NULL)
-                
-                # 2. 释放摄像头资源
+                # 释放摄像头资源
                 try:
                     self.camera.release()
+                    rospy.loginfo("Camera released successfully")
                 except Exception as e:
                     rospy.logerr(f"Error releasing camera: {e}")
                 
-                # 3. 确保设置为None
+                # 确保设置为None
                 self.camera = None
                 
         # 等待一小段时间确保资源彻底释放
