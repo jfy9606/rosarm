@@ -202,6 +202,22 @@ class StereoCameraNode:
                     except Exception as e:
                         rospy.logwarn(f"休眠时出错: {e}")
                 
+                # 获取分辨率参数，允许从launch文件中配置
+                camera_width = rospy.get_param('~camera_width', 1280)
+                camera_height = rospy.get_param('~camera_height', 480)
+                camera_format = rospy.get_param('~camera_format', 'MJPEG')  # MJPEG 或 YUY2
+                
+                # 根据配置选择分辨率
+                # 支持的分辨率:
+                # MJPEG: 1280x480, 1920x1080, 2160x1080, 2560x720, 3840x1080, 3840x1520
+                # YUY2:  1280x480, 1920x1080, 2160x1080, 2560x720, 3840x1080, 3840x1520
+                rospy.loginfo(f"尝试设置相机分辨率为 {camera_width}x{camera_height}，格式: {camera_format}")
+                
+                # 记录相机参数
+                self.camera_baseline = 60.0  # 基线距离（毫米）
+                self.camera_fov = 72.0  # 视场角（度）
+                self.camera_focal_length = 3.6  # 焦距（毫米）
+                
                 # 尝试多个相机设备
                 devices_to_try = ["/dev/video0", "/dev/video1", "/dev/video2", 0, 1, 2]
                 
@@ -221,9 +237,17 @@ class StereoCameraNode:
                         # 设置相机参数
                         self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
                         
-                        # 设置分辨率 - 尝试设置为宽屏格式以获取左右双目图像
-                        self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-                        self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                        # 设置格式 - MJPEG (YUYV/YUY2格式在Linux下可能需要特殊处理)
+                        if camera_format == 'MJPEG':
+                            mjpg_fourcc = int(0x47504A4D)  # MJPG的fourcc代码
+                            self.camera.set(cv2.CAP_PROP_FOURCC, mjpg_fourcc)
+                        else:
+                            yuyv_fourcc = int(0x32595559)  # YUY2的fourcc代码
+                            self.camera.set(cv2.CAP_PROP_FOURCC, yuyv_fourcc)
+                        
+                        # 设置分辨率 - 根据参数设置
+                        self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, camera_width)
+                        self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, camera_height)
                         self.camera.set(cv2.CAP_PROP_FPS, self.frame_rate)
                         
                         # 尝试在超时前读取几帧
@@ -252,6 +276,16 @@ class StereoCameraNode:
                                 if ret and test_frame is not None and test_frame.size > 0:
                                     height, width = test_frame.shape[:2]
                                     rospy.loginfo(f"相机已成功打开，设备: {device}, 分辨率: {width}x{height}, 帧率: {self.frame_rate}")
+                                    
+                                    # 检查实际获取的分辨率是否符合预期
+                                    if abs(width - camera_width) > 10 or abs(height - camera_height) > 10:
+                                        rospy.logwarn(f"警告：实际相机分辨率 ({width}x{height}) 与请求的 ({camera_width}x{camera_height}) 不匹配")
+                                        rospy.logwarn("这可能会影响深度计算精度，请检查相机支持的分辨率")
+                                    
+                                    # 相机参数记录，用于深度计算
+                                    self.image_width = width
+                                    self.image_height = height
+                                    
                                     self.is_running = True
                                     self.is_reconnecting = False  # 确保重连标志被重置
                                     self.frame_count_fail = 0     # 重置失败计数
@@ -283,7 +317,13 @@ class StereoCameraNode:
                                 rospy.loginfo(f"尝试使用GStreamer打开设备: {device}")
                                 if isinstance(device, str) and device.startswith("/dev/video"):
                                     device_num = device.replace("/dev/video", "")
-                                    gst_str = f"v4l2src device={device} ! video/x-raw,format=BGR ! videoconvert ! appsink"
+                                    # 为HBVCAM相机设置特殊的GStreamer管道
+                                    if camera_format == 'MJPEG':
+                                        gst_str = f"v4l2src device={device} ! image/jpeg,width={camera_width},height={camera_height},framerate={self.frame_rate}/1 ! jpegdec ! videoconvert ! appsink"
+                                    else:  # YUY2
+                                        gst_str = f"v4l2src device={device} ! video/x-raw,format=YUY2,width={camera_width},height={camera_height},framerate={self.frame_rate}/1 ! videoconvert ! appsink"
+                                    
+                                    rospy.loginfo(f"使用GStreamer管道: {gst_str}")
                                     self.camera = cv2.VideoCapture(gst_str, cv2.CAP_GSTREAMER)
                                     if self.camera.isOpened():
                                         # 读取一帧测试相机是否正常工作
@@ -321,6 +361,15 @@ class StereoCameraNode:
                             import subprocess
                             result = subprocess.run(["ls", "-l", "/dev/video0"], capture_output=True, text=True)
                             rospy.loginfo(f"设备权限: {result.stdout.strip()}")
+                            
+                            # 尝试检查是否支持所请求的分辨率
+                            try:
+                                result = subprocess.run(["v4l2-ctl", "-d", "/dev/video0", "--list-formats-ext"], 
+                                                       capture_output=True, text=True)
+                                rospy.loginfo(f"支持的格式:\n{result.stdout.strip()}")
+                            except:
+                                rospy.logwarn("无法获取支持的格式信息，请确保安装了v4l-utils")
+                            
                         except Exception as e:
                             rospy.logwarn(f"无法检查设备权限: {e}")
                     else:
@@ -417,6 +466,35 @@ class StereoCameraNode:
                     filtered_disp = self.wls_filter.filter(left_disp, left_gray, disparity_map_right=right_disp)
                     # 处理无效区域
                     _, filtered_disp = cv2.threshold(filtered_disp, 0, np.inf, cv2.THRESH_TOZERO)
+                    
+                    # 转换视差图到实际深度值（可选）
+                    # 注意: 这需要相机标定参数才能正确计算
+                    # 基础公式: depth = (baseline * focal_length) / disparity
+                    if hasattr(self, 'camera_baseline') and hasattr(self, 'camera_focal_length'):
+                        # 把视差图转换为毫米单位的深度图
+                        # 我们需要考虑像素大小和分辨率
+                        # 估计像素大小基于图像分辨率和视场角
+                        
+                        # 如果视差图是float32，单位是像素，我们需要将其转换为米
+                        # 防止除以零
+                        valid_mask = filtered_disp > 0
+                        depth_map = np.zeros_like(filtered_disp)
+                        
+                        # 估计像素大小
+                        if hasattr(self, 'image_width') and hasattr(self, 'camera_fov'):
+                            # 通过视场角和图像宽度估计像素大小
+                            fov_rad = np.radians(self.camera_fov)
+                            pixel_size_mm = 2 * np.tan(fov_rad / 2) * self.camera_focal_length / self.image_width
+                            
+                            # 转换视差到实际深度值
+                            # depth = baseline * focal_length / (disparity * pixel_size)
+                            depth_map[valid_mask] = self.camera_baseline * self.camera_focal_length / (filtered_disp[valid_mask] * pixel_size_mm)
+                            
+                            # 限制深度范围（例如0.1米到10米）
+                            depth_map = np.clip(depth_map, 100, 10000)  # 100mm到10000mm
+                            
+                            return depth_map
+                    
                     return filtered_disp
                     
             # 如果没有进行WLS滤波，则返回原始视差图
