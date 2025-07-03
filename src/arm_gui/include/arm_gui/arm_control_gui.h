@@ -126,6 +126,12 @@ private slots:
     
     // Camera controls
     void onCameraSwitchButtonClicked();
+    void onLeftViewButtonClicked();  // 切换到左视图
+    void onRightViewButtonClicked(); // 切换到右视图
+    void onDepthViewButtonClicked(); // 切换到深度视图
+    void on_leftViewButton_clicked();
+    void on_rightViewButton_clicked();
+    void on_depthViewButton_clicked();
     
     // 3D view
     void on3DViewObjectSelected(int index);

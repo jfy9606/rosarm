@@ -151,14 +151,21 @@ class VisualServoController:
         try:
             # 检查图像的编码格式
             if msg.encoding == "32FC1":
+                # 原始深度图 - 包含实际距离数据
                 self.depth_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
+                rospy.loginfo("接收到原始深度图数据，可用于距离计算")
+            elif msg.encoding == "16UC1":
+                # 另一种常见的深度图编码格式
+                self.depth_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
+                # 需要将16位深度数据转换为实际距离
+                scale_factor = 0.001  # 通常为1mm
+                self.depth_image = self.depth_image.astype(np.float32) * scale_factor
+                rospy.loginfo("接收到16位深度图数据，已转换为米单位")
             elif msg.encoding == "bgr8":
-                # 如果接收到的是彩色深度图，而不是原始深度图，可以进行额外处理
-                # 例如，提取特定通道或进行颜色到深度的转换
-                # 在这里仅将其记录下来，但实际处理需要根据实际应用设计
+                # 如果接收到的是彩色深度图，不能直接用于距离计算
                 depth_bgr = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
                 rospy.loginfo("收到彩色深度图，需要原始深度数据进行准确的距离计算")
-                # 这里可以设置一个标志，表示没有有效的深度数据
+                # 这里不能使用彩色深度图计算距离
                 self.depth_image = None
             else:
                 rospy.logwarn(f"不支持的深度图像编码格式: {msg.encoding}")

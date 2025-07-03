@@ -96,9 +96,15 @@ class StereoCameraNode:
                 if self.view_mode == 2 and (not self.use_depth or not HAVE_XIMGPROC):
                     rospy.logwarn("深度图不可用，切换到左图模式")
                     self.view_mode = 0
+                    
+                # 立即更新当前视图
+                if hasattr(self, 'left_frame') and hasattr(self, 'right_frame'):
+                    if self.left_frame is not None and self.right_frame is not None:
+                        current_view = self.get_current_view(self.left_frame, self.right_frame)
+                        self.publish_current_view(current_view)
         else:
             rospy.logwarn(f"无效的视图模式: {new_mode}，有效值为 0(左图)、1(右图)、2(深度图)")
-    
+            
     def init_stereo_processor(self):
         """Initialize stereo vision processor based on selected method"""
         # 只在启用深度图且ximgproc可用时初始化
@@ -248,281 +254,257 @@ class StereoCameraNode:
             return False
     
     def get_current_view(self, left_image, right_image):
-        """根据当前视图模式返回相应的图像"""
+        """基于当前视图模式返回相应的图像"""
         if self.view_mode == 0:
             # 左图模式
             return left_image
         elif self.view_mode == 1:
             # 右图模式
             return right_image
-        elif self.view_mode == 2 and self.use_depth and HAVE_XIMGPROC:
+        elif self.view_mode == 2:
             # 深度图模式
-            depth_map = self.compute_depth_map(left_image, right_image)
-            if depth_map is not None:
-                return depth_map
+            if self.use_depth and HAVE_XIMGPROC:
+                depth_map = self.compute_depth_map(left_image, right_image)
+                if depth_map is not None:
+                    # 创建彩色深度图用于显示
+                    return self.create_colored_depth_map(depth_map)
+                else:
+                    # 如果深度图计算失败，返回左图
+                    rospy.logwarn("深度图计算失败，返回左图")
+                    return left_image
             else:
-                # 如果深度图计算失败，返回左图
-                rospy.logwarn("深度图计算失败，返回左图")
+                # 如果深度图不可用，返回左图
                 return left_image
-        else:
-            # 默认返回左图
-            return left_image
+        
+        # 默认返回左图
+        return left_image
     
     def compute_depth_map(self, left_image, right_image):
-        """Compute depth map from stereo images using semi-global matching"""
-        # 检查是否可以进行深度计算
+        """计算深度图"""
         if not self.use_depth or not HAVE_XIMGPROC or self.stereo_processor is None:
             return None
             
         try:
-            # 确保图像是有效的
-            if left_image is None or right_image is None:
-                rospy.logwarn("Invalid images for depth computation")
-                return None
+            # 转换为灰度图
+            left_gray = cv2.cvtColor(left_image, cv2.COLOR_BGR2GRAY)
+            right_gray = cv2.cvtColor(right_image, cv2.COLOR_BGR2GRAY)
+            
+            # 计算左视差图
+            left_disp = self.stereo_processor.compute(left_gray, right_gray)
+            
+            # 计算右视差图（用于WLS滤波）
+            if self.stereo_processor_right:
+                right_disp = self.stereo_processor_right.compute(right_gray, left_gray)
                 
-            if left_image.size == 0 or right_image.size == 0:
-                rospy.logwarn("Empty images for depth computation")
-                return None
-                
-            # 确保图像是灰度格式
-            if len(left_image.shape) == 3:
-                left_gray = cv2.cvtColor(left_image, cv2.COLOR_BGR2GRAY)
-            else:
-                left_gray = left_image
-                
-            if len(right_image.shape) == 3:
-                right_gray = cv2.cvtColor(right_image, cv2.COLOR_BGR2GRAY)
-            else:
-                right_gray = right_image
-            
-            # 检查灰度图是否有效
-            if left_gray.size == 0 or right_gray.size == 0:
-                rospy.logwarn("Empty grayscale images")
-                return None
-                
-            # 检查灰度图尺寸是否匹配
-            if left_gray.shape != right_gray.shape:
-                rospy.logwarn(f"Image size mismatch: left={left_gray.shape}, right={right_gray.shape}")
-                return None
-            
-            # 计算左右视差图
-            left_disp = self.stereo_processor.compute(left_gray, right_gray).astype(np.float32) / 16.0
-            right_disp = self.stereo_processor_right.compute(right_gray, left_gray).astype(np.float32) / 16.0
-            
-            # 使用WLS滤波器进行后处理优化
-            filtered_disp = self.wls_filter.filter(left_disp, left_gray, disparity_map_right=right_disp)
-            
-            # 视差转深度（基于相机参数）
-            # baseline(基线) * focal_length(焦距) / disparity(视差)
-            # 假设基线和焦距
-            baseline = 0.06  # 6cm，根据实际双目相机参数调整
-            focal_length = 500.0  # 像素单位，根据实际相机内参调整
-            
-            # 避免除以零
-            mask = filtered_disp > 0
-            depth_map = np.zeros_like(filtered_disp)
-            depth_map[mask] = (baseline * focal_length) / filtered_disp[mask]
-            
-            # 限制深度范围在合理值内
-            depth_map = np.clip(depth_map, 0.1, 5.0)
-            
-            # 根据视图模式返回不同格式的深度图
-            if self.view_mode == 2:  # 当用于视图显示时
-                # 生成彩色深度图用于显示
-                # 归一化视差图
-                norm_disp = cv2.normalize(filtered_disp, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
-                # 生成彩色深度图
-                depth_colormap = cv2.applyColorMap(norm_disp, cv2.COLORMAP_JET)
-                return depth_colormap
-            else:
-                # 返回原始深度图（用于保存精确的深度值）
-                return depth_map
+                # 使用WLS滤波器进行优化
+                if self.wls_filter:
+                    filtered_disp = self.wls_filter.filter(left_disp, left_gray, disparity_map_right=right_disp)
+                    # 处理无效区域
+                    _, filtered_disp = cv2.threshold(filtered_disp, 0, np.inf, cv2.THRESH_TOZERO)
+                    return filtered_disp
+                    
+            # 如果没有进行WLS滤波，则返回原始视差图
+            # 注意：视差图是16位有符号整数，需要转换以便可视化
+            return left_disp
             
         except Exception as e:
-            rospy.logerr(f"Error in depth map computation: {e}")
+            rospy.logerr(f"深度图计算错误: {e}")
             return None
-    
+            
+    def create_colored_depth_map(self, depth_map):
+        """将深度图转换为彩色可视化图像"""
+        try:
+            # 归一化深度图
+            if depth_map.dtype != np.float32:
+                depth_map = depth_map.astype(np.float32)
+                
+            # 处理无效区域
+            valid_mask = depth_map > 0
+            if valid_mask.sum() > 0:  # 如果有有效数据
+                min_val = depth_map[valid_mask].min()
+                max_val = depth_map[valid_mask].max()
+                
+                if max_val > min_val:
+                    # 归一化到0-1范围
+                    depth_norm = np.zeros_like(depth_map)
+                    depth_norm[valid_mask] = (depth_map[valid_mask] - min_val) / (max_val - min_val)
+                    
+                    # 转换为彩色图像（jet色彩映射）
+                    depth_colored = cv2.applyColorMap((depth_norm * 255).astype(np.uint8), cv2.COLORMAP_JET)
+                    
+                    # 将无效区域设置为黑色
+                    depth_colored[~valid_mask] = 0
+                    
+                    return depth_colored
+            
+            # 如果没有有效数据，返回全黑图像
+            return np.zeros((depth_map.shape[0], depth_map.shape[1], 3), dtype=np.uint8)
+            
+        except Exception as e:
+            rospy.logerr(f"彩色深度图创建错误: {e}")
+            return np.zeros((depth_map.shape[0], depth_map.shape[1], 3), dtype=np.uint8)
+            
+    def publish_depth_images(self, depth_map, left_image):
+        """发布原始深度图和彩色深度图"""
+        if depth_map is None or self.depth_pub is None or self.raw_depth_pub is None:
+            return
+            
+        try:
+            # 检查深度图的类型
+            if len(depth_map.shape) == 2:  # 单通道深度图 (32FC1)
+                # 将浮点深度图转换为彩色可视化图
+                # 归一化深度图
+                colored_depth = self.create_colored_depth_map(depth_map)
+                
+                # 创建彩色深度图
+                colored_depth_msg = self.bridge.cv2_to_imgmsg(colored_depth, encoding="bgr8")
+                colored_depth_msg.header.stamp = rospy.Time.now()
+                
+                # 发布彩色深度图
+                self.depth_pub.publish(colored_depth_msg)
+                
+                # 同时发布原始深度图（保留精确的深度信息）
+                raw_depth_msg = self.bridge.cv2_to_imgmsg(depth_map.astype(np.float32), encoding="32FC1")
+                raw_depth_msg.header.stamp = rospy.Time.now()
+                self.raw_depth_pub.publish(raw_depth_msg)
+                
+            else:  # 彩色深度图 (已经是BGR格式)
+                # 发布深度图
+                depth_msg = self.bridge.cv2_to_imgmsg(depth_map, encoding="bgr8")
+                depth_msg.header.stamp = rospy.Time.now()
+                self.depth_pub.publish(depth_msg)
+                
+        except CvBridgeError as e:
+            rospy.logerr(f"深度图像转换错误: {e}")
+        except Exception as e:
+            rospy.logerr(f"深度图像转换错误: {e}")
+            
+    def publish_current_view(self, image):
+        """发布当前视图"""
+        if image is None:
+            return
+            
+        try:
+            img_msg = self.bridge.cv2_to_imgmsg(image, encoding="bgr8")
+            img_msg.header.stamp = rospy.Time.now()
+            self.current_view_pub.publish(img_msg)
+        except CvBridgeError as e:
+            rospy.logerr(f"图像转换错误: {e}")
+        except Exception as e:
+            rospy.logerr(f"图像转换错误: {e}")
+
     def publish_loop(self):
-        """Main loop for capturing and publishing images"""
-        rate = rospy.Rate(self.frame_rate)
-        
-        camera_info_left = CameraInfo()
-        camera_info_right = CameraInfo()
-        
-        # Set up basic camera info
-        camera_info_left.header.frame_id = "stereo_left"
-        camera_info_right.header.frame_id = "stereo_right"
-        camera_info_left.height = 480
-        camera_info_left.width = 640
-        camera_info_right.height = 480
-        camera_info_right.width = 640
-        
-        # Set up camera matrix (approximate values)
-        K = [600.0, 0.0, 320.0, 0.0, 600.0, 240.0, 0.0, 0.0, 1.0]
-        camera_info_left.K = K
-        camera_info_right.K = K
-        
-        # Set distortion model
-        camera_info_left.distortion_model = "plumb_bob"
-        camera_info_right.distortion_model = "plumb_bob"
-        
-        # 失败计数和恢复机制
-        consecutive_failures = 0
-        max_failures = 5
+        """发布图像的主循环"""
+        rate = rospy.Rate(self.frame_rate)  # 使用设置的帧率
         
         while not rospy.is_shutdown():
-            if not self.is_running:
-                # Try to reopen camera if it's closed
-                if not self.open_camera():
-                    rate.sleep()
-                    continue
-            
-            # Capture frame
-            with self.camera_lock:
-                if self.camera is None:
-                    rate.sleep()
-                    continue
-                    
-                # 尝试读取帧，处理可能的JPEG损坏错误
-                try:
-                    ret, frame = self.camera.read()
-                except cv2.error as e:
-                    # 忽略JPEG错误，并尝试下一帧
-                    rospy.logwarn(f"OpenCV error: {e}")
-                    ret = False
-                except Exception as e:
-                    rospy.logerr(f"Unexpected error reading camera: {e}")
-                    ret = False
-            
-            if not ret:
-                consecutive_failures += 1
-                rospy.logerr(f"Failed to capture frame ({consecutive_failures}/{max_failures})")
-                
-                # 如果连续失败太多次，重置相机
-                if consecutive_failures >= max_failures:
-                    rospy.logwarn("Too many consecutive failures, resetting camera...")
-                    self.is_running = False
-                    with self.camera_lock:
-                        if self.camera is not None:
-                            try:
-                                self.camera.release()
-                            except:
-                                pass
-                            self.camera = None
-                
-                rate.sleep()
-                continue
-            
-            # 成功获取帧，重置失败计数
-            consecutive_failures = 0
-            
             try:
-                # 检查帧是否有效
-                if frame is None or frame.size == 0:
-                    rospy.logwarn("Empty frame received")
-                    rate.sleep()
-                    continue
-                
-                # Split frame into left and right images
-                height, width = frame.shape[:2]
-                half_width = width // 2
-                
-                if width > 1 and half_width > 0:
-                    try:
-                        # 确保分割索引在有效范围内
-                        if half_width > frame.shape[1]:
-                            half_width = frame.shape[1] // 2
+                with self.camera_lock:
+                    if self.camera is None or not self.camera.isOpened():
+                        if not self.is_reconnecting:
+                            self.is_reconnecting = True
+                            rospy.logwarn("Camera connection lost, attempting to reconnect...")
+                            self.open_camera()
+                        rate.sleep()
+                        continue
                         
-                        left_image = frame[:, :half_width].copy()  # 使用copy()避免共享内存引起的问题
-                        right_image = frame[:, half_width:].copy()
+                    # 读取帧
+                    success, frame = self.camera.read()
+                    
+                    if not success:
+                        frame_count_fail = getattr(self, 'frame_count_fail', 0) + 1
+                        self.frame_count_fail = frame_count_fail
                         
-                        # 验证图像大小和数据完整性
-                        if left_image.size == 0 or right_image.size == 0:
-                            raise ValueError("Invalid split image size")
-                    except Exception as e:
-                        rospy.logwarn(f"Error splitting frame: {e}")
-                        # 如果分割出错，创建空白图像
-                        left_image = np.zeros((480, 640, 3), dtype=np.uint8)
-                        right_image = np.zeros((480, 640, 3), dtype=np.uint8)
-                else:
-                    # If we can't split the image, create dummy images
-                    left_image = np.zeros((480, 640, 3), dtype=np.uint8)
-                    right_image = np.zeros((480, 640, 3), dtype=np.uint8)
-                
-                # 获取当前视图模式下的图像
-                current_view = self.get_current_view(left_image, right_image)
-                
-                # Create timestamps
-                now = rospy.Time.now()
-                
-                # Publish left image
-                left_msg = self.bridge.cv2_to_imgmsg(left_image, "bgr8")
-                left_msg.header.stamp = now
-                left_msg.header.frame_id = "stereo_left"
-                self.left_pub.publish(left_msg)
-                
-                # Publish right image
-                right_msg = self.bridge.cv2_to_imgmsg(right_image, "bgr8")
-                right_msg.header.stamp = now
-                right_msg.header.frame_id = "stereo_right"
-                self.right_pub.publish(right_msg)
-                
-                # Publish current view image
-                current_view_msg = self.bridge.cv2_to_imgmsg(current_view, "bgr8")
-                current_view_msg.header.stamp = now
-                current_view_msg.header.frame_id = "stereo_camera"
-                self.current_view_pub.publish(current_view_msg)
-                
-                # Publish depth map if enabled
-                if self.use_depth and self.depth_pub is not None:
-                    depth_map = self.compute_depth_map(left_image, right_image)
-                    if depth_map is not None:
+                        if frame_count_fail > 5:  # 连续5次失败，尝试重新打开摄像头
+                            rospy.logwarn("摄像头读取失败，尝试重新连接...")
+                            self.camera.release()
+                            self.camera = None
+                            self.is_reconnecting = True
+                            self.open_camera()
+                        rate.sleep()
+                        continue
+                        
+                    # 重置失败计数
+                    self.frame_count_fail = 0
+                    self.is_reconnecting = False
+                    
+                    # 对于宽幅摄像头，分割图像为左右两部分
+                    height, width = frame.shape[:2]
+                    
+                    # 如果是宽幅图像，认为左右各占一半
+                    if width > height * 1.5:  # 宽高比大于1.5认为是双目图像
+                        mid = width // 2
+                        left_frame = frame[:, :mid]
+                        right_frame = frame[:, mid:]
+                        
+                        # 确保左右图像尺寸一致
+                        if left_frame.shape[1] != right_frame.shape[1]:
+                            min_width = min(left_frame.shape[1], right_frame.shape[1])
+                            left_frame = left_frame[:, :min_width]
+                            right_frame = right_frame[:, :min_width]
+                            
+                        # 缓存帧用于视图切换
+                        self.left_frame = left_frame
+                        self.right_frame = right_frame
+                        
+                        # 获取当前视图
+                        current_view = self.get_current_view(left_frame, right_frame)
+                        
+                        # 发布左右图像
                         try:
-                            # 检查深度图的类型
-                            if len(depth_map.shape) == 2:  # 单通道深度图 (32FC1)
-                                # 将浮点深度图转换为彩色可视化图
-                                # 归一化深度图
-                                min_val, max_val = 0.1, 5.0  # 假设深度范围
-                                depth_normalized = np.clip(depth_map, min_val, max_val)
-                                depth_normalized = ((depth_normalized - min_val) / (max_val - min_val) * 255).astype(np.uint8)
-                                # 创建彩色深度图
-                                depth_colormap = cv2.applyColorMap(depth_normalized, cv2.COLORMAP_JET)
-                                # 发布彩色深度图
-                                depth_msg = self.bridge.cv2_to_imgmsg(depth_colormap, "bgr8")
-                                
-                                # 同时发布原始深度图（保留精确的深度信息）
-                                try:
-                                    raw_depth_msg = self.bridge.cv2_to_imgmsg(depth_map, encoding="32FC1")
-                                    raw_depth_msg.header.stamp = now
-                                    raw_depth_msg.header.frame_id = "stereo_depth_raw"
-                                    if hasattr(self, 'raw_depth_pub') and self.raw_depth_pub is not None:
-                                        self.raw_depth_pub.publish(raw_depth_msg)
-                                except cv_bridge.CvBridgeError as e:
-                                    rospy.logerr(f"原始深度图转换错误: {e}")
-                            else:  # 彩色深度图 (已经是BGR格式)
-                                depth_msg = self.bridge.cv2_to_imgmsg(depth_map, "bgr8")
+                            left_msg = self.bridge.cv2_to_imgmsg(left_frame, "bgr8")
+                            right_msg = self.bridge.cv2_to_imgmsg(right_frame, "bgr8")
                             
-                            # 发布深度图
-                            depth_msg.header.stamp = now
-                            depth_msg.header.frame_id = "stereo_depth"
-                            self.depth_pub.publish(depth_msg)
+                            left_msg.header.stamp = rospy.Time.now()
+                            right_msg.header.stamp = left_msg.header.stamp
                             
-                        except cv_bridge.CvBridgeError as e:
-                            rospy.logerr(f"深度图像转换错误: {e}")
-                        except Exception as e:
-                            rospy.logerr(f"深度图像转换错误: {e}")
-                
-                # Publish camera info
-                camera_info_left.header.stamp = now
-                camera_info_right.header.stamp = now
-                self.left_info_pub.publish(camera_info_left)
-                self.right_info_pub.publish(camera_info_right)
-                
-            except CvBridgeError as e:
-                rospy.logerr(f"CV Bridge error: {e}")
+                            self.left_pub.publish(left_msg)
+                            self.right_pub.publish(right_msg)
+                            
+                            # 发布当前视图
+                            self.publish_current_view(current_view)
+                            
+                            # 如果启用了深度图并且ximgproc可用，计算并发布深度图
+                            if self.use_depth and HAVE_XIMGPROC:
+                                depth_map = self.compute_depth_map(left_frame, right_frame)
+                                if depth_map is not None:
+                                    self.publish_depth_images(depth_map, left_frame)
+                            
+                            # 发布相机信息
+                            camera_info = CameraInfo()
+                            camera_info.header = left_msg.header
+                            camera_info.width = left_frame.shape[1]
+                            camera_info.height = left_frame.shape[0]
+                            self.left_info_pub.publish(camera_info)
+                            self.right_info_pub.publish(camera_info)
+                            
+                        except CvBridgeError as e:
+                            rospy.logerr(f"图像转换错误: {e}")
+                    else:
+                        # 单目图像，只发布左图
+                        try:
+                            # 缓存帧用于视图切换
+                            self.left_frame = frame
+                            self.right_frame = frame  # 对于单目相机，左右图相同
+                            
+                            img_msg = self.bridge.cv2_to_imgmsg(frame, "bgr8")
+                            img_msg.header.stamp = rospy.Time.now()
+                            
+                            self.left_pub.publish(img_msg)
+                            self.current_view_pub.publish(img_msg)
+                            
+                            # 发布相机信息
+                            camera_info = CameraInfo()
+                            camera_info.header = img_msg.header
+                            camera_info.width = frame.shape[1]
+                            camera_info.height = frame.shape[0]
+                            self.left_info_pub.publish(camera_info)
+                        except CvBridgeError as e:
+                            rospy.logerr(f"图像转换错误: {e}")
+                            
             except Exception as e:
-                rospy.logerr(f"Error in publish loop: {e}")
-            
+                rospy.logerr(f"相机处理异常: {e}")
+                
             rate.sleep()
     
     def shutdown(self):
