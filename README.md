@@ -318,40 +318,163 @@ source devel/setup.bash
 roslaunch test_joints.launch
 ```
 
-### 摄像头支持
+## 相机使用说明
 
-系统支持双目OV4689摄像头，使用MJPEG格式，分辨率1280x480，30FPS。代码已针对此配置进行了优化。
+### HBVCAM-4M2214HD-2 双目相机参数
 
-系统自动支持宽幅摄像头，会自动检测图像宽高比，并处理左半部分图像。这对于宽幅图像尤其有用。
+本系统使用HBVCAM-4M2214HD-2 V11双目相机，其主要参数如下：
 
-摄像头参数可以在以下文件中配置：
-- `launch/demo.launch`
-- `launch/camera_test.launch`
-- `launch/direct_camera.launch`
+- **感光芯片**: OV4689(1/3) CMOS, 400万像素
+- **基线距离**: 60mm（左镜头中线到右镜头中线距离）
+- **视场角/焦距**: 72°有畸变/焦距3.6mm 或 80°无畸变/焦距3.0mm
+- **输出格式**: MJPEG/YUY2
+- **接口**: USB 2.0
 
-### 运行完整系统
+### 支持的分辨率
 
-使用以下命令启动完整系统，包括GUI界面和目标检测：
+该相机支持以下分辨率和帧率组合：
 
+#### MJPEG格式（推荐）
+- 1280x480 @ 30FPS（默认，左右双目合并）
+- 1920x1080 @ 30FPS
+- 2160x1080 @ 30FPS
+- 2560x720 @ 30FPS
+- 3840x1080 @ 30FPS
+- 3840x1520 @ 10FPS
+
+#### YUY2格式
+- 1280x480 @ 3FPS
+- 1920x1080 @ 3FPS
+- 2160x1080 @ 3FPS
+- 2560x720 @ 1FPS
+- 3840x1080 @ 1FPS
+
+### ROS话题
+
+相机节点提供以下ROS话题：
+
+- `/stereo_camera/left/image_raw` - 左相机图像
+- `/stereo_camera/right/image_raw` - 右相机图像（双目模式下）
+- `/stereo_camera/current_view` - 当前视图（左图/右图/深度图）
+- `/stereo_camera/depth/image_raw` - 彩色深度图（如果启用深度计算）
+- `/stereo_camera/depth/raw` - 原始深度数据（32位浮点，单位：像素视差）
+
+### 启动方式
+
+#### 标准分辨率 (1280x480)
 ```bash
-roslaunch run.launch enable_yolo:=true
+roslaunch arm_trajectory stereo_camera.launch
 ```
 
-可选参数：
-- `enable_yolo` - 启用/禁用YOLO目标检测 (默认: false)
-- `camera_device` - 摄像头设备路径 (默认: /dev/video0)
-- `resolution_width` - 摄像头宽度 (默认: 1280)
-- `resolution_height` - 摄像头高度 (默认: 480)
-- `fps` - 帧率 (默认: 30)
+#### 高分辨率 (3840x1080)
+```bash
+roslaunch arm_trajectory stereo_camera_highres.launch
+```
 
-### 系统配置
+#### 开发/测试模式（使用模拟相机）
+当实际相机不可用或在开发环境中，可以使用模拟相机模式：
 
-如需修改系统配置，可以编辑以下文件：
+```bash
+roslaunch arm_trajectory mock_camera.launch
+```
 
-- `launch/run.launch` - 主启动文件
-- `launch/camera_test.launch` - 摄像头测试启动文件
-- `launch/direct_camera.launch` - 直接访问摄像头启动文件
-- `launch/test_joints.launch` - 测试机械臂3D渲染启动文件
+#### 自定义分辨率
+如需使用其他分辨率，可以修改launch文件中的相关参数：
+```xml
+<param name="camera_width" value="1280" />
+<param name="camera_height" value="480" />
+<param name="camera_format" value="MJPEG" />
+<param name="frame_rate" value="30" />
+```
+
+### 图像处理说明
+
+1. **图像分割**: 由于相机输出的是左右合并图像，我们的软件会自动将合并图像分割为左右两个独立图像。
+
+2. **深度计算**: 利用左右图像进行视差计算，生成深度图。深度计算使用OpenCV的SGBM算法。
+
+3. **焦距与基线**: 该相机基线距离为60mm，焦距为3.6mm，这些参数已在系统中配置，用于正确的深度计算。
+
+### 参数配置
+
+可通过ROS参数配置相机节点行为：
+
+- `camera_index` (int): 相机设备索引，默认为0
+- `frame_rate` (int): 目标帧率，默认为30
+- `use_depth` (bool): 是否启用深度计算，默认为true
+- `view_mode` (int): 默认视图模式，0=左图，1=右图，2=深度图
+- `use_mock_camera` (bool): 是否使用模拟相机，默认为false
+- `mock_camera_pattern` (string): 模拟相机图案类型，默认为'checkerboard'
+- `camera_width` (int): 相机分辨率宽度，默认为1280
+- `camera_height` (int): 相机分辨率高度，默认为480
+- `camera_format` (string): 相机格式，默认为MJPEG
+
+### 常见问题与排查
+
+#### 1. 图像偏色或过暗/过亮
+
+手动调节焦距（扭转镜头）可能会改变图像的曝光和色彩。如遇到这种情况，可以尝试以下方法：
+
+```python
+# 调整相机参数示例
+camera.set(cv2.CAP_PROP_BRIGHTNESS, 128)  # 亮度 (0-255)
+camera.set(cv2.CAP_PROP_CONTRAST, 128)    # 对比度 (0-255)
+camera.set(cv2.CAP_PROP_SATURATION, 128)  # 饱和度 (0-255)
+```
+
+#### 2. 无法打开指定分辨率
+
+如果启动时报错无法设置指定分辨率，请确认：
+
+1. 检查相机是否支持该分辨率（参见上方列表）
+2. 对于高分辨率，确保USB带宽足够
+3. 使用`v4l2-ctl --list-formats-ext -d /dev/video0`检查实际支持的分辨率
+
+#### 3. 相机无法打开
+
+如果出现"无法打开相机设备"或类似错误：
+
+- 确认相机已正确连接到USB端口
+- 检查相机设备是否存在：`ls -l /dev/video*`
+- 检查当前用户是否有相机访问权限：`sudo usermod -a -G video $USER`
+- 尝试使用其他相机索引：修改launch文件中的`camera_index`参数
+- 尝试使用v4l2测试相机：`v4l2-ctl --list-devices` 和 `v4l2-ctl -d /dev/videoX --list-formats-ext`
+
+#### 4. 相机超时或读取失败
+
+如果遇到"select() timeout"或"读取测试帧失败"等错误：
+
+- 相机可能被其他程序占用，请关闭其他可能使用相机的应用
+- 检查USB连接是否稳定，尝试更换USB端口
+- 如果在虚拟机中运行，确保USB设备已正确传递给虚拟机
+- 尝试减小帧率和分辨率
+- 检查相机驱动是否兼容：`dmesg | grep -i video`
+
+#### 5. 深度图不准确
+
+双目相机的深度计算依赖于精确的相机标定。如果深度图不准确，可能需要：
+
+1. 重新调整镜头焦距，确保两个镜头焦距一致
+2. 在`stereo_camera_node.py`中微调视差计算参数
+
+### 性能优化建议
+
+1. 对于低性能设备，使用较低的分辨率（1280x480）
+2. 如果不需要实时深度计算，可以设置`use_depth`参数为`false`
+3. 高分辨率模式下，降低帧率可以减少CPU/GPU负载
+
+### 维护与清理
+
+1. 保持镜头清洁，使用专业镜头纸和气吹清理灰尘
+2. 避免长时间暴露在强光下
+3. 使用后将相机存放在干燥环境中
+
+### 系统要求
+
+- OpenCV: 4.2.0或更高版本
+- opencv-contrib-python（用于高级深度处理）
+- ROS: Noetic或更高版本
+- Python: 3.6或更高版本
 
 ## 故障排除
 
@@ -530,90 +653,7 @@ roslaunch run.launch enable_yolo:=true
 各节点之间通过ROS话题进行通信，主要话题包括：
 
 - `/camera/image_raw` - 摄像头图像
-- `/camera/detections`
-
-# 相机使用说明
-
-## 基本信息
-
-本系统使用双目相机（或单目相机）作为视觉输入，用于识别物体和计算深度信息。相机模块由 `stereo_camera_node.py` 脚本实现，提供ROS话题接口供其他节点使用。
-
-## ROS话题
-
-相机节点提供以下ROS话题：
-
+- `/camera/detections` - 检测结果
 - `/stereo_camera/left/image_raw` - 左相机图像
-- `/stereo_camera/right/image_raw` - 右相机图像（双目模式下）
-- `/stereo_camera/current_view` - 当前视图（左图/右图/深度图）
-- `/stereo_camera/depth/image_raw` - 彩色深度图（如果启用深度计算）
-- `/stereo_camera/depth/raw` - 原始深度数据（32位浮点，单位：像素视差）
-
-## 启动方式
-
-### 正常启动（使用实际相机）
-
-```bash
-roslaunch arm_trajectory stereo_camera.launch
-```
-
-### 开发/测试模式（使用模拟相机）
-
-当实际相机不可用或在开发环境中，可以使用模拟相机模式：
-
-```bash
-roslaunch arm_trajectory mock_camera.launch
-```
-
-## 参数配置
-
-可通过ROS参数配置相机节点行为：
-
-- `camera_index` (int): 相机设备索引，默认为0
-- `frame_rate` (int): 目标帧率，默认为30
-- `use_depth` (bool): 是否启用深度计算，默认为true
-- `view_mode` (int): 默认视图模式，0=左图，1=右图，2=深度图
-- `use_mock_camera` (bool): 是否使用模拟相机，默认为false
-- `mock_camera_pattern` (string): 模拟相机图案类型，默认为'checkerboard'
-
-## 常见问题与排查
-
-### 1. 相机无法打开
-
-如果出现"无法打开相机设备"或类似错误：
-
-- 确认相机已正确连接到USB端口
-- 检查相机设备是否存在：`ls -l /dev/video*`
-- 检查当前用户是否有相机访问权限：`sudo usermod -a -G video $USER`
-- 尝试使用其他相机索引：修改launch文件中的`camera_index`参数
-- 尝试使用v4l2测试相机：`v4l2-ctl --list-devices` 和 `v4l2-ctl -d /dev/videoX --list-formats-ext`
-
-### 2. 相机超时或读取失败
-
-如果遇到"select() timeout"或"读取测试帧失败"等错误：
-
-- 相机可能被其他程序占用，请关闭其他可能使用相机的应用
-- 检查USB连接是否稳定，尝试更换USB端口
-- 如果在虚拟机中运行，确保USB设备已正确传递给虚拟机
-- 尝试减小帧率和分辨率
-- 检查相机驱动是否兼容：`dmesg | grep -i video`
-
-### 3. 使用模拟相机模式
-
-在开发环境或相机不可用时，可以启用模拟相机模式进行开发测试：
-
-1. 在launch文件中设置参数：`use_mock_camera: true`
-2. 或者直接使用提供的mock_camera.launch文件启动
-
-### 4. 系统要求
-
-- OpenCV: 4.2.0或更高版本
-- opencv-contrib-python（用于高级深度处理）
-- ROS: Noetic或更高版本
-- Python: 3.6或更高版本
-
-## 其他注意事项
-
-1. 对于双目相机，确保设置宽屏格式（左右双目图像并排）
-2. 计算深度图需要安装opencv-contrib-python包
-3. 相机性能可能受光照条件影响，请确保环境光线充足
-4. 在资源有限的系统上，可以关闭深度计算以提高性能 
+- `/stereo_camera/right/image_raw` - 右相机图像
+- `/stereo_camera/depth/image_raw` - 深度图像 
