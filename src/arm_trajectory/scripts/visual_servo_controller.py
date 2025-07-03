@@ -149,9 +149,23 @@ class VisualServoController:
     def depth_image_callback(self, msg):
         """处理深度图像"""
         try:
-            self.depth_image = self.bridge.imgmsg_to_cv2(msg, "32FC1")
+            # 检查图像的编码格式
+            if msg.encoding == "32FC1":
+                self.depth_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
+            elif msg.encoding == "bgr8":
+                # 如果接收到的是彩色深度图，而不是原始深度图，可以进行额外处理
+                # 例如，提取特定通道或进行颜色到深度的转换
+                # 在这里仅将其记录下来，但实际处理需要根据实际应用设计
+                depth_bgr = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+                rospy.loginfo("收到彩色深度图，需要原始深度数据进行准确的距离计算")
+                # 这里可以设置一个标志，表示没有有效的深度数据
+                self.depth_image = None
+            else:
+                rospy.logwarn(f"不支持的深度图像编码格式: {msg.encoding}")
+                self.depth_image = None
         except cv_bridge.CvBridgeError as e:
             rospy.logerr(f"深度图像转换错误: {e}")
+            self.depth_image = None
     
     def command_callback(self, msg):
         """处理命令消息"""

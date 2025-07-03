@@ -9,7 +9,7 @@ from cv_bridge import CvBridge
 from sensor_msgs.msg import Image, CameraInfo
 from stereo_vision.msg import ObjectDetection
 from geometry_msgs.msg import PoseArray, Pose
-from std_msgs.msg import Header
+from std_msgs.msg import Header, Bool
 import tf
 import tf2_ros
 import geometry_msgs.msg
@@ -24,7 +24,19 @@ class StereoDetectionNode:
         rospy.init_node('stereo_detection_node', anonymous=True)
         
         # Load YOLOv8 model
-        self.model = YOLO(rospy.get_param('~yolo_model_path', 'best.pt'))
+        model_path = rospy.get_param('~yolo_model_path', 'yolov8n.pt')
+        try:
+            self.model = YOLO(model_path)
+            rospy.loginfo(f"成功加载YOLO模型: {model_path}")
+        except Exception as e:
+            rospy.logerr(f"加载YOLO模型失败: {str(e)}")
+            rospy.loginfo("尝试使用默认模型yolov8n.pt")
+            try:
+                self.model = YOLO('yolov8n.pt')
+                rospy.loginfo("成功加载默认YOLO模型")
+            except Exception as e:
+                rospy.logerr(f"加载默认YOLO模型失败: {str(e)}")
+                return
         
         # Initialize OpenCV bridge
         self.bridge = CvBridge()
@@ -53,6 +65,10 @@ class StereoDetectionNode:
         self.depth_image_pub = rospy.Publisher('depth_image', Image, queue_size=10)
         self.result_image_pub = rospy.Publisher('detection_image', Image, queue_size=10)
         self.pose_array_pub = rospy.Publisher('detected_poses', PoseArray, queue_size=10)
+        
+        # 额外添加GUI兼容的发布器
+        self.gui_detection_pub = rospy.Publisher('/detections/image', Image, queue_size=10)
+        self.gui_poses_pub = rospy.Publisher('/detections/poses', PoseArray, queue_size=10)
         
         # Set camera parameters
         self.camera_info = CameraInfo()
@@ -189,9 +205,15 @@ class StereoDetectionNode:
         # Publish pose array
         self.pose_array_pub.publish(pose_array)
         
+        # 同时发布到GUI兼容的话题
+        self.gui_poses_pub.publish(pose_array)
+        
         # Publish result image
         result_msg = self.bridge.cv2_to_imgmsg(annotated_frame, "bgr8")
         self.result_image_pub.publish(result_msg)
+        
+        # 同时发布到GUI兼容的话题
+        self.gui_detection_pub.publish(result_msg)
     
     def publish_tf(self, frame_id, x, y, z):
         """Publish TF frame for an object"""

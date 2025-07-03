@@ -11,7 +11,15 @@ from sensor_msgs.msg import Image
 from geometry_msgs.msg import Pose, PoseArray
 from std_msgs.msg import Bool
 from cv_bridge import CvBridge, CvBridgeError
-from ultralytics import YOLO
+from std_srvs.srv import SetBool, SetBoolResponse
+
+# 尝试导入ultralytics
+try:
+    from ultralytics import YOLO
+    YOLO_AVAILABLE = True
+except ImportError:
+    YOLO_AVAILABLE = False
+    rospy.logwarn("无法导入ultralytics，将使用模拟检测")
 
 # 通过环境变量获取Python路径
 # 获取PYTHONPATH环境变量并将其添加到sys.path
@@ -40,83 +48,65 @@ if user_site and user_site not in sys.path and os.path.exists(user_site):
     rospy.loginfo(f"添加用户site-packages路径: {user_site}")
 
 class YoloDetector:
-    """YOLO目标检测器，用于检测图像中的物体"""
+    """
+    YOLO目标检测器，用于检测图像中的物体并发布检测结果
+    """
     
     def __init__(self, model_name="yolov8n.pt", conf_threshold=0.25):
         """
-        初始化YOLOv8检测器
+        初始化YOLO检测器
         
         Args:
-            model_name: YOLO模型名称或路径
-            conf_threshold: 置信度阈值
+            model_name: YOLO模型文件名
+            conf_threshold: 检测置信度阈值
         """
-        # 初始化ROS节点
         rospy.init_node('yolo_detector', anonymous=True)
         
-        # 保存参数
-        self.conf_threshold = conf_threshold
-        self.model_name = model_name
+        # 初始化参数
+        self.model_name = rospy.get_param('~model_path', model_name)
+        self.conf_threshold = rospy.get_param('~conf_threshold', conf_threshold)
+        self.image_topic = rospy.get_param('~image_topic', '/stereo_camera/image_raw')
+        self.detection_enabled = rospy.get_param('~detection_enabled', True)
         
-        # 重叠检测合并参数
-        self.iou_threshold = rospy.get_param('~iou_threshold', 0.45)  # IoU阈值
-        self.same_class_only = rospy.get_param('~same_class_only', False)  # 是否只合并相同类别的检测
-        
-        # 获取图像话题参数
-        self.image_topic = rospy.get_param('~image_topic', '/stereo_camera/image_merged')
-        
-        # 创建图像转换桥
+        # 初始化OpenCV桥接器
         self.bridge = CvBridge()
         
         # 加载YOLO模型
-        try:
-            # 尝试加载模型
-            rospy.loginfo(f"正在加载YOLO模型: {model_name}")
-            
-            # 尝试在多个路径中查找模型
-            model_paths = [
-                model_name,  # 直接使用提供的路径
-                os.path.join(os.path.dirname(os.path.abspath(__file__)), model_name),  # 当前脚本目录
-                os.path.join(os.path.expanduser('~'), '.local', 'lib', 'python3.8', 'site-packages', 'ultralytics', 'models', model_name),  # 安装目录
-            ]
-            
-            model_loaded = False
-            for path in model_paths:
-                try:
-                    if os.path.exists(path):
-                        rospy.loginfo(f"找到模型路径: {path}")
-                        self.model = YOLO(path)
-                        model_loaded = True
-                        break
-                except Exception as e:
-                    rospy.logwarn(f"在路径 {path} 加载模型失败: {e}")
-            
-            if not model_loaded:
-                rospy.loginfo("尝试直接从ultralytics加载模型")
-                self.model = YOLO(model_name)
-                model_loaded = True
-            
-            rospy.loginfo(f"YOLO模型加载成功: {model_name}")
-            
-            # 获取类别名称
-            self.class_names = self.model.names
-            rospy.loginfo(f"加载了 {len(self.class_names)} 个类别")
-            
-            # 设置模型加载标志为True
-            self.model_loaded = True
-        except Exception as e:
-            rospy.logerr(f"加载YOLO模型失败: {str(e)}")
-            self.model_loaded = False
-            
-        # 创建OpenCV桥接器
-        self.bridge = CvBridge()
+        self.model_loaded = False
+        self.model = None
+        self.class_names = {}
         
-        # 打印Python路径以便调试
-        rospy.loginfo(f"Python路径: {sys.path}")
+        # 尝试加载YOLO模型
+        if YOLO_AVAILABLE:
+            try:
+                # 尝试加载指定的模型
+                if os.path.exists(str(self.model_name)):
+                    self.model = YOLO(str(self.model_name))
+                    self.model_loaded = True
+                    rospy.loginfo(f"成功加载YOLO模型: {self.model_name}")
+                else:
+                    # 如果指定模型不存在，尝试加载默认模型
+                    rospy.logwarn(f"模型文件不存在: {self.model_name}，尝试使用默认模型yolov8n.pt")
+                    try:
+                        self.model = YOLO('yolov8n.pt')
+                        self.model_loaded = True
+                        rospy.loginfo("成功加载默认YOLO模型")
+                    except Exception as e:
+                        rospy.logerr(f"加载默认YOLO模型失败: {str(e)}")
+                
+                # 获取类别名称
+                if self.model_loaded and hasattr(self.model, 'names'):
+                    self.class_names = self.model.names
+                    rospy.loginfo(f"类别: {self.class_names}")
+            except Exception as e:
+                rospy.logerr(f"加载YOLO模型时出错: {str(e)}")
+        else:
+            rospy.logwarn("未安装ultralytics，无法使用YOLO模型")
         
-        # 上次日志记录时间
-        self.last_log_time = rospy.Time.now()
+        # 创建服务
+        self.enable_service = rospy.Service('/yolo_detector/enable', SetBool, self.enable_detection_callback)
         
-        # 订阅图像话题（使用合成图像）
+        # 订阅图像话题
         self.image_sub = rospy.Subscriber(self.image_topic, Image, self.image_callback)
         rospy.loginfo(f"已订阅图像话题: {self.image_topic}")
         
@@ -127,19 +117,47 @@ class YoloDetector:
         self.detection_pub = rospy.Publisher('/detections/image', Image, queue_size=10)
         self.detection_image_pub = rospy.Publisher('/detections/image', Image, queue_size=10)  # 确保这个发布器存在
         self.poses_pub = rospy.Publisher('/detections/poses', PoseArray, queue_size=10)
+        self.status_pub = rospy.Publisher('/yolo/status', Bool, queue_size=10, latch=True)
+        
+        # 发布初始状态
+        self.publish_status()
+        
+        # 创建定时器，定期发布状态
+        rospy.Timer(rospy.Duration(5), self.publish_status_timer)
         
         rospy.loginfo(f"YOLO目标检测器已初始化")
     
+    def enable_detection_callback(self, req):
+        """处理启用/禁用检测的服务请求"""
+        self.detection_enabled = req.data
+        rospy.loginfo(f"YOLO检测状态更改为: {'启用' if self.detection_enabled else '禁用'}")
+        
+        # 发布状态更新
+        self.publish_status()
+        
+        return SetBoolResponse(True, f"YOLO检测已{'启用' if self.detection_enabled else '禁用'}")
+    
+    def publish_status_timer(self, event):
+        """定期发布状态"""
+        self.publish_status()
+    
+    def publish_status(self):
+        """发布当前检测状态"""
+        status_msg = Bool()
+        status_msg.data = self.detection_enabled and self.model_loaded
+        self.status_pub.publish(status_msg)
+    
     def control_callback(self, msg):
         """处理控制消息"""
-        # 这里可以保留控制回调，但不再处理模拟模式
         enabled = msg.data
-        rospy.loginfo(f"YOLO检测状态更改为: {'启用' if enabled else '禁用'}")
+        if enabled != self.detection_enabled:
+            self.detection_enabled = enabled
+            rospy.loginfo(f"YOLO检测状态更改为: {'启用' if self.detection_enabled else '禁用'}")
     
     def image_callback(self, msg):
         """处理图像消息"""
-        if not self.model_loaded:
-            rospy.logerr("YOLO模型未加载，无法进行检测")
+        if not self.model_loaded or not self.detection_enabled:
+            # 如果模型未加载或检测被禁用，直接转发原始图像
             self.detection_pub.publish(msg)
             return
         
@@ -177,7 +195,10 @@ class YoloDetector:
                 sys.stdout = f
                 
                 # 执行检测
-                results = self.model(image, verbose=False)
+                if self.model is not None:
+                    results = self.model(image, verbose=False)
+                else:
+                    return []
                 
                 # 恢复stdout
                 sys.stdout = original_stdout
@@ -283,10 +304,11 @@ class YoloDetector:
             # 创建姿态消息
             pose = Pose()
             
-            # 设置位置
+            # 设置位置 - 这里我们假设深度为1米，实际应用中应该使用真实深度
+            # 在stereo_detection_node.py中会使用真实深度替换这些值
             pose.position.x = center_x / 100.0  # 转换到米单位（假设图像单位为像素）
             pose.position.y = center_y / 100.0
-            pose.position.z = 0.0  # Z坐标设为0
+            pose.position.z = 1.0  # 默认深度1米
             
             # 设置方向（单位四元数，代表无旋转）
             pose.orientation.x = 0.0
@@ -318,121 +340,124 @@ class YoloDetector:
             boxes = result.boxes
             
             # 遍历所有边界框
-            for box in boxes:
-                # 获取置信度
-                conf = float(box.conf)
+            for i in range(len(boxes)):
+                # 获取边界框坐标
+                box = boxes[i].xyxy[0].cpu().numpy()  # 获取xyxy格式的边界框
+                x1, y1, x2, y2 = box[:4]
                 
-                # 仅保留高于阈值的结果
+                # 获取置信度
+                conf = float(boxes[i].conf[0].cpu().numpy())
+                
+                # 获取类别ID
+                class_id = int(boxes[i].cls[0].cpu().numpy())
+                
+                # 检查置信度是否高于阈值
                 if conf >= min_confidence:
-                    # 获取边界框坐标
-                    x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-                    
-                    # 获取类别ID
-                    class_id = int(box.cls)
-                    
-                    # 将检测结果添加到列表中
+                    # 添加到检测结果列表
                     detections.append([x1, y1, x2, y2, conf, class_id])
         
-        # 合并重叠的检测结果
+        # 合并重叠的检测框
         detections = self.merge_overlapping_detections(detections)
-                
+        
         return detections
-            
+    
     def merge_overlapping_detections(self, detections, iou_threshold=None, same_class_only=None):
         """
-        合并重叠的检测结果
+        合并重叠的检测框
         
         Args:
             detections: 检测结果列表，每个元素包含 [x1, y1, x2, y2, conf, class_id]
-            iou_threshold: IoU阈值，如果为None则使用默认值
-            same_class_only: 是否只合并相同类别的检测，如果为None则使用默认值
+            iou_threshold: IoU阈值，高于此阈值的框会被合并
+            same_class_only: 是否只合并相同类别的框
             
         Returns:
             merged_detections: 合并后的检测结果列表
         """
-        # 如果检测结果少于2个，直接返回
+        # 如果没有设置阈值，使用默认值
+        if iou_threshold is None:
+            iou_threshold = 0.5
+        
+        # 如果没有设置same_class_only，使用默认值
+        if same_class_only is None:
+            same_class_only = True
+        
+        # 如果检测结果少于2个，无需合并
         if len(detections) < 2:
             return detections
         
-        # 使用默认参数或传入的参数
-        iou_threshold = iou_threshold if iou_threshold is not None else self.iou_threshold
-        same_class_only = same_class_only if same_class_only is not None else self.same_class_only
+        # 按置信度降序排序
+        detections.sort(key=lambda x: x[4], reverse=True)
         
-        # 将检测结果转换为NumPy数组以便处理
+        # 转换为numpy数组，方便处理
         dets = np.array(detections)
         
-        # 按照置信度排序（降序）
-        indices = np.argsort(-dets[:, 4])
-        dets = dets[indices]
+        # 初始化保留框的索引列表
+        keep = []
         
-        # 创建保留标记数组
-        keep = np.ones(len(dets), dtype=bool)
-        
-        # 遍历检测结果
-        for i in range(len(dets) - 1):
-            # 如果当前检测已被标记为删除，跳过
-            if not keep[i]:
-                continue
-                
-            # 获取当前检测的边界框和类别
-            box1 = dets[i, :4]
-            class1 = dets[i, 5]
+        # 遍历所有框
+        while len(dets) > 0:
+            # 保留当前置信度最高的框
+            keep.append(dets[0])
             
-            # 计算当前检测与后续检测的IoU
-            for j in range(i + 1, len(dets)):
-                # 如果后续检测已被标记为删除，跳过
-                if not keep[j]:
-                    continue
-                    
-                # 获取后续检测的边界框和类别
-                box2 = dets[j, :4]
-                class2 = dets[j, 5]
+            # 如果只剩一个框，结束循环
+            if len(dets) == 1:
+                break
+            
+            # 计算当前框与其他框的IoU
+            ious = np.array([self.calculate_iou(dets[0], det) for det in dets[1:]])
+            
+            # 如果只合并相同类别的框，检查类别是否相同
+            if same_class_only:
+                # 获取类别ID
+                class_id = dets[0][5]
                 
-                # 如果只合并相同类别的检测且类别不同，跳过
-                if same_class_only and class1 != class2:
-                    continue
+                # 创建类别掩码
+                class_mask = dets[1:, 5] == class_id
                 
-                # 计算IoU
-                iou = self.calculate_iou(box1, box2)
-                
-                # 如果IoU超过阈值，标记后续检测为删除
-                if iou > iou_threshold:
-                    keep[j] = False
+                # 应用类别掩码
+                ious = ious * class_mask
+            
+            # 找出IoU低于阈值的框的索引
+            indices = np.where(ious < iou_threshold)[0]
+            
+            # 更新dets，只保留IoU低于阈值的框
+            dets = dets[1:][indices]
         
-        # 返回保留的检测结果
-        return dets[keep].tolist()
+        return keep
     
     def calculate_iou(self, box1, box2):
         """
-        计算两个边界框的IoU（交并比）
+        计算两个框的IoU
         
         Args:
-            box1: 第一个边界框 [x1, y1, x2, y2]
-            box2: 第二个边界框 [x1, y1, x2, y2]
+            box1: 第一个框 [x1, y1, x2, y2, conf, class_id]
+            box2: 第二个框 [x1, y1, x2, y2, conf, class_id]
             
         Returns:
-            iou: IoU值，范围[0, 1]
+            iou: IoU值
         """
-        # 计算交集矩形
-        x_left = max(box1[0], box2[0])
-        y_top = max(box1[1], box2[1])
-        x_right = min(box1[2], box2[2])
-        y_bottom = min(box1[3], box2[3])
+        # 提取坐标
+        box1_x1, box1_y1, box1_x2, box1_y2 = box1[:4]
+        box2_x1, box2_y1, box2_x2, box2_y2 = box2[:4]
         
-        # 如果边界框没有重叠，返回0
-        if x_right < x_left or y_bottom < y_top:
-            return 0.0
+        # 计算交集区域的坐标
+        x1 = max(box1_x1, box2_x1)
+        y1 = max(box1_y1, box2_y1)
+        x2 = min(box1_x2, box2_x2)
+        y2 = min(box1_y2, box2_y2)
         
-        # 计算交集面积
-        intersection_area = (x_right - x_left) * (y_bottom - y_top)
+        # 计算交集区域的面积
+        intersection = max(0, x2 - x1) * max(0, y2 - y1)
         
-        # 计算并集面积
-        box1_area = (box1[2] - box1[0]) * (box1[3] - box1[1])
-        box2_area = (box2[2] - box2[0]) * (box2[3] - box2[1])
-        union_area = box1_area + box2_area - intersection_area
+        # 计算两个框的面积
+        box1_area = (box1_x2 - box1_x1) * (box1_y2 - box1_y1)
+        box2_area = (box2_x2 - box2_x1) * (box2_y2 - box2_y1)
+        
+        # 计算并集区域的面积
+        union = box1_area + box2_area - intersection
         
         # 计算IoU
-        iou = intersection_area / union_area
+        iou = intersection / union if union > 0 else 0
         
         return iou
     
@@ -460,34 +485,23 @@ class YoloDetector:
             # 发布检测结果图像
             self.detection_pub.publish(detection_msg)
             
-            # 发布姿态数据
+            # 发布物体位姿
             self.publish_poses(detections, image_msg.header)
             
-        except CvBridgeError as e:
-            rospy.logerr(f"CV桥接错误: {str(e)}")
         except Exception as e:
-            rospy.logerr(f"处理图像和发布结果时出错: {str(e)}")
+            rospy.logerr(f"检测和发布时出错: {str(e)}")
 
 def main():
+    """主函数"""
     try:
-        # 获取YOLO模型名称
-        model_name = rospy.get_param('~model', 'yolov8n.pt')
+        # 创建YOLO检测器
+        detector = YoloDetector()
         
-        # 获取置信度阈值
-        conf_threshold = rospy.get_param('~conf', 0.25)
-        
-        # 创建并启动检测器
-        detector = YoloDetector(model_name, conf_threshold)
-        
-        # 进入ROS主循环
+        # 循环处理
         rospy.spin()
         
     except rospy.ROSInterruptException:
-        rospy.loginfo("YOLO检测节点已关闭")
         pass
 
 if __name__ == '__main__':
-    try:
-        main()
-    except Exception as e:
-        rospy.logerr(f"YOLO检测节点出现异常: {str(e)}") 
+    main() 

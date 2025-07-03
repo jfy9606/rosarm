@@ -491,11 +491,14 @@ class StereoCameraNode:
                                 depth_msg = self.bridge.cv2_to_imgmsg(depth_colormap, "bgr8")
                                 
                                 # 同时发布原始深度图（保留精确的深度信息）
-                                raw_depth_msg = self.bridge.cv2_to_imgmsg(depth_map, "32FC1")
-                                raw_depth_msg.header.stamp = now
-                                raw_depth_msg.header.frame_id = "stereo_depth_raw"
-                                if hasattr(self, 'raw_depth_pub') and self.raw_depth_pub is not None:
-                                    self.raw_depth_pub.publish(raw_depth_msg)
+                                try:
+                                    raw_depth_msg = self.bridge.cv2_to_imgmsg(depth_map, encoding="32FC1")
+                                    raw_depth_msg.header.stamp = now
+                                    raw_depth_msg.header.frame_id = "stereo_depth_raw"
+                                    if hasattr(self, 'raw_depth_pub') and self.raw_depth_pub is not None:
+                                        self.raw_depth_pub.publish(raw_depth_msg)
+                                except cv_bridge.CvBridgeError as e:
+                                    rospy.logerr(f"原始深度图转换错误: {e}")
                             else:  # 彩色深度图 (已经是BGR格式)
                                 depth_msg = self.bridge.cv2_to_imgmsg(depth_map, "bgr8")
                             

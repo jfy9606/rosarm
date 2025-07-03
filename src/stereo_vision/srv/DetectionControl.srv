@@ -1,0 +1,5 @@
+bool enable_detection
+float64 detection_threshold  # 0.0-1.0
+---
+bool success
+string message 

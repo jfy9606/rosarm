@@ -1,127 +1,140 @@
 cmake_minimum_required(VERSION 3.0.2)
 project(arm_gui)
 
-# Qt设置
-set(CMAKE_INCLUDE_CURRENT_DIR ON)
-set(CMAKE_AUTOUIC ON)
-set(CMAKE_AUTOMOC ON)
-set(CMAKE_AUTORCC ON)
-set(CMAKE_CXX_STANDARD 14)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_AUTOUIC_SEARCH_PATHS ${CMAKE_CURRENT_SOURCE_DIR}/ui)
+# 添加Qt5依赖
+find_package(Qt5 REQUIRED COMPONENTS Widgets Core Gui OpenGL)
 
-# 编译选项
-add_compile_options(-std=c++14)
+# 添加OpenCV依赖
+find_package(OpenCV REQUIRED)
 
-# 查找依赖包
+# 添加GL库
+find_package(OpenGL REQUIRED)
+find_package(GLUT REQUIRED)
+
 find_package(catkin REQUIRED COMPONENTS
   roscpp
   rospy
   std_msgs
   sensor_msgs
   geometry_msgs
-  moveit_msgs
   cv_bridge
   image_transport
+  arm_trajectory
   servo_wrist
+  stereo_vision
 )
 
-# 查找Qt5
-find_package(Qt5 COMPONENTS Core Gui Widgets OpenGL REQUIRED)
-
-# 系统依赖
-find_package(OpenGL REQUIRED)
-
-# 声明catkin包
 catkin_package(
   INCLUDE_DIRS include
   LIBRARIES ${PROJECT_NAME}
-  CATKIN_DEPENDS 
-    roscpp 
-    std_msgs 
-    sensor_msgs 
-    geometry_msgs 
-    moveit_msgs
-    cv_bridge
-    image_transport
-    servo_wrist
-  DEPENDS Qt5Core Qt5Gui Qt5Widgets Qt5OpenGL OPENGL
+  CATKIN_DEPENDS roscpp rospy std_msgs sensor_msgs geometry_msgs cv_bridge image_transport arm_trajectory servo_wrist stereo_vision
 )
 
-# 包含头文件目录
+# 添加Qt5定义
+add_definitions(${Qt5Widgets_DEFINITIONS})
+add_definitions(${Qt5Core_DEFINITIONS})
+add_definitions(${Qt5Gui_DEFINITIONS})
+add_definitions(${Qt5OpenGL_DEFINITIONS})
+
+# 设置自动MOC
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTOUIC ON)
+set(CMAKE_AUTORCC ON)
+
+# 设置UI文件路径
+set(CMAKE_AUTOUIC_SEARCH_PATHS ${CMAKE_CURRENT_SOURCE_DIR}/ui)
+
 include_directories(
   include
   ${catkin_INCLUDE_DIRS}
+  ${Qt5Widgets_INCLUDE_DIRS}
   ${Qt5Core_INCLUDE_DIRS}
   ${Qt5Gui_INCLUDE_DIRS}
-  ${Qt5Widgets_INCLUDE_DIRS}
   ${Qt5OpenGL_INCLUDE_DIRS}
-  ${CMAKE_CURRENT_BINARY_DIR}
+  ${OpenCV_INCLUDE_DIRS}
   ${OPENGL_INCLUDE_DIRS}
+  ${GLUT_INCLUDE_DIRS}
 )
 
-# 资源文件
-qt5_add_resources(QT_RESOURCES_CPP
-  resources/arm_gui_resources.qrc
+# 头文件
+set(HEADER_FILES
+  include/arm_gui/arm_control_gui.h
+  include/arm_gui/scene_3d_renderer.h
 )
 
-# 界面文件
-qt5_wrap_ui(QT_UI_CPP
-  ui/arm_control_main.ui
-)
-
-# 库文件
-add_library(${PROJECT_NAME}
+# 源文件
+set(SOURCE_FILES
   src/arm_control_gui.cpp
   src/scene_3d_renderer.cpp
-  include/${PROJECT_NAME}/arm_control_gui.h
-  ${QT_UI_CPP}
-  ${QT_RESOURCES_CPP}
 )
 
-# 添加依赖
-add_dependencies(${PROJECT_NAME} ${catkin_EXPORTED_TARGETS})
+# 自动处理Qt元对象
+qt5_wrap_cpp(MOC_FILES ${HEADER_FILES})
 
-# 链接库
+add_library(${PROJECT_NAME}
+  ${SOURCE_FILES}
+  ${MOC_FILES}
+)
+
+add_dependencies(${PROJECT_NAME} 
+  ${${PROJECT_NAME}_EXPORTED_TARGETS} 
+  ${catkin_EXPORTED_TARGETS}
+)
+
+# 链接Qt5库和OpenCV库
 target_link_libraries(${PROJECT_NAME}
   ${catkin_LIBRARIES}
+  ${OpenCV_LIBRARIES}
+  ${OPENGL_LIBRARIES}
+  ${GLUT_LIBRARIES}
+  Qt5::Widgets
   Qt5::Core
   Qt5::Gui
-  Qt5::Widgets
   Qt5::OpenGL
-  ${OPENGL_LIBRARIES}
-  GL
-  GLU
 )
 
-# 可执行文件
-add_executable(arm_gui_node src/arm_gui_node.cpp)
-target_link_libraries(arm_gui_node
+add_executable(${PROJECT_NAME}_node src/arm_gui.cpp)
+add_executable(joint_state_publisher_node src/joint_state_publisher_node.cpp)
+
+target_link_libraries(${PROJECT_NAME}_node
+  ${PROJECT_NAME}
+  ${catkin_LIBRARIES}
+  ${OpenCV_LIBRARIES}
+  ${OPENGL_LIBRARIES}
+  ${GLUT_LIBRARIES}
+  Qt5::Widgets
+  Qt5::Core
+  Qt5::Gui
+  Qt5::OpenGL
+)
+
+target_link_libraries(joint_state_publisher_node
   ${PROJECT_NAME}
   ${catkin_LIBRARIES}
 )
 
-# 关节状态发布节点
-add_executable(joint_state_publisher_node src/joint_state_publisher_node.cpp)
-target_link_libraries(joint_state_publisher_node
-  ${catkin_LIBRARIES}
-)
-
-# 安装目标
-install(TARGETS ${PROJECT_NAME} arm_gui_node joint_state_publisher_node
+install(TARGETS ${PROJECT_NAME} ${PROJECT_NAME}_node joint_state_publisher_node
   ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
-# 安装头文件
 install(DIRECTORY include/${PROJECT_NAME}/
   DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
   FILES_MATCHING PATTERN "*.h"
 )
 
-# 安装其他文件
 install(DIRECTORY launch/
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/launch
   FILES_MATCHING PATTERN "*.launch"
-) 
+)
+
+install(DIRECTORY rviz/
+  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/rviz
+  FILES_MATCHING PATTERN "*.rviz"
+)
+
+install(DIRECTORY ui/
+  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/ui
+  FILES_MATCHING PATTERN "*.ui"
+)

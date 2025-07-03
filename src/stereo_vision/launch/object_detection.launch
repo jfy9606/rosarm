@@ -1,0 +1,49 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- Launch parameters -->
+  <arg name="use_stereo_cam" default="true" />
+  <arg name="stereo_cam_device" default="/dev/video0" />
+  <arg name="yolo_model_path" default="$(env HOME)/arm/best.pt" />
+  <arg name="enable_visualization" default="true" />
+  <arg name="detection_enabled" default="true" />
+
+  <!-- Set the parameter server -->
+  <param name="/use_sim_time" value="false"/>
+
+  <!-- Launch the stereo camera node (either from a device or pre-recorded feed) -->
+  <group if="$(arg use_stereo_cam)">
+    <node pkg="video_stream_opencv" type="video_stream" name="stereo_camera_stream" output="screen">
+      <param name="camera_name" value="stereo_camera" />
+      <param name="video_stream_provider" value="$(arg stereo_cam_device)" />
+      <param name="set_camera_fps" value="30" />  <!-- 摄像头最高只支持30FPS -->
+      <param name="width" value="1280" />
+      <param name="height" value="480" /> 
+      <param name="frame_id" value="camera_link" />
+      <remap from="/stereo_camera/image_raw" to="/stereo_camera/image_raw" />
+    </node>
+  </group>
+
+  <!-- Launch the YOLO detector node -->
+  <node pkg="stereo_vision" type="yolo_detector.py" name="yolo_detector" output="screen">
+    <param name="model_path" value="$(arg yolo_model_path)"/>
+    <param name="conf_threshold" value="0.25"/>
+    <param name="detection_enabled" value="$(arg detection_enabled)"/>
+    <param name="image_topic" value="/stereo_camera/image_raw"/>
+  </node>
+
+  <!-- Launch the stereo vision detection node -->
+  <node pkg="stereo_vision" type="stereo_detection_node.py" name="stereo_detection_node" output="screen">
+    <param name="yolo_model_path" value="$(arg yolo_model_path)"/>
+    <param name="use_split_feed" value="false"/>
+  </node>
+
+  <!-- TF Static Publisher for camera to world transform -->
+  <node pkg="tf2_ros" type="static_transform_publisher" name="camera_link_broadcaster"
+        args="0.4 0 0.8 0 0.35 0 world camera_link" />
+
+  <!-- Launch RViz for visualization (optional) -->
+  <group if="$(arg enable_visualization)">
+    <node pkg="rviz" type="rviz" name="rviz" args="-d $(find stereo_vision)/rviz/stereo_arm_control.rviz"/>
+  </group>
+
+</launch> 

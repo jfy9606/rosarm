@@ -1,0 +1,5 @@
+bool on
+int32 power  # 0-100%
+---
+bool success
+string message 

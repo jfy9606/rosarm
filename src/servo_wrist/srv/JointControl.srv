@@ -1,0 +1,8 @@
+string arm_id
+float64[] positions
+float64[] velocities
+bool position_control  # If true, use positions; if false, use velocities
+float64 time_from_start
+---
+bool success
+string message 

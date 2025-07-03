@@ -9,10 +9,8 @@
 #include <termios.h>
 #include <sys/ioctl.h>
 
-// SCServo库的头文件
-extern "C" {
-    #include "SCServo/SCServo.h"
-}
+// 包含SCServo库
+#include "SCServo.h"
 
 class ServoController {
 private:
@@ -21,7 +19,7 @@ private:
     std::string port_;
     int baudrate_;
     bool initialized_;
-    SCSCL sc;
+    SMS_STS sms_sts;  // 使用SMS_STS类
 
 public:
     ServoController(const std::string& port, int baudrate = 1000000) 
@@ -43,7 +41,7 @@ public:
     ~ServoController() {
         // 关闭舵机控制器
         if (initialized_) {
-            SCS_Close(&sc);
+            sms_sts.end();
         }
     }
     
@@ -51,12 +49,12 @@ public:
         ROS_INFO("Using serial port: %s", port_.c_str());
         ROS_INFO("Serial speed %d", baudrate_);
         
-        // 初始化舵机控制器
-        if (SCS_Initialize(&sc, port_.c_str(), baudrate_) != 1) {
-            return false;
+        // 初始化舵机控制器，注意参数顺序：波特率在前，串口名在后
+        if (sms_sts.begin(baudrate_, port_.c_str())) {
+            return true;
         }
         
-        return true;
+        return false;
     }
     
     void servoCallback(const servo_wrist::SerControl::ConstPtr& msg) {
@@ -74,7 +72,7 @@ public:
                  servo_id, position, time, acc);
         
         // 发送舵机控制命令
-        int result = SCS_WritePos(&sc, servo_id, position, time, acc);
+        int result = sms_sts.WritePosEx(servo_id, position, time, acc);
         if (result != 1) {
             ROS_WARN("Failed to control servo ID %d, error: %d", servo_id, result);
         }

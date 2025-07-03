@@ -1,4 +1,4 @@
-#include "arm_gui/arm_control_gui.h"
+#include "arm_gui/scene_3d_renderer.h"
 #include <GL/gl.h>
 #include <GL/glu.h>
 #include <QOpenGLFunctions>
@@ -12,22 +12,24 @@
 Scene3DRenderer::Scene3DRenderer(QWidget* parent)
     : QOpenGLWidget(parent)
     , selected_object_(-1)
-    , camera_position_(0.0f, 1.0f, 3.0f)
-    , camera_target_(0.0f, 0.0f, 0.0f)
-    , camera_up_(0.0f, 1.0f, 0.0f)
+    , camera_position_(0.0f, -30.0f, 15.0f)
+    , camera_target_(0.0f, 0.0f, 10.0f)
+    , camera_up_(0.0f, 0.0f, 1.0f)
     , yaw_(0.0f)
-    , pitch_(30.0f)
+    , pitch_(0.0f)
     , zoom_(5.0f)
+    , end_effector_position_(0.0f, 0.0f, 0.0f)  // 初始化末端执行器位置
+    , dragging_end_effector_(false)  // 初始化拖动状态
 {
     // 设置焦点策略，允许通过Tab键获取焦点
     setFocusPolicy(Qt::StrongFocus);
     setMouseTracking(true);
     
     // 确保窗口可见
-    setMinimumSize(200, 200);
+    setMinimumSize(400, 300);
     
     // 添加默认的机械臂关节值，避免出现"关节数据为空"的错误
-    robot_joints_ = {0.0, 0.0, 0.0, 0.0, M_PI/2.0, 5.0};
+    robot_joints_.resize(6, 0.0);
     
     qDebug() << "Scene3DRenderer构造函数: 初始化完成";
 }
@@ -132,6 +134,12 @@ void Scene3DRenderer::paintGL()
             camera_up_.x(), camera_up_.y(), camera_up_.z()
         );
         
+        // 保存视图矩阵用于拾取计算
+        glGetFloatv(GL_MODELVIEW_MATRIX, view_matrix_.data());
+        
+        // 保存投影矩阵用于拾取计算
+        glGetFloatv(GL_PROJECTION_MATRIX, projection_matrix_.data());
+        
         // 绘制坐标轴
         renderCoordinateAxes();
         
@@ -140,6 +148,15 @@ void Scene3DRenderer::paintGL()
         
         // 绘制物体
         renderObjects();
+        
+        // 绘制末端执行器位置指示器
+        glDisable(GL_LIGHTING);
+        glColor3f(1.0f, 0.0f, 0.0f);
+        glPointSize(10.0f);
+        glBegin(GL_POINTS);
+        glVertex3f(end_effector_position_.x(), end_effector_position_.y(), end_effector_position_.z());
+        glEnd();
+        glEnable(GL_LIGHTING);
         
         // 检查OpenGL错误
         GLenum error = glGetError();
@@ -158,10 +175,29 @@ void Scene3DRenderer::mousePressEvent(QMouseEvent* event)
     last_mouse_pos_ = event->pos();
     
     if (event->button() == Qt::LeftButton) {
-        // 检测射线与物体相交
+        // 检测射线与末端执行器相交
         QVector3D ray = screenToRay(event->x(), event->y());
         
-        // 检查射线与每个物体的相交
+        // 首先检查末端执行器
+        if (rayIntersectsSphere(camera_position_, ray, end_effector_position_, 0.1f)) {
+            dragging_end_effector_ = true;
+            
+            // 确定拖动平面 - 使用相机视线法向
+            QVector3D view_dir = (camera_target_ - camera_position_).normalized();
+            
+            // 计算射线与末端执行器平面的交点
+            float t;
+            bool intersects = rayIntersectsPlane(camera_position_, ray, end_effector_position_, view_dir, t);
+            if (intersects) {
+                QVector3D intersection_point = camera_position_ + ray * t;
+                drag_offset_ = end_effector_position_ - intersection_point;
+            }
+            
+            // 不检查其他物体
+            return;
+        }
+        
+        // 然后检查场景中的物体
         bool found = false;
         for (size_t i = 0; i < objects_.size(); ++i) {
             if (rayIntersectsSphere(camera_position_, ray, objects_[i].first, 0.1f)) {
@@ -183,7 +219,25 @@ void Scene3DRenderer::mousePressEvent(QMouseEvent* event)
 
 void Scene3DRenderer::mouseMoveEvent(QMouseEvent* event)
 {
-    if (event->buttons() & Qt::RightButton) {
+    if (dragging_end_effector_) {
+        // 处理末端执行器拖动
+        QVector3D ray = screenToRay(event->x(), event->y());
+        
+        // 使用相机视线方向作为平面法向
+        QVector3D view_dir = (camera_target_ - camera_position_).normalized();
+        
+        // 计算射线与拖动平面的交点
+        float t;
+        bool intersects = rayIntersectsPlane(camera_position_, ray, end_effector_position_, view_dir, t);
+        if (intersects) {
+            QVector3D new_pos = camera_position_ + ray * t + drag_offset_;
+            
+            // 更新末端执行器位置并发出信号
+            end_effector_position_ = new_pos;
+            emit endEffectorPositionChanged(end_effector_position_);
+            update();
+        }
+    } else if (event->buttons() & Qt::RightButton) {
         // 旋转视角
         int dx = event->x() - last_mouse_pos_.x();
         int dy = event->y() - last_mouse_pos_.y();
@@ -254,8 +308,10 @@ int Scene3DRenderer::getSelectedObject() const
 
 void Scene3DRenderer::setRobotPose(const std::vector<double>& joint_values)
 {
-    robot_joints_ = joint_values;
-    update();
+    if (joint_values.size() >= robot_joints_.size()) {
+        robot_joints_ = joint_values;
+        update();
+    }
 }
 
 void Scene3DRenderer::renderCoordinateAxes()
@@ -270,17 +326,17 @@ void Scene3DRenderer::renderCoordinateAxes()
     // X轴 (红色)
     glColor3f(1.0f, 0.0f, 0.0f);
     glVertex3f(0.0f, 0.0f, 0.0f);
-    glVertex3f(1.0f, 0.0f, 0.0f);
+    glVertex3f(10.0f, 0.0f, 0.0f);
     
     // Y轴 (绿色)
     glColor3f(0.0f, 1.0f, 0.0f);
     glVertex3f(0.0f, 0.0f, 0.0f);
-    glVertex3f(0.0f, 1.0f, 0.0f);
+    glVertex3f(0.0f, 10.0f, 0.0f);
     
     // Z轴 (蓝色)
     glColor3f(0.0f, 0.0f, 1.0f);
     glVertex3f(0.0f, 0.0f, 0.0f);
-    glVertex3f(0.0f, 0.0f, 1.0f);
+    glVertex3f(0.0f, 0.0f, 10.0f);
     
     glEnd();
     
@@ -611,4 +667,38 @@ bool Scene3DRenderer::rayIntersectsSphere(const QVector3D& ray_origin, const QVe
     float discriminant = b * b - 4 * a * c;
     
     return discriminant > 0;
+}
+
+// 添加鼠标释放事件
+void Scene3DRenderer::mouseReleaseEvent(QMouseEvent* event)
+{
+    if (event->button() == Qt::LeftButton && dragging_end_effector_) {
+        dragging_end_effector_ = false;
+    }
+}
+
+// 实现光线与平面相交检测
+bool Scene3DRenderer::rayIntersectsPlane(const QVector3D& ray_origin, const QVector3D& ray_dir,
+                                       const QVector3D& plane_point, const QVector3D& plane_normal,
+                                       float& t)
+{
+    float denom = QVector3D::dotProduct(ray_dir, plane_normal);
+    if (std::abs(denom) < 0.00001f)  // 射线与平面平行
+        return false;
+    
+    t = QVector3D::dotProduct(plane_point - ray_origin, plane_normal) / denom;
+    return (t >= 0);  // 只有t为正时相交才有效（在射线前方）
+}
+
+// 设置末端执行器位置
+void Scene3DRenderer::setEndEffectorPosition(const QVector3D& position)
+{
+    end_effector_position_ = position;
+    update();
+}
+
+// 获取末端执行器位置
+QVector3D Scene3DRenderer::getEndEffectorPosition() const
+{
+    return end_effector_position_;
 } 

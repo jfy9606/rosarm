@@ -37,6 +37,9 @@ class DepthEstimator:
         # 初始化OpenCV立体匹配器
         self.init_stereo_matcher()
         
+        # 尝试初始化WLS滤波器来改善深度图质量
+        self.init_wls_filter()
+        
         # 如果需要，尝试加载MiDaS深度估计模型
         if self.use_midas:
             self.load_midas_model()
@@ -51,32 +54,54 @@ class DepthEstimator:
         try:
             # 基于示例代码优化的SGBM参数
             # 参照examples/cam/#final.py中的设置
-            blockSize = 8
+            blockSize = 5  # 减小block size以获得更精确的边缘
             img_channels = 3
             self.stereo = cv2.StereoSGBM_create(
                 minDisparity=1,
-                numDisparities=64,
+                numDisparities=64,  # 增加视差范围以检测更远的物体
                 blockSize=blockSize,
                 P1=8 * img_channels * blockSize * blockSize,
                 P2=32 * img_channels * blockSize * blockSize,
-                disp12MaxDiff=-1,
-                preFilterCap=140,
-                uniquenessRatio=1,
+                disp12MaxDiff=1,  # 设置为较小的正值，改善准确度
+                preFilterCap=31,  # 减小预过滤器容量以减少噪声
+                uniquenessRatio=10,  # 增加唯一性比率以减少误匹配
                 speckleWindowSize=100,
-                speckleRange=100,
-                mode=cv2.STEREO_SGBM_MODE_HH)
+                speckleRange=32,
+                mode=cv2.STEREO_SGBM_MODE_SGBM_3WAY  # 使用3-way模式获得更好的质量
+            )
             
             rospy.loginfo("已初始化优化的OpenCV立体匹配算法(SGBM)")
-            self.use_wls_filter = False  # 示例没有使用WLS
+            
         except Exception as e:
             rospy.logerr(f"无法初始化OpenCV立体匹配: {e}")
             # 尝试使用更简单的StereoBM
             try:
                 self.stereo = cv2.StereoBM_create(numDisparities=64, blockSize=9)
-                self.use_wls_filter = False
                 rospy.loginfo("已初始化OpenCV立体匹配算法(BM)")
             except Exception as e2:
                 rospy.logerr(f"无法初始化任何立体匹配算法: {e2}")
+    
+    def init_wls_filter(self):
+        """初始化WLS滤波器来改善深度图"""
+        self.use_wls_filter = False
+        
+        try:
+            # 检查cv2.ximgproc模块是否可用
+            if hasattr(cv2, 'ximgproc') and hasattr(cv2.ximgproc, 'createDisparityWLSFilter'):
+                # 创建右侧匹配器（用于WLS滤波）
+                self.right_matcher = cv2.ximgproc.createRightMatcher(self.stereo)
+                
+                # 创建WLS滤波器
+                self.wls_filter = cv2.ximgproc.createDisparityWLSFilter(self.stereo)
+                self.wls_filter.setLambda(8000.0)
+                self.wls_filter.setSigmaColor(1.5)
+                
+                self.use_wls_filter = True
+                rospy.loginfo("已初始化WLS滤波器，将用于改善深度图质量")
+            else:
+                rospy.logwarn("cv2.ximgproc模块不可用，不使用WLS滤波器")
+        except Exception as e:
+            rospy.logwarn(f"初始化WLS滤波器时出错: {e}，将不使用此功能")
     
     def load_midas_model(self):
         """加载MiDaS深度估计模型"""
@@ -125,9 +150,37 @@ class DepthEstimator:
                 left_gray = cv2.equalizeHist(left_gray)
                 right_gray = cv2.equalizeHist(right_gray)
                 
+                # 应用双边滤波进行降噪同时保留边缘细节
+                left_gray = cv2.bilateralFilter(left_gray, 5, 75, 75)
+                right_gray = cv2.bilateralFilter(right_gray, 5, 75, 75)
+                
                 # 使用改进的立体匹配算法计算视差
                 try:
-                    disparity = self.stereo.compute(left_gray, right_gray)
+                    # 计算左右视差图
+                    left_disp = self.stereo.compute(left_gray, right_gray)
+                    
+                    # 应用WLS滤波器进行后处理，如果可用
+                    if self.use_wls_filter:
+                        try:
+                            # 计算右视差图
+                            right_disp = self.right_matcher.compute(right_gray, left_gray)
+                            
+                            # 应用WLS滤波器
+                            filtered_disp = self.wls_filter.filter(
+                                disparity_map_left=left_disp, 
+                                left_view=left_gray,
+                                right_view=right_gray,
+                                disparity_map_right=right_disp
+                            )
+                            
+                            # 使用过滤后的视差
+                            disparity = filtered_disp
+                            rospy.loginfo_once("使用WLS滤波器处理视差图")
+                        except Exception as wls_error:
+                            rospy.logwarn_once(f"WLS滤波处理失败，回退到原始视差: {wls_error}")
+                            disparity = left_disp
+                    else:
+                        disparity = left_disp
                     
                     # 应用中值滤波去除噪点
                     disparity_filtered = cv2.medianBlur(disparity, 5)
@@ -146,6 +199,29 @@ class DepthEstimator:
                     alpha = 0.7
                     depth_with_edges = cv2.addWeighted(depth_colormap, alpha, edges_colored, 0.3, 0)
                     
+                    # 计算实际深度值
+                    # 假设我们有相机基线baseline和焦距focal_length
+                    # 如果相机信息可用，使用实际的相机参数
+                    baseline = 0.075  # 假设的相机基线，单位：米
+                    if self.camera_info is not None:
+                        focal_length = self.camera_info.K[0]  # 假设fx是焦距
+                    else:
+                        focal_length = 1000.0  # 假设的焦点，单位：像素
+                    
+                    # 视差到深度的转换
+                    # 深度 = baseline * focal_length / disparity
+                    # 避免除以零，给disparity设置一个最小值
+                    min_disparity = 1.0
+                    
+                    # 创建深度图
+                    depth_map = np.zeros_like(disparity_filtered, dtype=np.float32)
+                    valid_disparities = disparity_filtered > min_disparity
+                    depth_map[valid_disparities] = baseline * focal_length / disparity_filtered[valid_disparities]
+                    
+                    # 限制深度范围，滤除不合理的深度值
+                    max_depth = 10.0  # 最大深度10米
+                    depth_map[depth_map > max_depth] = max_depth
+                    
                     # 发布深度图
                     depth_msg = self.bridge.cv2_to_imgmsg(depth_with_edges, "bgr8")
                     depth_msg.header = data.header
@@ -153,7 +229,7 @@ class DepthEstimator:
                     
                     # 生成点云
                     if self.camera_info is not None:
-                        point_cloud = self.generate_point_cloud(disparity_normalized, left_img, self.camera_info)
+                        point_cloud = self.generate_point_cloud(depth_map, left_img, self.camera_info)
                         self.point_cloud_pub.publish(point_cloud)
                 except Exception as e:
                     rospy.logerr(f"立体匹配错误: {e}")
@@ -232,25 +308,26 @@ class DepthEstimator:
         cy = camera_info.K[5]
         
         # 创建点云
-        height, width = depth_image.shape
+        height, width = depth_image.shape[:2]
         points = []
         
-        # 深度缩放因子 (将深度值转换为实际距离，单位：米)
-        # 这里假设深度图已经归一化到0-255，需要将其转换回实际深度
-        # 假设最大深度为10米
-        depth_scale = 10.0 / 255.0
+        # 深度采样因子，减少点云密度
+        sample_factor = 4
         
         # 生成点云
-        for v in range(0, height, 2):  # 隔行采样以减少点云大小
-            for u in range(0, width, 2):  # 隔列采样
-                z = depth_image[v, u] * depth_scale  # 深度值
-                if z > 0:
+        for v in range(0, height, sample_factor):  # 隔行采样以减少点云大小
+            for u in range(0, width, sample_factor):  # 隔列采样
+                z = depth_image[v, u]  # 深度值（米）
+                if z > 0.1 and z < 10.0:  # 忽略太近或太远的点
                     # 计算实际3D坐标
                     x = (u - cx) * z / fx
                     y = (v - cy) * z / fy
                     
                     # 获取颜色
-                    b, g, r = color_image[v, u]
+                    if len(color_image.shape) == 3:  # 彩色图像
+                        b, g, r = color_image[v, u]
+                    else:  # 灰度图像
+                        b = g = r = color_image[v, u]
                     
                     # RGB颜色打包为一个整数
                     rgb = (r << 16) | (g << 8) | b
