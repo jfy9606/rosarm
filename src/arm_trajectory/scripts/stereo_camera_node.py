@@ -5,7 +5,8 @@ import numpy as np
 from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge, CvBridgeError
 import threading
-import time
+# 重命名time模块以避免可能的命名冲突
+import time as time_module
 from std_msgs.msg import Int32  # 添加用于接收视图模式切换的消息类型
 
 # 增加额外导入(只在深度计算时使用)
@@ -185,8 +186,9 @@ class StereoCameraNode:
                         pass
                     
                     # 给系统一点时间完全释放资源
-                    import time
-                    time.sleep(1.0)
+                    # 确保使用导入的全局time模块，而不是局部变量
+                    import time as time_module  # 使用不同的名称避免冲突
+                    time_module.sleep(1.0)
                 
                 # 尝试多个相机设备
                 devices_to_try = ["/dev/video0", "/dev/video1", "/dev/video2", 0, 1, 2]
@@ -219,7 +221,9 @@ class StereoCameraNode:
                                 return True
                             else:
                                 rospy.logwarn(f"读取测试帧失败，尝试 {attempt+1}/3")
-                                time.sleep(0.5)
+                                # 确保使用导入的全局time模块
+                                import time as time_module  # 使用不同的名称避免冲突
+                                time_module.sleep(0.5)
                         
                         rospy.logerr(f"相机设备 {device} 打开成功但无法读取图像")
                         self.camera.release()
@@ -233,6 +237,7 @@ class StereoCameraNode:
                 return False
                 
         except Exception as e:
+            # 确保异常处理中不会引用未定义的变量
             rospy.logerr(f"打开相机时出错: {e}")
             self.is_running = False
             self.is_reconnecting = True
@@ -590,7 +595,8 @@ class StereoCameraNode:
                 self.camera = None
                 
         # 等待一小段时间确保资源彻底释放
-        time.sleep(0.5)
+        import time as time_module  # 使用不同的名称避免冲突
+        time_module.sleep(0.5)
         
         # 显式调用GC
         try:
