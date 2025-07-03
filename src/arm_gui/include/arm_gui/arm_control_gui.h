@@ -41,6 +41,7 @@
 // Service client includes
 #include <arm_trajectory/ForwardKinematics.h>
 #include <arm_trajectory/InverseKinematics.h>
+#include <arm_trajectory/kinematics_utils.h>
 #include <servo_wrist/JointControl.h>
 #include <servo_wrist/VacuumControl.h>
 #include <servo_wrist/HomePosition.h>
@@ -54,19 +55,7 @@ namespace Ui {
 class ArmControlMainWindow;
 }
 
-// DH参数结构体
-struct DHParam {
-    double theta;  // 关节角
-    double d;      // 连杆偏移
-    double a;      // 连杆长度
-    double alpha;  // 连杆扭角
-    int joint_type; // 关节类型：0-旋转，1-移动
-    
-    DHParam(double t, double offset, double length, double twist, int type = 0)
-        : theta(t), d(offset), a(length), alpha(twist), joint_type(type) {}
-        
-    DHParam() : theta(0), d(0), a(0), alpha(0), joint_type(0) {}
-};
+// Using DHParam from arm_trajectory package
 
 // 机械臂控制GUI
 class ArmControlGUI : public QMainWindow
@@ -172,20 +161,12 @@ private:
     void setupJointLimits();
     void setupDHParameters();
     
-    // 辅助数学函数
+    // Kinematics utilities
+    arm_trajectory::KinematicsUtils* kinematics_utils_;
+    
+    // Helper math functions
     double degToRad(double deg);
     double radToDeg(double rad);
-    QMatrix4x4 computeDHTransform(double theta, double d, double a, double alpha);
-    
-    // Kinematics services from arm_trajectory package
-    bool checkJointLimits(const std::vector<double>& joint_values);
-    
-    // Call kinematics service for forward kinematics
-    geometry_msgs::Pose forwardKinematics(const std::vector<double>& joint_values);
-    
-    // Call kinematics service for inverse kinematics
-    std::vector<double> inverseKinematics(const geometry_msgs::Pose& target_pose, 
-                                         const std::vector<double>& initial_guess = {});
     
     // Control functions - now using service calls
     void sendJointCommand(const std::vector<double>& joint_values);
@@ -214,6 +195,12 @@ private:
     // Helper functions that use arm_trajectory services
     std::vector<double> poseToJoints(const geometry_msgs::Pose& pose);
     geometry_msgs::Pose jointsToPos(const std::vector<double>& joint_values);
+    
+    // Helper functions for kinematics
+    geometry_msgs::Pose forwardKinematics(const std::vector<double>& joint_values);
+    std::vector<double> inverseKinematics(const geometry_msgs::Pose& target_pose, 
+                                         const std::vector<double>& initial_guess = {});
+    bool checkJointLimits(const std::vector<double>& joint_values);
     void logMessage(const QString& message);
     int map(int value, int fromLow, int fromHigh, int toLow, int toHigh);
     void updateEndEffectorPosition(double x, double y, double z);
@@ -271,8 +258,6 @@ private:
     ros::Subscriber yolo_status_sub_;
     
     // Service clients
-    ros::ServiceClient fk_client_;
-    ros::ServiceClient ik_client_;
     ros::ServiceClient joint_control_client_;
     ros::ServiceClient vacuum_control_client_;
     ros::ServiceClient home_position_client_;
@@ -287,9 +272,7 @@ private:
     message_filters::Subscriber<geometry_msgs::PoseArray>* detection_poses_sub_filter_;
     message_filters::Synchronizer<SyncPolicy>* object_detection_sync_;
     
-    // 关节限制和DH参数
-    std::vector<std::pair<double, double>> joint_limits_;
-    std::vector<DHParam> dh_params_;
+    // 关节限制和DH参数 - now managed by KinematicsUtils
     
     // Joint state
     std::vector<double> current_joint_values_;

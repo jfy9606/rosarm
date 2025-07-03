@@ -53,8 +53,8 @@ ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     // 设置关节限制
     setupJointLimits();
     
-    // 设置DH参数
-    setupDHParameters();
+    // 初始化运动学工具
+    kinematics_utils_ = new arm_trajectory::KinematicsUtils(nh_);
     
     // 启动定时器
     updateTimer->start(33);  // 30FPS
@@ -87,38 +87,72 @@ ArmControlGUI::~ArmControlGUI()
     if (scene_3d_renderer_) {
         delete scene_3d_renderer_;
     }
+    if (kinematics_utils_) {
+        delete kinematics_utils_;
+    }
     delete ui;
 }
 
 void ArmControlGUI::initializeROS()
 {
     try {
-        // 初始化服务客户端
-        fk_client_ = nh_.serviceClient<arm_trajectory::ForwardKinematics>("forward_kinematics");
-        ik_client_ = nh_.serviceClient<arm_trajectory::InverseKinematics>("inverse_kinematics");
+        // 初始化ROS节点
+        ros::NodeHandle nh;
         
         // 初始化发布者
-        joint_command_pub_ = nh_.advertise<sensor_msgs::JointState>("joint_command", 1);
-        vacuum_cmd_pub_ = nh_.advertise<std_msgs::Bool>("vacuum_command", 1);
-        vacuum_power_pub_ = nh_.advertise<std_msgs::Int32>("vacuum_power", 1);
+        joint_command_pub_ = nh_.advertise<sensor_msgs::JointState>("/joint_command", 1);
+        vacuum_cmd_pub_ = nh_.advertise<std_msgs::Bool>("/vacuum_command", 1);
+        vacuum_power_pub_ = nh_.advertise<std_msgs::Int32>("/vacuum_power", 1);
+        camera_view_mode_pub_ = nh_.advertise<std_msgs::Int32>("/stereo_camera/view_mode", 1);
         
-        // 初始化订阅者
-        joint_state_sub_ = nh_.subscribe("joint_states", 1, 
-                                      &ArmControlGUI::jointStateCallback, this);
+        // 初始化服务客户端 - 不再需要直接使用运动学服务，通过KinematicsUtils访问
+        joint_control_client_ = nh_.serviceClient<servo_wrist::JointControl>("/joint_control");
+        vacuum_control_client_ = nh_.serviceClient<servo_wrist::VacuumControl>("/vacuum_control");
+        home_position_client_ = nh_.serviceClient<servo_wrist::HomePosition>("/home_position");
         
-        // 设置相机相关的ROS订阅和发布
+        // 设置ROS订阅
         setupROSSubscriptions();
+        
+        ROS_INFO("ROS初始化完成");
     }
     catch (const std::exception& e) {
-        QMessageBox::critical(this, "ROS初始化错误", QString("ROS初始化失败: %1").arg(e.what()));
+        ROS_ERROR("ROS初始化失败: %s", e.what());
     }
 }
 
 void ArmControlGUI::initializeMembers()
 {
-    current_joint_values_.resize(6, 0.0);
-    current_end_position_ = QVector3D(0.0f, 0.0f, 0.0f);
-    current_end_orientation_ = QQuaternion(1.0f, 0.0f, 0.0f, 0.0f);
+    // 初始化成员变量
+    current_joint_values_ = std::vector<double>(6, 0.0);  // 6个关节，初始值为0
+    ignore_slider_events_ = false;
+    ignore_spin_events_ = false;
+    ui_processing_ = false;
+    arm_ready_ = false;
+    
+    // 初始化末端执行器状态
+    current_end_position_ = QVector3D(0, 0, 30);  // 初始位置，单位厘米
+    current_end_orientation_ = QQuaternion(1, 0, 0, 0);  // 初始方向（单位四元数）
+    
+    // 初始化真空吸盘状态
+    vacuum_on_ = false;
+    vacuum_power_ = 50;  // 默认功率50%
+    
+    // 初始化相机状态
+    camera_view_mode_ = 0;  // 默认左视图
+    is_camera_available_ = false;
+    stereo_camera_error_count_ = 0;
+    
+    // 初始化DH参数和关节限制
+    setupDHParameters();
+    setupJointLimits();
+    
+    // 初始化定时器
+    updateTimer = new QTimer(this);
+    updateTimer->setInterval(100);  // 100ms更新一次
+    updateTimer->start();
+    
+    // 连接定时器信号
+    connect(updateTimer, &QTimer::timeout, this, &ArmControlGUI::updateUI);
 }
 
 void ArmControlGUI::setupUi()
@@ -323,13 +357,57 @@ void ArmControlGUI::updateUI()
 
 void ArmControlGUI::updateEndEffectorPose()
 {
-    // 在状态栏显示末端执行器位置
-    QString posText = QString("末端位置: X=%1 Y=%2 Z=%3 cm").arg(
-        current_end_position_.x(), 0, 'f', 2).arg(
-        current_end_position_.y(), 0, 'f', 2).arg(
-        current_end_position_.z(), 0, 'f', 2);
+    if (current_joint_values_.empty() || current_joint_values_.size() < 6) {
+        return;
+    }
     
-    statusBar()->showMessage(posText);
+    try {
+        // 使用正向运动学计算当前末端位姿
+        geometry_msgs::Pose current_pose = forwardKinematics(current_joint_values_);
+        
+        // 更新当前末端位置
+        current_end_position_ = QVector3D(
+            current_pose.position.x * 100.0f,  // 转换为厘米
+            current_pose.position.y * 100.0f, 
+            current_pose.position.z * 100.0f
+        );
+        
+        // 更新当前末端方向
+        current_end_orientation_ = QQuaternion(
+            current_pose.orientation.w,
+            current_pose.orientation.x,
+            current_pose.orientation.y,
+            current_pose.orientation.z
+        );
+        
+        // 更新当前末端位姿
+        current_end_pose_ = current_pose;
+        
+        // 更新UI显示
+        if (ui->endEffectorStatusLabel) {
+            QString posText = QString("末端位置: X=%.2f, Y=%.2f, Z=%.2f cm")
+                .arg(current_end_position_.x())
+                .arg(current_end_position_.y())
+                .arg(current_end_position_.z());
+            ui->endEffectorStatusLabel->setText(posText);
+        }
+        
+        // 更新坐标输入框的值，但不触发事件
+        ui->posXSpin->blockSignals(true);
+        ui->posYSpin->blockSignals(true);
+        ui->posZSpin->blockSignals(true);
+        
+        ui->posXSpin->setValue(current_end_position_.x());
+        ui->posYSpin->setValue(current_end_position_.y());
+        ui->posZSpin->setValue(current_end_position_.z());
+        
+        ui->posXSpin->blockSignals(false);
+        ui->posYSpin->blockSignals(false);
+        ui->posZSpin->blockSignals(false);
+        
+    } catch (const std::exception& e) {
+        ROS_ERROR("更新末端位姿失败: %s", e.what());
+    }
 }
 
 void ArmControlGUI::updateVacuumStatus()
@@ -384,107 +462,28 @@ void ArmControlGUI::updateGUIJointValues()
     ignore_spin_events_ = false;
 }
 
-// 辅助数学函数
+// Helper math functions
 double ArmControlGUI::degToRad(double deg)
 {
-    return deg * M_PI / 180.0;
+    return kinematics_utils_->degToRad(deg);
 }
 
 double ArmControlGUI::radToDeg(double rad)
 {
-    return rad * 180.0 / M_PI;
+    return kinematics_utils_->radToDeg(rad);
 }
 
-QMatrix4x4 ArmControlGUI::computeDHTransform(double theta, double d, double a, double alpha)
-{
-    QMatrix4x4 transform;
-    
-    double cos_theta = cos(theta);
-    double sin_theta = sin(theta);
-    double cos_alpha = cos(alpha);
-    double sin_alpha = sin(alpha);
-    
-    transform(0, 0) = cos_theta;
-    transform(0, 1) = -sin_theta * cos_alpha;
-    transform(0, 2) = sin_theta * sin_alpha;
-    transform(0, 3) = a * cos_theta;
-    
-    transform(1, 0) = sin_theta;
-    transform(1, 1) = cos_theta * cos_alpha;
-    transform(1, 2) = -cos_theta * sin_alpha;
-    transform(1, 3) = a * sin_theta;
-    
-    transform(2, 0) = 0;
-    transform(2, 1) = sin_alpha;
-    transform(2, 2) = cos_alpha;
-    transform(2, 3) = d;
-    
-    transform(3, 0) = 0;
-    transform(3, 1) = 0;
-    transform(3, 2) = 0;
-    transform(3, 3) = 1;
-    
-    return transform;
-}
-
+// 使用KinematicsUtils实现正向运动学计算
 geometry_msgs::Pose ArmControlGUI::forwardKinematics(const std::vector<double>& joint_values)
 {
-    // 调用服务
-    arm_trajectory::ForwardKinematics srv;
-    srv.request.arm_id = "arm1";
-    srv.request.joint_values = joint_values;
-    
-    geometry_msgs::Pose result;
-    
-    if (fk_client_.call(srv)) {
-        if (srv.response.success) {
-            return srv.response.end_effector_pose;
-        } else {
-            ROS_WARN("Forward kinematics service failed: %s", srv.response.message.c_str());
-        }
-    } else {
-        ROS_ERROR("Failed to call forward kinematics service");
-    }
-    
-    // 如果服务调用失败，返回默认姿态
-    result.position.x = 0.0;
-    result.position.y = 0.0;
-    result.position.z = 0.0;
-    result.orientation.w = 1.0;
-    result.orientation.x = 0.0;
-    result.orientation.y = 0.0;
-    result.orientation.z = 0.0;
-    
-    return result;
+    return kinematics_utils_->forwardKinematics(joint_values);
 }
 
-std::vector<double> ArmControlGUI::inverseKinematics(const geometry_msgs::Pose& target_pose,
+// 使用KinematicsUtils实现逆运动学计算
+std::vector<double> ArmControlGUI::inverseKinematics(const geometry_msgs::Pose& target_pose, 
                                                    const std::vector<double>& initial_guess)
 {
-    // 调用服务
-    arm_trajectory::InverseKinematics srv;
-    srv.request.arm_id = "arm1";
-    srv.request.target_pose = target_pose;
-    
-    if (!initial_guess.empty()) {
-        srv.request.use_initial_guess = true;
-        srv.request.initial_guess = initial_guess;
-    } else {
-        srv.request.use_initial_guess = false;
-    }
-    
-    if (ik_client_.call(srv)) {
-        if (srv.response.success) {
-            return srv.response.joint_values;
-        } else {
-            ROS_WARN("Inverse kinematics service failed: %s", srv.response.message.c_str());
-        }
-    } else {
-        ROS_ERROR("Failed to call inverse kinematics service");
-    }
-    
-    // 如果服务调用失败，返回当前关节状态
-    return current_joint_values_;
+    return kinematics_utils_->inverseKinematics(target_pose, initial_guess);
 }
 
 // 发送关节命令
@@ -523,7 +522,7 @@ void ArmControlGUI::sendVacuumCommand(bool on, int power)
 void ArmControlGUI::sendHomeCommand()
 {
     // 设定一组初始关节角度作为回原点位置
-    std::vector<double> home_position = {0.0, 10.0, 0.0, 1.57, 1.57, 10.0};
+    std::vector<double> home_position = {0.0, 10.0, 0.0, 1.57, 1.57, 10.0};  // 根据实际机械臂调整
     sendJointCommand(home_position);
 }
 
@@ -762,9 +761,76 @@ void ArmControlGUI::closeEvent(QCloseEvent* event)
     QMainWindow::closeEvent(event);
 }
 
+// Helper functions for kinematics
+std::vector<double> ArmControlGUI::poseToJoints(const geometry_msgs::Pose& pose)
+{
+    return inverseKinematics(pose, current_joint_values_);
+}
+
+geometry_msgs::Pose ArmControlGUI::jointsToPos(const std::vector<double>& joint_values)
+{
+    return forwardKinematics(joint_values);
+}
+
+// 实现移动到指定位置的槽函数
+void ArmControlGUI::onMoveToPositionClicked()
+{
+    // 获取用户输入的目标位置
+    double x = ui->posXSpin->value();
+    double y = ui->posYSpin->value();
+    double z = ui->posZSpin->value();
+    
+    // 创建目标位姿
+    geometry_msgs::Pose target_pose;
+    target_pose.position.x = x / 100.0;  // 转换为米
+    target_pose.position.y = y / 100.0;
+    target_pose.position.z = z / 100.0;
+    
+    // 设置方向（使末端执行器朝下）
+    target_pose.orientation.x = 0.0;
+    target_pose.orientation.y = 0.7071;
+    target_pose.orientation.z = 0.0;
+    target_pose.orientation.w = 0.7071;
+    
+    // 记录日志
+    logMessage(QString("正在移动到位置: X=%1, Y=%2, Z=%3 cm").arg(x).arg(y).arg(z));
+    
+    try {
+        // 使用逆运动学计算关节角度
+        std::vector<double> target_joints = inverseKinematics(target_pose, current_joint_values_);
+        
+        // 检查是否找到有效解
+        if (target_joints.empty()) {
+            logMessage("无法找到有效的逆运动学解决方案");
+            return;
+        }
+        
+        // 更新关节值
+        current_joint_values_ = target_joints;
+        
+        // 更新GUI
+        updateGUIJointValues();
+        
+        // 发送关节命令
+        sendJointCommand(target_joints);
+        
+        logMessage("移动命令已发送");
+    } catch (const std::exception& e) {
+        logMessage(QString("移动失败: %1").arg(e.what()));
+    }
+}
+
+// Qt Designer自动生成的槽函数
+void ArmControlGUI::on_moveToPositionButton_clicked()
+{
+    onMoveToPositionClicked();
+}
+
+
+
+
+
 // 未实现的方法存根
-void ArmControlGUI::onMoveToPositionClicked() {}
-void ArmControlGUI::on_moveToPositionButton_clicked() {}
 void ArmControlGUI::onPickButtonClicked() {}
 void ArmControlGUI::onPlaceButtonClicked() {}
 void ArmControlGUI::onOpenTaskSequence() {}
@@ -889,7 +955,10 @@ void ArmControlGUI::setupROSSubscriptions()
 }
 void ArmControlGUI::createMenus() {}
 void ArmControlGUI::setupCameraParameters() {}
-bool ArmControlGUI::checkJointLimits(const std::vector<double>& joint_values) { return true; }
+bool ArmControlGUI::checkJointLimits(const std::vector<double>& joint_values)
+{
+    return kinematics_utils_->checkJointLimits(joint_values);
+}
 void ArmControlGUI::sendRelayOrder(const std::string& command) {}
 void ArmControlGUI::sendPickCommand(const std::string& object_id) {}
 void ArmControlGUI::sendPlaceCommand(double x, double y, double z) {}
@@ -1053,8 +1122,18 @@ void ArmControlGUI::objectDetectionCallback(const sensor_msgs::Image::ConstPtr& 
 void ArmControlGUI::updateScene3D() {}
 void ArmControlGUI::updateSceneObjects() {}
 void ArmControlGUI::onEndEffectorDragged(QVector3D position) {}
-void ArmControlGUI::setupJointLimits() {}
-void ArmControlGUI::setupDHParameters() {}
+void ArmControlGUI::setupJointLimits()
+{
+    // 使用KinematicsUtils设置关节限制
+    kinematics_utils_->setupJointLimits();
+    ROS_INFO("关节限制已设置");
+}
+void ArmControlGUI::setupDHParameters()
+{
+    // 使用KinematicsUtils设置DH参数
+    kinematics_utils_->setupDHParameters();
+    ROS_INFO("DH参数已设置");
+}
 
 // 实现左视图切换按钮槽函数
 void ArmControlGUI::onLeftViewButtonClicked()

@@ -19,6 +19,9 @@
   <build_depend>eigen_conversions</build_depend>
   <build_depend>tf2_eigen</build_depend>
   <build_depend>cmake_modules</build_depend>
+  <build_depend>qtbase5-dev</build_depend>
+  <build_depend>qt5-qmake</build_depend>
+  <build_depend>libqt5-core</build_depend>
 
   <exec_depend>rospy</exec_depend>
   <exec_depend>std_msgs</exec_depend>
@@ -30,6 +33,9 @@
   <exec_depend>python-scipy</exec_depend>
   <exec_depend>eigen_conversions</exec_depend>
   <exec_depend>tf2_eigen</exec_depend>
+  <exec_depend>libqt5-core</exec_depend>
+  <exec_depend>libqt5-gui</exec_depend>
+  <exec_depend>libqt5-widgets</exec_depend>
 
   <!-- The export tag contains other, unspecified, tags -->
   <export>

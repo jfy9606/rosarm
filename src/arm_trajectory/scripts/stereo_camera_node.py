@@ -186,94 +186,114 @@ class StereoCameraNode:
                     
                     # 给系统一点时间完全释放资源
                     import time
-                    time.sleep(0.5)
+                    time.sleep(1.0)
                 
-                # 强制使用/dev/video0作为相机设备
-                device_path = "/dev/video0"
-                rospy.loginfo(f"尝试打开相机设备: {device_path}")
+                # 尝试多个相机设备
+                devices_to_try = ["/dev/video0", "/dev/video1", "/dev/video2", 0, 1, 2]
                 
-                # 尝试直接打开相机
-                self.camera = cv2.VideoCapture(device_path)
-                
-                # 设置相机参数
-                if self.camera.isOpened():
-                    # 设置分辨率 - 尝试设置为宽屏格式以获取左右双目图像
-                    self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-                    self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-                    self.camera.set(cv2.CAP_PROP_FPS, self.frame_rate)
+                for device in devices_to_try:
+                    rospy.loginfo(f"尝试打开相机设备: {device}")
                     
-                    # 读取一帧测试相机是否正常工作
-                    ret, test_frame = self.camera.read()
-                    if ret:
-                        height, width = test_frame.shape[:2]
-                        rospy.loginfo(f"相机已成功打开，分辨率: {width}x{height}, 帧率: {self.frame_rate}")
-                        self.is_running = True
-                        self.is_reconnecting = False  # 确保重连标志被重置
-                        self.frame_count_fail = 0     # 重置失败计数
-                        return True
-                    else:
-                        rospy.logerr("相机打开成功但无法读取图像")
+                    # 尝试直接打开相机
+                    self.camera = cv2.VideoCapture(device)
+                    
+                    # 设置相机参数
+                    if self.camera.isOpened():
+                        # 设置缓冲区大小
+                        self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                        
+                        # 设置分辨率 - 尝试设置为宽屏格式以获取左右双目图像
+                        self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+                        self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                        self.camera.set(cv2.CAP_PROP_FPS, self.frame_rate)
+                        
+                        # 读取一帧测试相机是否正常工作
+                        for attempt in range(3):  # 尝试多次读取
+                            ret, test_frame = self.camera.read()
+                            if ret and test_frame is not None and test_frame.size > 0:
+                                height, width = test_frame.shape[:2]
+                                rospy.loginfo(f"相机已成功打开，设备: {device}, 分辨率: {width}x{height}, 帧率: {self.frame_rate}")
+                                self.is_running = True
+                                self.is_reconnecting = False  # 确保重连标志被重置
+                                self.frame_count_fail = 0     # 重置失败计数
+                                return True
+                            else:
+                                rospy.logwarn(f"读取测试帧失败，尝试 {attempt+1}/3")
+                                time.sleep(0.5)
+                        
+                        rospy.logerr(f"相机设备 {device} 打开成功但无法读取图像")
                         self.camera.release()
                         self.camera = None
-                        self.is_reconnecting = True   # 设置重连标志
-                        return False
-                else:
-                    rospy.logerr(f"无法打开相机设备: {device_path}")
-                    self.is_reconnecting = True       # 设置重连标志
-                    return False
+                    else:
+                        rospy.logwarn(f"无法打开相机设备: {device}")
+                
+                # 如果所有设备都失败
+                rospy.logerr("所有相机设备都无法正常工作")
+                self.is_reconnecting = True
+                return False
                 
         except Exception as e:
             rospy.logerr(f"打开相机时出错: {e}")
             self.is_running = False
-            self.is_reconnecting = True               # 设置重连标志
+            self.is_reconnecting = True
             return False
     
     def get_current_view(self, left_image, right_image):
         """基于当前视图模式返回相应的图像"""
+        # 如果任一图像为空，创建一个占位图像
         if left_image is None or right_image is None:
-            # 如果任一图像为空，创建一个占位图像
-            placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
-            cv2.putText(placeholder, "等待摄像头连接...", (150, 240), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (200, 200, 200), 2)
-            return placeholder
+            return self.create_placeholder_image("等待摄像头连接...", 640, 480)
             
         # 确保图像尺寸一致，便于显示
         if left_image.shape != right_image.shape:
             # 调整尺寸使其一致
-            height = min(left_image.shape[0], right_image.shape[0])
-            width = min(left_image.shape[1], right_image.shape[1])
-            left_image = left_image[:height, :width]
-            right_image = right_image[:height, :width]
+            try:
+                height = min(left_image.shape[0], right_image.shape[0])
+                width = min(left_image.shape[1], right_image.shape[1])
+                
+                if height <= 0 or width <= 0:
+                    return self.create_placeholder_image("图像尺寸无效", 640, 480)
+                    
+                left_image = left_image[:height, :width]
+                right_image = right_image[:height, :width]
+            except Exception as e:
+                rospy.logerr(f"调整图像尺寸错误: {e}")
+                return self.create_placeholder_image("图像处理错误", 640, 480)
         
-        if self.view_mode == 0:
-            # 左图模式
-            rospy.logdebug("显示左视图")
-            return left_image
-        elif self.view_mode == 1:
-            # 右图模式
-            rospy.logdebug("显示右视图")
-            return right_image
-        elif self.view_mode == 2:
-            # 深度图模式
-            if self.use_depth and HAVE_XIMGPROC:
-                rospy.logdebug("计算深度图")
-                depth_map = self.compute_depth_map(left_image, right_image)
-                if depth_map is not None:
-                    # 创建彩色深度图用于显示
-                    colored_depth = self.create_colored_depth_map(depth_map)
-                    rospy.logdebug("显示深度视图")
-                    return colored_depth
-                else:
-                    # 如果深度图计算失败，返回左图
-                    rospy.logwarn("深度图计算失败，返回左图")
-                    return left_image
-            else:
-                # 如果深度图不可用，返回左图
-                rospy.logwarn("深度图不可用，返回左图")
+        try:
+            if self.view_mode == 0:
+                # 左图模式
+                rospy.logdebug("显示左视图")
                 return left_image
-        
-        # 默认返回左图
-        return left_image
+            elif self.view_mode == 1:
+                # 右图模式
+                rospy.logdebug("显示右视图")
+                return right_image
+            elif self.view_mode == 2:
+                # 深度图模式
+                if self.use_depth and HAVE_XIMGPROC:
+                    rospy.logdebug("计算深度图")
+                    depth_map = self.compute_depth_map(left_image, right_image)
+                    if depth_map is not None:
+                        # 创建彩色深度图用于显示
+                        colored_depth = self.create_colored_depth_map(depth_map)
+                        rospy.logdebug("显示深度视图")
+                        return colored_depth
+                    else:
+                        # 如果深度图计算失败，返回左图
+                        rospy.logwarn("深度图计算失败，返回左图")
+                        return left_image
+                else:
+                    # 如果深度图不可用，返回左图
+                    rospy.logwarn("深度图不可用，返回左图")
+                    return left_image
+            
+            # 默认返回左图
+            return left_image
+            
+        except Exception as e:
+            rospy.logerr(f"获取当前视图错误: {e}")
+            return self.create_placeholder_image("视图处理错误", 640, 480)
     
     def compute_depth_map(self, left_image, right_image):
         """计算深度图"""
@@ -392,6 +412,7 @@ class StereoCameraNode:
     def publish_loop(self):
         """发布图像的主循环"""
         rate = rospy.Rate(self.frame_rate)  # 使用设置的帧率
+        placeholder_image = self.create_placeholder_image("等待相机连接...", 640, 480)
         
         while not rospy.is_shutdown():
             try:
@@ -401,14 +422,18 @@ class StereoCameraNode:
                             self.is_reconnecting = True
                             rospy.logwarn("摄像头连接丢失，尝试重新连接...")
                             self.open_camera()
+                        
+                        # 发布占位图像
+                        self.publish_placeholder_images(placeholder_image)
                         rate.sleep()
                         continue
                         
                     # 读取帧
                     success, frame = self.camera.read()
                     
-                    if not success:
+                    if not success or frame is None or frame.size == 0:
                         self.frame_count_fail += 1
+                        rospy.logwarn(f"读取帧失败 ({self.frame_count_fail}/5)")
                         
                         if self.frame_count_fail > 5:  # 连续5次失败，尝试重新打开摄像头
                             rospy.logwarn("摄像头读取失败，尝试重新连接...")
@@ -416,6 +441,9 @@ class StereoCameraNode:
                             self.camera = None
                             self.is_reconnecting = True
                             self.open_camera()
+                        
+                        # 发布占位图像
+                        self.publish_placeholder_images(placeholder_image)
                         rate.sleep()
                         continue
                         
@@ -501,7 +529,48 @@ class StereoCameraNode:
                 rospy.logerr(f"相机处理异常: {e}")
                 
             rate.sleep()
-    
+            
+    def create_placeholder_image(self, text, width=640, height=480):
+        """创建一个占位图像，显示文本消息"""
+        placeholder = np.zeros((height, width, 3), dtype=np.uint8)
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 1.0
+        font_thickness = 2
+        text_size = cv2.getTextSize(text, font, font_scale, font_thickness)[0]
+        
+        # 计算文本位置，使其居中
+        text_x = (width - text_size[0]) // 2
+        text_y = (height + text_size[1]) // 2
+        
+        # 添加文本
+        cv2.putText(placeholder, text, (text_x, text_y), 
+                    font, font_scale, (200, 200, 200), font_thickness)
+        
+        return placeholder
+        
+    def publish_placeholder_images(self, placeholder):
+        """发布占位图像到所有图像话题"""
+        try:
+            timestamp = rospy.Time.now()
+            img_msg = self.bridge.cv2_to_imgmsg(placeholder, "bgr8")
+            img_msg.header.stamp = timestamp
+            
+            # 发布到所有图像话题
+            self.left_pub.publish(img_msg)
+            self.right_pub.publish(img_msg)
+            self.current_view_pub.publish(img_msg)
+            
+            # 发布相机信息
+            camera_info = CameraInfo()
+            camera_info.header = img_msg.header
+            camera_info.width = placeholder.shape[1]
+            camera_info.height = placeholder.shape[0]
+            self.left_info_pub.publish(camera_info)
+            self.right_info_pub.publish(camera_info)
+            
+        except Exception as e:
+            rospy.logerr(f"发布占位图像错误: {e}")
+
     def shutdown(self):
         """Clean up on shutdown"""
         rospy.loginfo("Shutting down stereo camera node")

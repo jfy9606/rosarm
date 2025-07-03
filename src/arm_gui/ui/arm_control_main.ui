@@ -261,6 +261,93 @@
            </widget>
           </item>
           <item>
+           <widget class="QGroupBox" name="cartesianControlGroup">
+            <property name="title">
+             <string>末端坐标控制</string>
+            </property>
+            <layout class="QVBoxLayout" name="verticalLayout_6">
+             <item>
+              <layout class="QGridLayout" name="cartesianLayout">
+               <item row="0" column="0">
+                <widget class="QLabel" name="posXLabel">
+                 <property name="text">
+                  <string>X 坐标 (cm):</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="1">
+                <widget class="QDoubleSpinBox" name="posXSpin">
+                 <property name="minimum">
+                  <double>-50.000000000000000</double>
+                 </property>
+                 <property name="maximum">
+                  <double>50.000000000000000</double>
+                 </property>
+                 <property name="singleStep">
+                  <double>1.000000000000000</double>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="0">
+                <widget class="QLabel" name="posYLabel">
+                 <property name="text">
+                  <string>Y 坐标 (cm):</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="1">
+                <widget class="QDoubleSpinBox" name="posYSpin">
+                 <property name="minimum">
+                  <double>-50.000000000000000</double>
+                 </property>
+                 <property name="maximum">
+                  <double>50.000000000000000</double>
+                 </property>
+                 <property name="singleStep">
+                  <double>1.000000000000000</double>
+                 </property>
+                </widget>
+               </item>
+               <item row="2" column="0">
+                <widget class="QLabel" name="posZLabel">
+                 <property name="text">
+                  <string>Z 坐标 (cm):</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="2" column="1">
+                <widget class="QDoubleSpinBox" name="posZSpin">
+                 <property name="minimum">
+                  <double>0.000000000000000</double>
+                 </property>
+                 <property name="maximum">
+                  <double>50.000000000000000</double>
+                 </property>
+                 <property name="singleStep">
+                  <double>1.000000000000000</double>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </item>
+             <item>
+              <widget class="QPushButton" name="moveToPositionButton">
+               <property name="text">
+                <string>移动到指定坐标</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="endEffectorStatusLabel">
+               <property name="text">
+                <string>末端位置: 等待更新...</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </item>
+          <item>
            <widget class="QPushButton" name="homeButton">
             <property name="toolTip">
              <string>将机械臂移动到预设的安全初始位置</string>
@@ -351,6 +438,47 @@
                </property>
                <property name="alignment">
                 <set>Qt::AlignCenter</set>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <layout class="QHBoxLayout" name="cameraControlLayout">
+               <item>
+                <widget class="QPushButton" name="leftViewButton">
+                 <property name="text">
+                  <string>左视图</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="rightViewButton">
+                 <property name="text">
+                  <string>右视图</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="depthViewButton">
+                 <property name="text">
+                  <string>深度视图</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </item>
+            </layout>
+           </widget>
+          </item>
+          <item>
+           <widget class="QGroupBox" name="logGroup">
+            <property name="title">
+             <string>日志信息</string>
+            </property>
+            <layout class="QVBoxLayout" name="verticalLayout_7">
+             <item>
+              <widget class="QTextEdit" name="logTextEdit">
+               <property name="readOnly">
+                <bool>true</bool>
                </property>
               </widget>
              </item>
