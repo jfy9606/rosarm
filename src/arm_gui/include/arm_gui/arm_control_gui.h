@@ -82,17 +82,19 @@ protected:
     bool eventFilter(QObject* obj, QEvent* event) override;
 
 private slots:
-    // Joint control
+    // Joint control slots
     void onJoint1SliderChanged(int value);
     void onJoint2SliderChanged(int value);
     void onJoint3SliderChanged(int value);
     void onJoint4SliderChanged(int value);
+    void onJoint5SliderChanged(int value);
     void onJoint6SliderChanged(int value);
     
     void onJoint1SpinChanged(double value);
     void onJoint2SpinChanged(double value);
     void onJoint3SpinChanged(double value);
     void onJoint4SpinChanged(double value);
+    void onJoint5SpinChanged(double value);
     void onJoint6SpinChanged(double value);
     
     // Cartesian control
@@ -103,7 +105,7 @@ private slots:
     void onHomeButtonClicked();
     void on_homeButton_clicked();
     
-    // Vacuum control
+    // Vacuum control slots
     void onVacuumPowerSliderChanged(int value);
     void onVacuumOnButtonClicked();
     void onVacuumOffButtonClicked();
@@ -124,7 +126,7 @@ private slots:
     // Detection table
     void onDetectionsTableCellClicked(int row, int column);
     
-    // Camera controls
+    // Camera control slots
     void onCameraSwitchButtonClicked();
     void onLeftViewButtonClicked();  // 切换到左视图
     void onRightViewButtonClicked(); // 切换到右视图
@@ -150,6 +152,9 @@ private slots:
     void updateDetectionsTable();
     void updateConnectionStatus();
     void updateJointControlWidgets();
+    
+    // Navigation slots
+    void goToHomePosition();
 
 private:
     // Initialize functions
@@ -184,7 +189,8 @@ private:
     
     // Control functions - now using service calls
     void sendJointCommand(const std::vector<double>& joint_values);
-    void sendVacuumCommand(bool on, int power = 50);
+    void sendJointCommand();
+    void sendVacuumCommand(bool on, int power);
     void sendHomeCommand();
     void sendRelayOrder(const std::string& command);
     void sendPickCommand(const std::string& object_id);
@@ -199,7 +205,7 @@ private:
     float getDepthAtPoint(const QPoint& image_point);
     void onCameraViewClicked(QPoint pos);
     void handleCameraError(const std::string& error_msg);
-    void createPlaceholderImage();
+    void createPlaceholderImage(const std::string& message = "");
     void attemptCameraReconnect();
     bool findAvailableCamera();
     
@@ -324,6 +330,7 @@ private:
     bool ignore_slider_events_;
     bool ignore_spin_events_;
     bool ui_processing_;
+    bool arm_ready_;
     
     // 3D view
     Scene3DRenderer* scene_3d_renderer_;

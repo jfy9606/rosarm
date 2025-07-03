@@ -160,15 +160,15 @@ class StereoCameraNode:
             self.wls_filter = None
             
     def open_camera(self):
-        """Open the camera and set up parameters"""
+        """打开相机并设置参数"""
         try:
             with self.camera_lock:
-                # Close existing camera if open
+                # 关闭现有相机（如果已打开）
                 if self.camera is not None:
                     try:
                         self.camera.release()
                     except Exception as e:
-                        rospy.logwarn(f"Warning while releasing old camera: {e}")
+                        rospy.logwarn(f"释放旧相机时出现警告: {e}")
                     self.camera = None
                     
                     # 调用GC帮助释放资源
@@ -182,98 +182,84 @@ class StereoCameraNode:
                     import time
                     time.sleep(0.5)
                 
-                # 尝试使用GStreamer管道打开相机（如果可用）
-                try:
-                    # 首先尝试直接打开，这对USB摄像头通常效果更好
-                    self.camera = cv2.VideoCapture(self.camera_index)
+                # 强制使用/dev/video0作为相机设备
+                device_path = "/dev/video0"
+                rospy.loginfo(f"尝试打开相机设备: {device_path}")
+                
+                # 尝试直接打开相机
+                self.camera = cv2.VideoCapture(device_path)
+                
+                # 设置相机参数
+                if self.camera.isOpened():
+                    # 设置分辨率 - 尝试设置为宽屏格式以获取左右双目图像
+                    self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+                    self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                    self.camera.set(cv2.CAP_PROP_FPS, self.frame_rate)
                     
-                    # 如果使用GStreamer打开失败，尝试直接构造管道
-                    if not self.camera.isOpened() and cv2.getBuildInformation().find("GStreamer") != -1:
-                        # 针对双目摄像头构建的GStreamer管道
-                        gst_pipeline = (
-                            f"v4l2src device=/dev/video{self.camera_index} ! "
-                            f"image/jpeg,width=1280,height=480,framerate={self.frame_rate}/1 ! "
-                            f"jpegdec ! videoconvert ! appsink"
-                        )
-                        rospy.loginfo(f"Trying GStreamer pipeline: {gst_pipeline}")
-                        self.camera = cv2.VideoCapture(gst_pipeline, cv2.CAP_GSTREAMER)
-                except Exception as e:
-                    rospy.logwarn(f"GStreamer pipeline failed, falling back to default: {e}")
-                    # 如果GStreamer失败，回退到标准方法
-                    self.camera = cv2.VideoCapture(self.camera_index)
-                
-                if not self.camera.isOpened():
-                    rospy.logerr(f"Failed to open camera at index {self.camera_index}")
-                    return False
-                
-                # 首先设置图像格式为MJPG，这对于高帧率（30fps）至关重要
-                self.camera.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M','J','P','G'))
-                
-                # 设置分辨率
-                self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)  # Width for stereo setup
-                self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)  # Height for stereo setup
-                
-                # 设置帧率 - 必须在设置完格式和分辨率后设置
-                self.camera.set(cv2.CAP_PROP_FPS, self.frame_rate)
-                
-                # 读取一帧确保摄像头正常工作
-                ret, _ = self.camera.read()
-                if not ret:
-                    rospy.logwarn("First frame read failed, camera may not be initialized properly")
-                    # 再尝试一次
-                    ret, _ = self.camera.read()
-                    if not ret:
-                        rospy.logerr("Camera initialization failed, could not read frames")
+                    # 读取一帧测试相机是否正常工作
+                    ret, test_frame = self.camera.read()
+                    if ret:
+                        height, width = test_frame.shape[:2]
+                        rospy.loginfo(f"相机已成功打开，分辨率: {width}x{height}, 帧率: {self.frame_rate}")
+                        self.is_running = True
+                        self.is_reconnecting = False
+                        return True
+                    else:
+                        rospy.logerr("相机打开成功但无法读取图像")
                         self.camera.release()
                         self.camera = None
                         return False
-                
-                # 获取实际相机属性
-                actual_width = self.camera.get(cv2.CAP_PROP_FRAME_WIDTH)
-                actual_height = self.camera.get(cv2.CAP_PROP_FRAME_HEIGHT)
-                actual_fps = self.camera.get(cv2.CAP_PROP_FPS)
-                actual_fourcc = self.camera.get(cv2.CAP_PROP_FOURCC)
-                
-                # 将fourcc转换为可读格式
-                fourcc_chars = chr(int(actual_fourcc) & 0xFF) + chr((int(actual_fourcc) >> 8) & 0xFF) + \
-                               chr((int(actual_fourcc) >> 16) & 0xFF) + chr((int(actual_fourcc) >> 24) & 0xFF)
-                
-                rospy.loginfo(f"Camera opened with resolution: {int(actual_width)}x{int(actual_height)} @ {int(actual_fps)}fps, format: {fourcc_chars}")
-                
-                # 验证是否成功设置了MJPG格式和30fps
-                if actual_fps < self.frame_rate - 1:  # 允许1fps的误差
-                    rospy.logwarn(f"Failed to set {self.frame_rate}fps, actual fps: {int(actual_fps)}. Check if camera supports MJPG at this resolution.")
-                
-                # Set running flag
-                self.is_running = True
-                return True
+                else:
+                    rospy.logerr(f"无法打开相机设备: {device_path}")
+                    return False
                 
         except Exception as e:
-            rospy.logerr(f"Error opening camera: {e}")
+            rospy.logerr(f"打开相机时出错: {e}")
             self.is_running = False
             return False
     
     def get_current_view(self, left_image, right_image):
         """基于当前视图模式返回相应的图像"""
+        if left_image is None or right_image is None:
+            # 如果任一图像为空，创建一个占位图像
+            placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
+            cv2.putText(placeholder, "等待摄像头连接...", (150, 240), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (200, 200, 200), 2)
+            return placeholder
+            
+        # 确保图像尺寸一致，便于显示
+        if left_image.shape != right_image.shape:
+            # 调整尺寸使其一致
+            height = min(left_image.shape[0], right_image.shape[0])
+            width = min(left_image.shape[1], right_image.shape[1])
+            left_image = left_image[:height, :width]
+            right_image = right_image[:height, :width]
+        
         if self.view_mode == 0:
             # 左图模式
+            rospy.logdebug("显示左视图")
             return left_image
         elif self.view_mode == 1:
             # 右图模式
+            rospy.logdebug("显示右视图")
             return right_image
         elif self.view_mode == 2:
             # 深度图模式
             if self.use_depth and HAVE_XIMGPROC:
+                rospy.logdebug("计算深度图")
                 depth_map = self.compute_depth_map(left_image, right_image)
                 if depth_map is not None:
                     # 创建彩色深度图用于显示
-                    return self.create_colored_depth_map(depth_map)
+                    colored_depth = self.create_colored_depth_map(depth_map)
+                    rospy.logdebug("显示深度视图")
+                    return colored_depth
                 else:
                     # 如果深度图计算失败，返回左图
                     rospy.logwarn("深度图计算失败，返回左图")
                     return left_image
             else:
                 # 如果深度图不可用，返回左图
+                rospy.logwarn("深度图不可用，返回左图")
                 return left_image
         
         # 默认返回左图

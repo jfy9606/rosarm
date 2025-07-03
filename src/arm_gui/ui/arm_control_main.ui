@@ -6,12 +6,12 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>800</width>
-    <height>600</height>
+    <width>1024</width>
+    <height>768</height>
    </rect>
   </property>
   <property name="windowTitle">
-   <string>Robot Arm Control</string>
+   <string>机械臂控制系统</string>
   </property>
   <widget class="QWidget" name="centralwidget">
    <layout class="QVBoxLayout" name="verticalLayout">
@@ -22,7 +22,7 @@
       </property>
       <widget class="QWidget" name="controlTab">
        <attribute name="title">
-        <string>Control</string>
+        <string>控制面板</string>
        </attribute>
        <layout class="QHBoxLayout" name="horizontalLayout">
         <item>
@@ -30,20 +30,38 @@
           <item>
            <widget class="QGroupBox" name="jointControlGroup">
             <property name="title">
-             <string>Joint Control</string>
+             <string>关节控制</string>
+            </property>
+            <property name="minimumSize">
+             <size>
+              <width>400</width>
+              <height>0</height>
+             </size>
             </property>
             <layout class="QVBoxLayout" name="verticalLayout_2">
              <item>
               <layout class="QHBoxLayout" name="joint1Layout">
                <item>
                 <widget class="QLabel" name="joint1Label">
+                 <property name="minimumSize">
+                  <size>
+                   <width>120</width>
+                   <height>0</height>
+                  </size>
+                 </property>
                  <property name="text">
-                  <string>Joint 1:</string>
+                  <string>底座旋转 (J1):</string>
                  </property>
                 </widget>
                </item>
                <item>
                 <widget class="QSlider" name="joint1Slider">
+                 <property name="minimumSize">
+                  <size>
+                   <width>200</width>
+                   <height>0</height>
+                  </size>
+                 </property>
                  <property name="orientation">
                   <enum>Qt::Horizontal</enum>
                  </property>
@@ -58,13 +76,25 @@
               <layout class="QHBoxLayout" name="joint2Layout">
                <item>
                 <widget class="QLabel" name="joint2Label">
+                 <property name="minimumSize">
+                  <size>
+                   <width>120</width>
+                   <height>0</height>
+                  </size>
+                 </property>
                  <property name="text">
-                  <string>Joint 2:</string>
+                  <string>肩部关节 (J2):</string>
                  </property>
                 </widget>
                </item>
                <item>
                 <widget class="QSlider" name="joint2Slider">
+                 <property name="minimumSize">
+                  <size>
+                   <width>200</width>
+                   <height>0</height>
+                  </size>
+                 </property>
                  <property name="orientation">
                   <enum>Qt::Horizontal</enum>
                  </property>
@@ -79,13 +109,25 @@
               <layout class="QHBoxLayout" name="joint3Layout">
                <item>
                 <widget class="QLabel" name="joint3Label">
+                 <property name="minimumSize">
+                  <size>
+                   <width>120</width>
+                   <height>0</height>
+                  </size>
+                 </property>
                  <property name="text">
-                  <string>Joint 3:</string>
+                  <string>肘部关节 (J3):</string>
                  </property>
                 </widget>
                </item>
                <item>
                 <widget class="QSlider" name="joint3Slider">
+                 <property name="minimumSize">
+                  <size>
+                   <width>200</width>
+                   <height>0</height>
+                  </size>
+                 </property>
                  <property name="orientation">
                   <enum>Qt::Horizontal</enum>
                  </property>
@@ -100,13 +142,25 @@
               <layout class="QHBoxLayout" name="joint4Layout">
                <item>
                 <widget class="QLabel" name="joint4Label">
+                 <property name="minimumSize">
+                  <size>
+                   <width>120</width>
+                   <height>0</height>
+                  </size>
+                 </property>
                  <property name="text">
-                  <string>Joint 4:</string>
+                  <string>腕部旋转 (J4):</string>
                  </property>
                 </widget>
                </item>
                <item>
                 <widget class="QSlider" name="joint4Slider">
+                 <property name="minimumSize">
+                  <size>
+                   <width>200</width>
+                   <height>0</height>
+                  </size>
+                 </property>
                  <property name="orientation">
                   <enum>Qt::Horizontal</enum>
                  </property>
@@ -118,16 +172,74 @@
               </layout>
              </item>
              <item>
+              <layout class="QHBoxLayout" name="joint5Layout">
+               <item>
+                <widget class="QLabel" name="joint5Label">
+                 <property name="minimumSize">
+                  <size>
+                   <width>120</width>
+                   <height>0</height>
+                  </size>
+                 </property>
+                 <property name="text">
+                  <string>腕部俯仰 (J5):</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QSlider" name="joint5Slider">
+                 <property name="minimumSize">
+                  <size>
+                   <width>200</width>
+                   <height>0</height>
+                  </size>
+                 </property>
+                 <property name="minimum">
+                  <number>-90</number>
+                 </property>
+                 <property name="maximum">
+                  <number>90</number>
+                 </property>
+                 <property name="orientation">
+                  <enum>Qt::Horizontal</enum>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QDoubleSpinBox" name="joint5Spin">
+                 <property name="minimum">
+                  <double>-90.000000000000000</double>
+                 </property>
+                 <property name="maximum">
+                  <double>90.000000000000000</double>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </item>
+             <item>
               <layout class="QHBoxLayout" name="joint6Layout">
                <item>
                 <widget class="QLabel" name="joint6Label">
+                 <property name="minimumSize">
+                  <size>
+                   <width>120</width>
+                   <height>0</height>
+                  </size>
+                 </property>
                  <property name="text">
-                  <string>Joint 6:</string>
+                  <string>夹爪控制 (J6):</string>
                  </property>
                 </widget>
                </item>
                <item>
                 <widget class="QSlider" name="joint6Slider">
+                 <property name="minimumSize">
+                  <size>
+                   <width>200</width>
+                   <height>0</height>
+                  </size>
+                 </property>
                  <property name="orientation">
                   <enum>Qt::Horizontal</enum>
                  </property>
@@ -138,43 +250,10 @@
                </item>
               </layout>
              </item>
-            </layout>
-           </widget>
-          </item>
-          <item>
-           <widget class="QPushButton" name="homeButton">
-            <property name="text">
-             <string>Home Position</string>
-            </property>
-           </widget>
-          </item>
-         </layout>
-        </item>
-        <item>
-         <widget class="Line" name="line">
-          <property name="orientation">
-           <enum>Qt::Vertical</enum>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <layout class="QVBoxLayout" name="verticalLayout_3">
-          <item>
-           <widget class="QGroupBox" name="viewGroup">
-            <property name="title">
-             <string>Camera View</string>
-            </property>
-            <layout class="QVBoxLayout" name="verticalLayout_4">
              <item>
-              <widget class="QLabel" name="cameraView">
-               <property name="minimumSize">
-                <size>
-                 <width>320</width>
-                 <height>240</height>
-                </size>
-               </property>
+              <widget class="QLabel" name="jointStatusLabel">
                <property name="text">
-                <string>Camera View</string>
+                <string>关节状态: 等待更新...</string>
                </property>
               </widget>
              </item>
@@ -182,9 +261,19 @@
            </widget>
           </item>
           <item>
+           <widget class="QPushButton" name="homeButton">
+            <property name="toolTip">
+             <string>将机械臂移动到预设的安全初始位置</string>
+            </property>
+            <property name="text">
+             <string>回到初始位置</string>
+            </property>
+           </widget>
+          </item>
+          <item>
            <widget class="QGroupBox" name="vacuumGroup">
             <property name="title">
-             <string>Vacuum Control</string>
+             <string>真空吸盘控制</string>
             </property>
             <layout class="QVBoxLayout" name="verticalLayout_5">
              <item>
@@ -192,14 +281,14 @@
                <item>
                 <widget class="QPushButton" name="vacuumOnButton">
                  <property name="text">
-                  <string>On</string>
+                  <string>开启</string>
                  </property>
                 </widget>
                </item>
                <item>
                 <widget class="QPushButton" name="vacuumOffButton">
                  <property name="text">
-                  <string>Off</string>
+                  <string>关闭</string>
                  </property>
                 </widget>
                </item>
@@ -210,7 +299,7 @@
                <item>
                 <widget class="QLabel" name="powerLabel">
                  <property name="text">
-                  <string>Power:</string>
+                  <string>吸力:</string>
                  </property>
                 </widget>
                </item>
@@ -234,6 +323,42 @@
           </item>
          </layout>
         </item>
+        <item>
+         <widget class="Line" name="line">
+          <property name="orientation">
+           <enum>Qt::Vertical</enum>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <layout class="QVBoxLayout" name="verticalLayout_3">
+          <item>
+           <widget class="QGroupBox" name="viewGroup">
+            <property name="title">
+             <string>相机视图</string>
+            </property>
+            <layout class="QVBoxLayout" name="verticalLayout_4">
+             <item>
+              <widget class="QLabel" name="cameraView">
+               <property name="minimumSize">
+                <size>
+                 <width>480</width>
+                 <height>360</height>
+                </size>
+               </property>
+               <property name="text">
+                <string>相机视图</string>
+               </property>
+               <property name="alignment">
+                <set>Qt::AlignCenter</set>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </item>
+         </layout>
+        </item>
        </layout>
       </widget>
      </widget>
@@ -245,36 +370,12 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>800</width>
+     <width>1024</width>
      <height>22</height>
     </rect>
    </property>
-   <widget class="QMenu" name="menuFile">
-    <property name="title">
-     <string>File</string>
-    </property>
-    <addaction name="actionExit"/>
-   </widget>
-   <widget class="QMenu" name="menuHelp">
-    <property name="title">
-     <string>Help</string>
-    </property>
-    <addaction name="actionAbout"/>
-   </widget>
-   <addaction name="menuFile"/>
-   <addaction name="menuHelp"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
-  <action name="actionExit">
-   <property name="text">
-    <string>Exit</string>
-   </property>
-  </action>
-  <action name="actionAbout">
-   <property name="text">
-    <string>About</string>
-   </property>
-  </action>
  </widget>
  <resources/>
  <connections/>

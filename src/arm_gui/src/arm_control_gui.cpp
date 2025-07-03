@@ -128,12 +128,14 @@ void ArmControlGUI::setupUi()
     ui->joint2Slider->setRange(0, 50);
     ui->joint3Slider->setRange(-90, 90);
     ui->joint4Slider->setRange(0, 180);
+    ui->joint5Slider->setRange(-90, 90);
     ui->joint6Slider->setRange(5, 15);
     
     ui->joint1Spin->setRange(-180.0, 180.0);
     ui->joint2Spin->setRange(0.0, 50.0);
     ui->joint3Spin->setRange(-90.0, 90.0);
     ui->joint4Spin->setRange(0.0, 180.0);
+    ui->joint5Spin->setRange(-90.0, 90.0);
     ui->joint6Spin->setRange(5.0, 15.0);
     
     // 检查并创建可能缺失的UI元素
@@ -231,91 +233,54 @@ void ArmControlGUI::createMissingUIElements()
             }
         }
     }
-    
-    // 创建深度视图
-    QLabel* depthView = findChild<QLabel*>("depthView");
-    if (!depthView) {
-        depthView = new QLabel(this);
-        depthView->setObjectName("depthView");
-        depthView->setText("深度视图");
-        depthView->setMinimumSize(320, 240);
-        depthView->setMaximumHeight(240);
-        depthView->setAlignment(Qt::AlignCenter);
-        depthView->setStyleSheet("background-color: #333333; color: white;");
-        
-        // 查找cameraLayout并添加深度视图
-        QLayout* cameraLayout = findChild<QLayout*>("cameraLayout");
-        if (cameraLayout) {
-            cameraLayout->addWidget(depthView);
-        } else {
-            // 如果没有找到cameraLayout，添加到现有的布局
-            QLabel* cameraView = findChild<QLabel*>("cameraView");
-            if (cameraView) {
-                QLayout* parentLayout = cameraView->parentWidget()->layout();
-                if (parentLayout) {
-                    parentLayout->addWidget(depthView);
-                }
-            }
-        }
-    }
 }
 
 void ArmControlGUI::connectSignalSlots()
 {
-    // 关节控制连接
+    // 连接定时器
+    connect(updateTimer, &QTimer::timeout, this, &ArmControlGUI::updateUI);
+    
+    // 连接关节滑块和微调框
     connect(ui->joint1Slider, &QSlider::valueChanged, this, &ArmControlGUI::onJoint1SliderChanged);
     connect(ui->joint2Slider, &QSlider::valueChanged, this, &ArmControlGUI::onJoint2SliderChanged);
     connect(ui->joint3Slider, &QSlider::valueChanged, this, &ArmControlGUI::onJoint3SliderChanged);
     connect(ui->joint4Slider, &QSlider::valueChanged, this, &ArmControlGUI::onJoint4SliderChanged);
+    connect(ui->joint5Slider, &QSlider::valueChanged, this, &ArmControlGUI::onJoint5SliderChanged);
     connect(ui->joint6Slider, &QSlider::valueChanged, this, &ArmControlGUI::onJoint6SliderChanged);
     
-    connect(ui->joint1Spin, static_cast<void (QDoubleSpinBox::*)(double)>(&QDoubleSpinBox::valueChanged),
-            this, &ArmControlGUI::onJoint1SpinChanged);
-    connect(ui->joint2Spin, static_cast<void (QDoubleSpinBox::*)(double)>(&QDoubleSpinBox::valueChanged),
-            this, &ArmControlGUI::onJoint2SpinChanged);
-    connect(ui->joint3Spin, static_cast<void (QDoubleSpinBox::*)(double)>(&QDoubleSpinBox::valueChanged),
-            this, &ArmControlGUI::onJoint3SpinChanged);
-    connect(ui->joint4Spin, static_cast<void (QDoubleSpinBox::*)(double)>(&QDoubleSpinBox::valueChanged),
-            this, &ArmControlGUI::onJoint4SpinChanged);
-    connect(ui->joint6Spin, static_cast<void (QDoubleSpinBox::*)(double)>(&QDoubleSpinBox::valueChanged),
-            this, &ArmControlGUI::onJoint6SpinChanged);
+    connect(ui->joint1Spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ArmControlGUI::onJoint1SpinChanged);
+    connect(ui->joint2Spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ArmControlGUI::onJoint2SpinChanged);
+    connect(ui->joint3Spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ArmControlGUI::onJoint3SpinChanged);
+    connect(ui->joint4Spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ArmControlGUI::onJoint4SpinChanged);
+    connect(ui->joint5Spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ArmControlGUI::onJoint5SpinChanged);
+    connect(ui->joint6Spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &ArmControlGUI::onJoint6SpinChanged);
     
-    // 吸附控制连接
+    // 连接真空吸盘控制
+    connect(ui->vacuumOnButton, &QPushButton::clicked, this, [this]() { sendVacuumCommand(true, ui->vacuumPowerSlider->value()); });
+    connect(ui->vacuumOffButton, &QPushButton::clicked, this, [this]() { sendVacuumCommand(false, 0); });
     connect(ui->vacuumPowerSlider, &QSlider::valueChanged, this, &ArmControlGUI::onVacuumPowerSliderChanged);
-    connect(ui->vacuumOnButton, &QPushButton::clicked, this, &ArmControlGUI::onVacuumOnButtonClicked);
-    connect(ui->vacuumOffButton, &QPushButton::clicked, this, &ArmControlGUI::onVacuumOffButtonClicked);
     
-    // 其他按钮连接
-    connect(ui->homeButton, &QPushButton::clicked, this, &ArmControlGUI::onHomeButtonClicked);
-    
-    // 定时器连接
-    connect(updateTimer, &QTimer::timeout, this, &ArmControlGUI::onUpdateGUI);
+    // 连接Home按钮
+    connect(ui->homeButton, &QPushButton::clicked, this, &ArmControlGUI::goToHomePosition);
 }
 
 void ArmControlGUI::jointStateCallback(const sensor_msgs::JointState::ConstPtr& msg)
 {
-    if (msg->position.size() >= 6) {
-        // 更新当前关节值
-        for (size_t i = 0; i < std::min(msg->position.size(), current_joint_values_.size()); ++i) {
-            current_joint_values_[i] = msg->position[i];
-        }
-        
-        // 更新UI
-        if (!ui_processing_) {
-            updateGUIJointValues();
-        }
-        
-        // 计算末端位姿
-        geometry_msgs::Pose end_pose = forwardKinematics(current_joint_values_);
-        current_end_position_ = QVector3D(end_pose.position.x * 100.0f, 
-                                         end_pose.position.y * 100.0f,
-                                         end_pose.position.z * 100.0f);
-        current_end_orientation_ = QQuaternion(end_pose.orientation.w,
-                                             end_pose.orientation.x,
-                                             end_pose.orientation.y,
-                                             end_pose.orientation.z);
-        current_end_pose_ = end_pose;
+    // 检查消息是否有效
+    if (msg->position.size() < 6) {
+        return;
     }
+    
+    // 更新当前关节值
+    for (size_t i = 0; i < std::min(msg->position.size(), current_joint_values_.size()); ++i) {
+        current_joint_values_[i] = msg->position[i];
+    }
+    
+    // 标记机械臂准备就绪
+    arm_ready_ = true;
+    
+    // 更新GUI（在主线程中）
+    QMetaObject::invokeMethod(this, "updateGUIJointValues", Qt::QueuedConnection);
 }
 
 void ArmControlGUI::onUpdateGUI()
@@ -376,27 +341,44 @@ void ArmControlGUI::updateVacuumStatus()
 
 void ArmControlGUI::updateGUIJointValues()
 {
+    if (ignore_slider_events_)
+        return;
+    
+    // 阻止信号触发，避免循环调用
     ignore_slider_events_ = true;
     ignore_spin_events_ = true;
     
-    // 转换为度数显示
+    // 将弧度转换为角度
     double joint1_deg = radToDeg(current_joint_values_[0]);
-    ui->joint1Slider->setValue(static_cast<int>(joint1_deg));
-    ui->joint1Spin->setValue(joint1_deg);
-    
-    // Joint 2是直线移动，单位是厘米
-    ui->joint2Slider->setValue(static_cast<int>(current_joint_values_[1]));
-    ui->joint2Spin->setValue(current_joint_values_[1]);
-    
-    // 转换为度数显示
     double joint3_deg = radToDeg(current_joint_values_[2]);
-    ui->joint3Slider->setValue(static_cast<int>(joint3_deg));
-    ui->joint3Spin->setValue(joint3_deg);
-    
-    // 转换为度数显示
     double joint4_deg = radToDeg(current_joint_values_[3]);
+    double joint5_deg = radToDeg(current_joint_values_[4]);
+    
+    // 更新滑块值
+    ui->joint1Slider->setValue(static_cast<int>(joint1_deg));
+    ui->joint2Slider->setValue(static_cast<int>(current_joint_values_[1]));
+    ui->joint3Slider->setValue(static_cast<int>(joint3_deg));
     ui->joint4Slider->setValue(static_cast<int>(joint4_deg));
+    ui->joint5Slider->setValue(static_cast<int>(joint5_deg));
+    ui->joint6Slider->setValue(static_cast<int>(current_joint_values_[5]));
+    
+    // 更新微调框值
+    ui->joint1Spin->setValue(joint1_deg);
+    ui->joint2Spin->setValue(current_joint_values_[1]);
+    ui->joint3Spin->setValue(joint3_deg);
     ui->joint4Spin->setValue(joint4_deg);
+    ui->joint5Spin->setValue(joint5_deg);
+    ui->joint6Spin->setValue(current_joint_values_[5]);
+    
+    // 更新关节状态标签
+    QString statusText = QString("关节状态: J1=%1° J2=%2 J3=%3° J4=%4° J5=%5° J6=%6")
+                        .arg(joint1_deg, 0, 'f', 1)
+                        .arg(current_joint_values_[1], 0, 'f', 1)
+                        .arg(joint3_deg, 0, 'f', 1)
+                        .arg(joint4_deg, 0, 'f', 1)
+                        .arg(joint5_deg, 0, 'f', 1)
+                        .arg(current_joint_values_[5], 0, 'f', 1);
+    ui->jointStatusLabel->setText(statusText);
     
     ignore_slider_events_ = false;
     ignore_spin_events_ = false;
@@ -505,14 +487,23 @@ std::vector<double> ArmControlGUI::inverseKinematics(const geometry_msgs::Pose& 
     return current_joint_values_;
 }
 
-// 控制函数
+// 发送关节命令
 void ArmControlGUI::sendJointCommand(const std::vector<double>& joint_values)
 {
-    sensor_msgs::JointState msg;
-    msg.header.stamp = ros::Time::now();
-    msg.position = joint_values;
+    // 创建关节状态消息
+    sensor_msgs::JointState joint_msg;
+    joint_msg.header.stamp = ros::Time::now();
+    joint_msg.name = {"arm1_joint1", "arm1_joint2", "arm1_joint3", "arm1_joint4", "arm1_joint5", "arm1_joint6"};
+    joint_msg.position = joint_values;
     
-    joint_command_pub_.publish(msg);
+    // 发布关节命令
+    joint_command_pub_.publish(joint_msg);
+}
+
+// 重载的无参数版本，使用当前关节值
+void ArmControlGUI::sendJointCommand()
+{
+    sendJointCommand(current_joint_values_);
 }
 
 void ArmControlGUI::sendVacuumCommand(bool on, int power)
@@ -596,6 +587,25 @@ void ArmControlGUI::onJoint4SliderChanged(int value)
     }
 }
 
+void ArmControlGUI::onJoint5SliderChanged(int value)
+{
+    if (ignore_slider_events_)
+        return;
+    
+    ignore_spin_events_ = true;
+    ui->joint5Spin->setValue(value);
+    ignore_spin_events_ = false;
+    
+    // 将角度转换为弧度
+    double angle_rad = degToRad(value);
+    
+    // 更新关节值
+    current_joint_values_[4] = angle_rad;
+    
+    // 发送关节命令
+    sendJointCommand();
+}
+
 void ArmControlGUI::onJoint6SliderChanged(int value)
 {
     if (!ignore_slider_events_) {
@@ -667,6 +677,25 @@ void ArmControlGUI::onJoint4SpinChanged(double value)
         
         sendJointCommand(new_joints);
     }
+}
+
+void ArmControlGUI::onJoint5SpinChanged(double value)
+{
+    if (ignore_spin_events_)
+        return;
+    
+    ignore_slider_events_ = true;
+    ui->joint5Slider->setValue(static_cast<int>(value));
+    ignore_slider_events_ = false;
+    
+    // 将角度转换为弧度
+    double angle_rad = degToRad(value);
+    
+    // 更新关节值
+    current_joint_values_[4] = angle_rad;
+    
+    // 发送关节命令
+    sendJointCommand();
 }
 
 void ArmControlGUI::onJoint6SpinChanged(double value)
@@ -752,54 +781,53 @@ void ArmControlGUI::updateCameraView()
 {
     ui_processing_ = true;
     
-    // 根据当前可用图像更新相机视图
-    if (!current_camera_image_.isNull() && ui->cameraView) {
-        ui->cameraView->setPixmap(QPixmap::fromImage(current_camera_image_));
-    } else if (ui->cameraView) {
-        // 如果当前视图不可用，尝试使用默认的左视图
-        if (!left_camera_image_.isNull()) {
-            ui->cameraView->setPixmap(QPixmap::fromImage(left_camera_image_));
-        } else {
-            // 如果左视图也不可用，显示占位图像
-            createPlaceholderImage();
-            ui->cameraView->setPixmap(QPixmap::fromImage(current_camera_image_));
-        }
+    // 根据当前视图模式显示相应的图像
+    QLabel* cameraView = findChild<QLabel*>("cameraView");
+    if (!cameraView) {
+        ui_processing_ = false;
+        return;
     }
     
-    // 处理深度视图 - 检查UI元素是否存在
-    if (!current_depth_image_.isNull()) {
-        QPushButton* depthViewButton = findChild<QPushButton*>("depthViewButton");
-        if (depthViewButton && !depthViewButton->isEnabled()) {
-            depthViewButton->setEnabled(true);
-        }
-        
-        // 如果当前是深度视图模式，同时显示在主视图中
-        if (camera_view_mode_ == 2 && ui->cameraView) {
-            ui->cameraView->setPixmap(QPixmap::fromImage(current_depth_image_));
-        }
-        
-        // 将深度图显示在辅助视图中（如果存在）
-        QLabel* depthView = findChild<QLabel*>("depthView");
-        if (depthView) {
-            depthView->setPixmap(QPixmap::fromImage(current_depth_image_));
-        }
-    } else {
-        // 如果深度图不可用
-        QPushButton* depthViewButton = findChild<QPushButton*>("depthViewButton");
-        if (depthViewButton && depthViewButton->isEnabled()) {
-            depthViewButton->setEnabled(false);
-        }
-        
-        QLabel* depthView = findChild<QLabel*>("depthView");
-        if (depthView) {
-            depthView->clear();
-            depthView->setText("深度图不可用");
-        }
-        
-        // 如果当前是深度视图模式但深度图不可用，切换回左视图
-        if (camera_view_mode_ == 2) {
-            onLeftViewButtonClicked();
-        }
+    // 根据当前视图模式选择要显示的图像
+    switch (camera_view_mode_) {
+        case 0: // 左视图
+            if (!left_camera_image_.isNull()) {
+                cameraView->setPixmap(QPixmap::fromImage(left_camera_image_).scaled(
+                    cameraView->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            } else {
+                createPlaceholderImage();
+                cameraView->setPixmap(QPixmap::fromImage(current_camera_image_).scaled(
+                    cameraView->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            }
+            break;
+            
+        case 1: // 右视图
+            if (!right_camera_image_.isNull()) {
+                cameraView->setPixmap(QPixmap::fromImage(right_camera_image_).scaled(
+                    cameraView->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            } else {
+                createPlaceholderImage();
+                cameraView->setPixmap(QPixmap::fromImage(current_camera_image_).scaled(
+                    cameraView->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            }
+            break;
+            
+        case 2: // 深度视图
+            if (!current_depth_image_.isNull()) {
+                cameraView->setPixmap(QPixmap::fromImage(current_depth_image_).scaled(
+                    cameraView->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            } else {
+                createPlaceholderImage("深度图不可用");
+                cameraView->setPixmap(QPixmap::fromImage(current_camera_image_).scaled(
+                    cameraView->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            }
+            break;
+    }
+    
+    // 更新深度视图按钮状态
+    QPushButton* depthViewButton = findChild<QPushButton*>("depthViewButton");
+    if (depthViewButton) {
+        depthViewButton->setEnabled(!current_depth_image_.isNull());
     }
     
     ui_processing_ = false;
@@ -873,12 +901,12 @@ QPoint ArmControlGUI::point3DToImage(const QVector3D& point_3d) { return QPoint(
 float ArmControlGUI::getDepthAtPoint(const QPoint& image_point) { return 0.0f; }
 void ArmControlGUI::onCameraViewClicked(QPoint pos) {}
 void ArmControlGUI::handleCameraError(const std::string& error_msg) {}
-void ArmControlGUI::createPlaceholderImage()
+void ArmControlGUI::createPlaceholderImage(const std::string& message)
 {
-    // 创建一个占位图像，显示"等待摄像头连接"
+    // 创建一个占位图像，显示自定义消息
     cv::Mat placeholder(480, 640, CV_8UC3, cv::Scalar(40, 40, 40));
-    cv::putText(placeholder, "等待摄像头连接...", cv::Point(150, 240), 
-                cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(200, 200, 200), 2);
+    cv::putText(placeholder, message.empty() ? "等待摄像头连接..." : message, 
+                cv::Point(150, 240), cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(200, 200, 200), 2);
     current_camera_image_ = cvMatToQImage(placeholder);
 }
 
@@ -1096,4 +1124,22 @@ void ArmControlGUI::logMessage(const QString& message)
     
     // 同时输出到ROS日志
     ROS_INFO("%s", message.toStdString().c_str());
+}
+
+void ArmControlGUI::goToHomePosition()
+{
+    // Home Position是机械臂的初始安全位置
+    logMessage("正在将机械臂移动到初始位置...");
+    
+    // 设置初始位置的关节角度
+    std::vector<double> home_position = {0.0, 0.0, 0.0, 0.0, 0.0, 10.0};  // 根据实际机械臂调整
+    
+    // 更新当前关节值
+    current_joint_values_ = home_position;
+    
+    // 更新GUI
+    updateGUIJointValues();
+    
+    // 发送关节命令
+    sendJointCommand();
 }
