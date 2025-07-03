@@ -482,11 +482,6 @@ show_menu() {
         echo -e "${YELLOW}4. 修复系统权限${NC}"
         echo -e "${YELLOW}0. 退出${NC}"
         echo -e "${BLUE}=====================================${NC}"
-        echo -e "${CYAN}功能说明:${NC}"
-        echo -e "${CYAN}- 系统使用机械臂末端双目摄像头${NC}"
-        echo -e "${CYAN}- 支持直接输入三维坐标控制机械臂末端位置${NC}"
-        echo -e "${CYAN}- 支持使用YOLO检测物体并移动到物体位置${NC}"
-        echo -e "${BLUE}=====================================${NC}"
         echo -ne "${GREEN}请选择: ${NC}"
         read -r choice
         
