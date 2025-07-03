@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- 启动实际相机节点 -->
+  <node name="stereo_camera_node" pkg="arm_trajectory" type="stereo_camera_node.py" output="screen">
+    <!-- 相机参数 -->
+    <param name="camera_index" value="0" />
+    <param name="frame_rate" value="30" />
+    <param name="use_depth" value="true" />
+    <param name="view_mode" value="0" /> <!-- 0=左图, 1=右图, 2=深度图 -->
+    
+    <!-- 禁用模拟相机模式 -->
+    <param name="use_mock_camera" value="false" />
+  </node>
+</launch> 

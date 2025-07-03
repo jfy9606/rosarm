@@ -38,6 +38,9 @@ class StereoCameraNode:
         # 视图模式: 0=左图, 1=右图, 2=深度图
         self.view_mode = int(rospy.get_param('~view_mode', 0))
         
+        # 开发环境中使用模拟相机模式的参数（在初始化时设置）
+        self.use_mock_camera = rospy.get_param('~use_mock_camera', False)  # 默认不使用模拟相机
+        
         # Initialize bridge
         self.bridge = CvBridge()
         
@@ -168,6 +171,13 @@ class StereoCameraNode:
             
     def open_camera(self):
         """打开相机并设置参数"""
+        # 如果使用模拟相机模式，则不需要真实相机
+        if self.use_mock_camera:
+            rospy.loginfo("使用模拟相机模式，跳过真实相机初始化")
+            self.is_running = True
+            self.is_reconnecting = False
+            return True
+            
         try:
             with self.camera_lock:
                 # 关闭现有相机（如果已打开）
@@ -187,8 +197,10 @@ class StereoCameraNode:
                     
                     # 给系统一点时间完全释放资源
                     # 确保使用导入的全局time模块，而不是局部变量
-                    import time as time_module  # 使用不同的名称避免冲突
-                    time_module.sleep(2.0)  # 增加等待时间到2秒
+                    try:
+                        time_module.sleep(2.0)  # 增加等待时间到2秒
+                    except Exception as e:
+                        rospy.logwarn(f"休眠时出错: {e}")
                 
                 # 尝试多个相机设备
                 devices_to_try = ["/dev/video0", "/dev/video1", "/dev/video2", 0, 1, 2]
@@ -219,10 +231,16 @@ class StereoCameraNode:
                         for attempt in range(5):  # 增加到5次尝试
                             try:
                                 # 设置读取超时
-                                start_time = time_module.time()
-                                ret, test_frame = self.camera.read()
-                                end_time = time_module.time()
-                                elapsed = end_time - start_time
+                                try:
+                                    start_time = time_module.time()
+                                    ret, test_frame = self.camera.read()
+                                    end_time = time_module.time()
+                                    elapsed = end_time - start_time
+                                except Exception as e:
+                                    rospy.logwarn(f"读取帧时时间计算错误: {e}")
+                                    # 如果无法获取时间，继续尝试读取帧
+                                    ret, test_frame = self.camera.read()
+                                    elapsed = 0  # 设置一个默认值
                                 
                                 # 记录读取耗时
                                 rospy.loginfo(f"相机读取耗时: {elapsed:.3f}秒")
@@ -241,10 +259,16 @@ class StereoCameraNode:
                                 else:
                                     # 如果读取失败，等待后重试
                                     rospy.logwarn(f"读取测试帧失败，尝试 {attempt+1}/5")
-                                    time_module.sleep(1.0)  # 增加等待时间到1秒
+                                    try:
+                                        time_module.sleep(1.0)  # 增加等待时间到1秒
+                                    except Exception as e:
+                                        rospy.logwarn(f"休眠时出错: {e}")
                             except Exception as e:
                                 rospy.logwarn(f"读取测试帧异常: {e}")
-                                time_module.sleep(1.0)
+                                try:
+                                    time_module.sleep(1.0)
+                                except Exception as e2:
+                                    rospy.logwarn(f"休眠时出错: {e2}")
                         
                         # 如果所有尝试都失败，释放相机
                         rospy.logerr(f"相机设备 {device} 打开成功但无法读取图像")
@@ -490,12 +514,11 @@ class StereoCameraNode:
         rate = rospy.Rate(self.frame_rate)  # 使用设置的帧率
         placeholder_image = self.create_placeholder_image("等待相机连接...", 640, 480)
         
-        # 开发环境中使用模拟相机模式的参数
-        self.use_mock_camera = rospy.get_param('~use_mock_camera', False)  # 默认不使用模拟相机
-        mock_camera_pattern = rospy.get_param('~mock_camera_pattern', 'checkerboard')  # 默认使用棋盘格
-        
         # 如果启用了模拟相机，创建模拟图像
         if self.use_mock_camera:
+            # 获取模拟相机的图案类型
+            mock_camera_pattern = rospy.get_param('~mock_camera_pattern', 'checkerboard')  # 默认使用棋盘格
+            
             rospy.loginfo("启用模拟相机模式，实际相机将被忽略")
             # 创建左右模拟图像
             if mock_camera_pattern == 'checkerboard':
@@ -507,7 +530,11 @@ class StereoCameraNode:
                 self.mock_right_frame = np.ones((480, 640, 3), dtype=np.uint8) * 150  # 浅灰色
         
         consecutive_failures = 0  # 连续失败计数
-        last_diagnostic_time = time_module.time()
+        try:
+            last_diagnostic_time = time_module.time()
+        except Exception as e:
+            rospy.logwarn(f"初始化诊断时间错误: {e}")
+            last_diagnostic_time = 0
         
         while not rospy.is_shutdown():
             try:
@@ -517,11 +544,19 @@ class StereoCameraNode:
                     right_frame = self.mock_right_frame.copy()
                     
                     # 在模拟图像上添加时间戳
-                    timestamp = time_module.strftime("%H:%M:%S", time_module.localtime())
-                    cv2.putText(left_frame, f"Mock Left {timestamp}", (20, 30), 
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                    cv2.putText(right_frame, f"Mock Right {timestamp}", (20, 30), 
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                    try:
+                        timestamp = time_module.strftime("%H:%M:%S", time_module.localtime())
+                        cv2.putText(left_frame, f"Mock Left {timestamp}", (20, 30), 
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                        cv2.putText(right_frame, f"Mock Right {timestamp}", (20, 30), 
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                    except Exception as e:
+                        rospy.logwarn(f"时间戳格式化错误: {e}")
+                        # 使用简单文本代替时间戳
+                        cv2.putText(left_frame, "Mock Left", (20, 30), 
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                        cv2.putText(right_frame, "Mock Right", (20, 30), 
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
                     
                     # 缓存帧用于视图切换
                     self.left_frame = left_frame
@@ -573,15 +608,25 @@ class StereoCameraNode:
                         continue
                         
                     # 读取帧，添加超时检测
-                    start_time = time_module.time()
-                    success, frame = self.camera.read()
-                    elapsed = time_module.time() - start_time
+                    try:
+                        start_time = time_module.time()
+                        success, frame = self.camera.read()
+                        end_time = time_module.time()
+                        elapsed = end_time - start_time
+                    except Exception as e:
+                        rospy.logwarn(f"读取帧时间计算错误: {e}")
+                        # 如果无法获取时间，继续尝试读取帧
+                        success, frame = self.camera.read()
+                        elapsed = 0  # 设置一个默认值
                     
                     # 定期输出诊断信息
-                    current_time = time_module.time()
-                    if current_time - last_diagnostic_time > 30.0:  # 每30秒输出一次诊断信息
-                        rospy.loginfo(f"相机状态: isOpened={self.camera.isOpened()}, 读取耗时={elapsed:.3f}秒")
-                        last_diagnostic_time = current_time
+                    try:
+                        current_time = time_module.time()
+                        if current_time - last_diagnostic_time > 30.0:  # 每30秒输出一次诊断信息
+                            rospy.loginfo(f"相机状态: isOpened={self.camera.isOpened()}, 读取耗时={elapsed:.3f}秒")
+                            last_diagnostic_time = current_time
+                    except Exception as e:
+                        rospy.logwarn(f"诊断时间计算错误: {e}")
                     
                     # 检测读取超时
                     if elapsed > 1.0:  # 如果读取耗时超过1秒，记录警告
@@ -792,8 +837,10 @@ class StereoCameraNode:
                 self.camera = None
                 
         # 等待一小段时间确保资源彻底释放
-        import time as time_module  # 使用不同的名称避免冲突
-        time_module.sleep(0.5)
+        try:
+            time_module.sleep(0.5)
+        except Exception as e:
+            rospy.logwarn(f"关闭时休眠错误: {e}")
         
         # 显式调用GC
         try:
