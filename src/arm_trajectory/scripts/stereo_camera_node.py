@@ -227,7 +227,7 @@ class StereoCameraNode:
                     # 尝试直接打开相机
                     try:
                         # 使用超时设置打开相机
-                    self.camera = cv2.VideoCapture(device)
+                        self.camera = cv2.VideoCapture(device)
                         
                         # 检查相机是否成功打开
                         if not self.camera.isOpened():
