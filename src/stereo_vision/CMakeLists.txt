@@ -75,7 +75,7 @@ catkin_install_python(PROGRAMS
   scripts/stereo_detection_node.py
   scripts/camera_config.py
   scripts/view_mode_switcher.py
-  scripts/test_view_modes.py
+  scripts/switch_view.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

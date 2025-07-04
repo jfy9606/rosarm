@@ -18,6 +18,7 @@ stereo_vision
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/lib/stereo_vision/camera_config.py /home/jfy/arm/rosarm/devel/lib/stereo_vision/camera_config.py
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/lib/stereo_vision/stereo_detection_node.py /home/jfy/arm/rosarm/devel/lib/stereo_vision/stereo_detection_node.py
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/lib/stereo_vision/camera_node.py /home/jfy/arm/rosarm/devel/lib/stereo_vision/camera_node.py
+/home/jfy/arm/rosarm/devel/.private/stereo_vision/lib/stereo_vision/switch_view.py /home/jfy/arm/rosarm/devel/lib/stereo_vision/switch_view.py
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/lib/stereo_vision/view_mode_switcher.py /home/jfy/arm/rosarm/devel/lib/stereo_vision/view_mode_switcher.py
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/lib/stereo_vision/yolo_detector.py /home/jfy/arm/rosarm/devel/lib/stereo_vision/yolo_detector.py
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/lib/stereo_vision/test_view_modes.py /home/jfy/arm/rosarm/devel/lib/stereo_vision/test_view_modes.py
