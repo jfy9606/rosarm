@@ -12,6 +12,7 @@
   <arg name="with_arm_controller" default="true" />
   <arg name="with_path_planner" default="true" />
   <arg name="start_rviz" default="false" doc="是否启动RViz可视化" />
+  <arg name="servo_port" default="/dev/ttyUSB0" doc="舵机控制串口（波特率1000000）" />
 
   <!-- 设置参数服务器 -->
   <param name="/use_sim_time" value="false"/>
@@ -26,6 +27,8 @@
   </node>
   
   <!-- 创建必要的话题转发 -->
+  <node name="camera_relay_left" pkg="topic_tools" type="relay" args="/camera/image_raw /left_camera/image_raw" />
+  <node name="camera_relay_right" pkg="topic_tools" type="relay" args="/camera/right/image_raw /right_camera/image_raw" />
   <node name="camera_relay_merged" pkg="topic_tools" type="relay" args="/camera/image_raw /stereo_camera/image_raw" />
 
   <!-- 启动YOLO检测器节点 -->
@@ -40,16 +43,36 @@
   <node pkg="stereo_vision" type="stereo_detection_node.py" name="stereo_detection_node" output="screen">
     <param name="yolo_model_path" value="$(arg yolo_model_path)"/>
     <param name="use_split_feed" value="false"/>
+    <param name="left_image_topic" value="/left_camera/image_raw"/>
+    <param name="right_image_topic" value="/right_camera/image_raw"/>
   </node>
   
   <!-- 启动视图模式切换器 -->
   <node pkg="stereo_vision" type="view_mode_switcher.py" name="view_mode_switcher" output="screen">
     <param name="initial_view_mode" value="$(arg initial_view_mode)" />
+    <param name="left_image_topic" value="/left_camera/image_raw"/>
+    <param name="right_image_topic" value="/right_camera/image_raw"/>
+    <param name="depth_image_topic" value="/stereo_camera/depth/image_raw"/>
   </node>
 
   <!-- TF静态发布器，用于相机到世界坐标系的转换 -->
   <node pkg="tf2_ros" type="static_transform_publisher" name="camera_link_broadcaster"
         args="0.4 0 0.8 0 0.35 0 world camera_link" />
+  
+  <!-- 启动舵机控制节点 -->
+  <node name="servo" pkg="servo_wrist" type="wrist_ctrl" args="$(arg servo_port)" output="screen" respawn="true">
+    <param name="baudrate" value="1000000" />
+  </node>
+  
+  <!-- 启动关节状态发布节点 -->
+  <node name="joint_publisher" pkg="arm_gui" type="joint_state_publisher_node" output="screen">
+    <param name="publish_rate" value="50" />
+  </node>
+  
+  <!-- 启动视觉伺服控制器 -->
+  <group if="$(arg with_arm_controller)">
+    <node name="visual_servo_controller" pkg="arm_trajectory" type="visual_servo_controller.py" output="screen" />
+  </group>
   
   <!-- 启动路径规划节点 -->
   <group if="$(arg with_path_planner)">
@@ -65,14 +88,12 @@
       <param name="use_whale_optimizer" value="true" />
     </node>
   </group>
-  
-  <!-- 启动关节状态发布器 -->
-  <include file="$(find arm_gui)/launch/joint_state_publisher.launch" />
 
   <!-- 启动GUI界面 -->
-  <node pkg="arm_gui" type="arm_gui_node" name="arm_gui_node" output="screen">
+  <node pkg="arm_gui" type="arm_gui_node" name="arm_gui_node" output="screen" respawn="true">
     <!-- GUI参数 -->
     <param name="update_rate" value="20" />
+    <param name="use_stereo_camera" value="true" />
   </node>
 
   <!-- 可选启动RViz -->
