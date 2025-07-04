@@ -18,6 +18,7 @@
 #include <QHeaderView>
 #include <QTextCursor>
 #include <QRect>
+#include <QPainter>
 
 #include <ros/ros.h>
 #include <geometry_msgs/Pose.h>
@@ -63,6 +64,18 @@ class ArmControlGUI : public QMainWindow
     Q_OBJECT
 
 public:
+    // 检测对象数据结构
+    struct DetectedObject {
+        std::string id;
+        std::string type;
+        std::string label;       // 用于显示的标签
+        double confidence;       // 置信度
+        QVector3D position;      // 3D位置
+        QVector3D dimensions;    // 3D尺寸
+        geometry_msgs::Pose pose;
+        double x, y, z;  // Position in cm
+    };
+    
     explicit ArmControlGUI(ros::NodeHandle& nh, QWidget* parent = nullptr);
     ~ArmControlGUI();
 
@@ -232,71 +245,6 @@ private:
     void onEndEffectorDragged(QVector3D position);
     
     // Data structures
-    struct DetectedObject {
-        std::string id;
-        std::string type;
-        std::string label;       // 用于显示的标签
-        double confidence;       // 置信度
-        QVector3D position;      // 3D位置
-        QVector3D dimensions;    // 3D尺寸
-        geometry_msgs::Pose pose;
-        double x, y, z;  // Position in cm
-    };
-
-private:
-    Ui::ArmControlMainWindow* ui;
-    
-    // ROS members
-    ros::NodeHandle& nh_;
-    
-    // Publishers
-    ros::Publisher joint_command_pub_;
-    ros::Publisher vacuum_cmd_pub_;
-    ros::Publisher vacuum_power_pub_;
-    ros::Publisher arm_command_pub_;
-    ros::Publisher home_command_pub_;
-    ros::Publisher relay_order_pub_;
-    ros::Publisher camera_view_mode_pub_;
-    static ros::Publisher view_mode_pub_;
-    
-    // Subscribers
-    ros::Subscriber joint_state_sub_;
-    ros::Subscriber stereo_merged_sub_;
-    ros::Subscriber depth_image_sub_;
-    ros::Subscriber detection_image_sub_;
-    ros::Subscriber detection_poses_sub_;
-    ros::Subscriber yolo_status_sub_;
-    
-    // Service clients
-    ros::ServiceClient joint_control_client_;
-    ros::ServiceClient vacuum_control_client_;
-    ros::ServiceClient home_position_client_;
-    ros::ServiceClient detection_control_client_;
-    ros::ServiceClient set_view_mode_client_;
-    ros::ServiceClient yolo_control_client_;
-    
-    // Message filters for synchronized topics
-    typedef message_filters::sync_policies::ApproximateTime<
-        sensor_msgs::Image, geometry_msgs::PoseArray> SyncPolicy;
-    message_filters::Subscriber<sensor_msgs::Image>* detection_image_sub_filter_;
-    message_filters::Subscriber<geometry_msgs::PoseArray>* detection_poses_sub_filter_;
-    message_filters::Synchronizer<SyncPolicy>* object_detection_sync_;
-    
-    // 关节限制和DH参数 - now managed by KinematicsUtils
-    
-    // Joint state
-    std::vector<double> current_joint_values_;
-    
-    // End effector state
-    QVector3D current_end_position_;
-    QQuaternion current_end_orientation_;
-    geometry_msgs::Pose current_end_pose_;
-    
-    // Vacuum state
-    bool vacuum_on_;
-    int vacuum_power_;
-    
-    // Object detection state
     std::vector<DetectedObject> detected_objects_;
     int selected_object_index_;
     std::string selected_object_id_;
@@ -337,6 +285,64 @@ private:
     // Timer
     QTimer* updateTimer;
     QTimer camera_reconnect_timer_;
+
+private:
+    Ui::ArmControlMainWindow* ui;
+    
+    // ROS members
+    ros::NodeHandle& nh_;
+    
+    // Publishers
+    ros::Publisher joint_command_pub_;
+    ros::Publisher vacuum_cmd_pub_;
+    ros::Publisher vacuum_power_pub_;
+    ros::Publisher arm_command_pub_;
+    ros::Publisher home_command_pub_;
+    ros::Publisher relay_order_pub_;
+    ros::Publisher camera_view_mode_pub_;
+    static ros::Publisher view_mode_pub_;
+    
+    // Subscribers
+    ros::Subscriber joint_state_sub_;
+    ros::Subscriber stereo_merged_sub_;
+    ros::Subscriber depth_image_sub_;
+    ros::Subscriber detection_image_sub_;
+    ros::Subscriber detection_poses_sub_;
+    ros::Subscriber yolo_status_sub_;
+    
+    // Service clients
+    ros::ServiceClient joint_control_client_;
+    ros::ServiceClient vacuum_control_client_;
+    ros::ServiceClient home_position_client_;
+    ros::ServiceClient detection_control_client_;
+    ros::ServiceClient set_view_mode_client_;
+    ros::ServiceClient yolo_control_client_;
+    
+    // Message filters for synchronized topics
+    typedef message_filters::sync_policies::ApproximateTime<
+        sensor_msgs::Image, geometry_msgs::PoseArray> SyncPolicy;
+    message_filters::Subscriber<sensor_msgs::Image>* detection_image_sub_filter_;
+    message_filters::Subscriber<geometry_msgs::PoseArray>* detection_poses_sub_filter_;
+    message_filters::Synchronizer<SyncPolicy>* object_detection_sync_;
+    
+    // 同步订阅
+    std::shared_ptr<message_filters::Subscriber<sensor_msgs::Image>> detection_image_sync_sub_;
+    std::shared_ptr<message_filters::Subscriber<geometry_msgs::PoseArray>> detection_poses_sync_sub_;
+    std::shared_ptr<message_filters::Synchronizer<SyncPolicy>> sync_;
+    
+    // 关节限制和DH参数 - now managed by KinematicsUtils
+    
+    // Joint state
+    std::vector<double> current_joint_values_;
+    
+    // End effector state
+    QVector3D current_end_position_;
+    QQuaternion current_end_orientation_;
+    geometry_msgs::Pose current_end_pose_;
+    
+    // Vacuum state
+    bool vacuum_on_;
+    int vacuum_power_;
 };
 
 #endif // ARM_CONTROL_GUI_H 
