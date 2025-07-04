@@ -342,45 +342,132 @@ void EnhancedArmGUI::jointStateCallback(const sensor_msgs::JointState::ConstPtr&
 void EnhancedArmGUI::leftImageCallback(const sensor_msgs::Image::ConstPtr& msg)
 {
     try {
-        cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
+        // 尝试使用不同的编码格式
+        cv_bridge::CvImagePtr cv_ptr;
+        try {
+            cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
+        }
+        catch (cv_bridge::Exception& e) {
+            // 如果BGR8失败，尝试其他格式
+            try {
+                cv_ptr = cv_bridge::toCvCopy(msg, msg->encoding);
+                if (cv_ptr->image.channels() == 1) {
+                    // 如果是单通道图像，转换为BGR
+                    cv::cvtColor(cv_ptr->image, cv_ptr->image, cv::COLOR_GRAY2BGR);
+                }
+                else if (cv_ptr->image.channels() == 4) {
+                    // 如果是RGBA图像，转换为BGR
+                    cv::cvtColor(cv_ptr->image, cv_ptr->image, cv::COLOR_BGRA2BGR);
+                }
+            }
+            catch (cv_bridge::Exception& e2) {
+                logMessage(QString("左相机图像转换错误，尝试所有格式都失败: %1, %2").arg(e.what()).arg(e2.what()));
+                return;
+            }
+        }
+        
+        // 检查图像是否为空或损坏
+        if (cv_ptr->image.empty() || cv_ptr->image.rows <= 0 || cv_ptr->image.cols <= 0) {
+            logMessage("左相机图像为空或损坏");
+            return;
+        }
+        
         left_image_ = cv_ptr->image;
         
         if (current_view_mode_ == 0) {
             current_display_image_ = cvMatToQImage(left_image_);
         }
     }
-    catch (cv_bridge::Exception& e) {
-        logMessage(QString("左相机图像转换错误: %1").arg(e.what()));
+    catch (std::exception& e) {
+        logMessage(QString("左相机图像处理错误: %1").arg(e.what()));
     }
 }
 
 void EnhancedArmGUI::rightImageCallback(const sensor_msgs::Image::ConstPtr& msg)
 {
     try {
-        cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
+        // 尝试使用不同的编码格式
+        cv_bridge::CvImagePtr cv_ptr;
+        try {
+            cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
+        }
+        catch (cv_bridge::Exception& e) {
+            // 如果BGR8失败，尝试其他格式
+            try {
+                cv_ptr = cv_bridge::toCvCopy(msg, msg->encoding);
+                if (cv_ptr->image.channels() == 1) {
+                    // 如果是单通道图像，转换为BGR
+                    cv::cvtColor(cv_ptr->image, cv_ptr->image, cv::COLOR_GRAY2BGR);
+                }
+                else if (cv_ptr->image.channels() == 4) {
+                    // 如果是RGBA图像，转换为BGR
+                    cv::cvtColor(cv_ptr->image, cv_ptr->image, cv::COLOR_BGRA2BGR);
+                }
+            }
+            catch (cv_bridge::Exception& e2) {
+                logMessage(QString("右相机图像转换错误，尝试所有格式都失败: %1, %2").arg(e.what()).arg(e2.what()));
+                return;
+            }
+        }
+        
+        // 检查图像是否为空或损坏
+        if (cv_ptr->image.empty() || cv_ptr->image.rows <= 0 || cv_ptr->image.cols <= 0) {
+            logMessage("右相机图像为空或损坏");
+            return;
+        }
+        
         right_image_ = cv_ptr->image;
         
         if (current_view_mode_ == 1) {
             current_display_image_ = cvMatToQImage(right_image_);
         }
     }
-    catch (cv_bridge::Exception& e) {
-        logMessage(QString("右相机图像转换错误: %1").arg(e.what()));
+    catch (std::exception& e) {
+        logMessage(QString("右相机图像处理错误: %1").arg(e.what()));
     }
 }
 
 void EnhancedArmGUI::depthImageCallback(const sensor_msgs::Image::ConstPtr& msg)
 {
     try {
-        cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
+        // 尝试使用不同的编码格式
+        cv_bridge::CvImagePtr cv_ptr;
+        try {
+            cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
+        }
+        catch (cv_bridge::Exception& e) {
+            // 如果BGR8失败，尝试其他格式
+            try {
+                cv_ptr = cv_bridge::toCvCopy(msg, msg->encoding);
+                if (cv_ptr->image.channels() == 1) {
+                    // 如果是单通道图像，转换为BGR
+                    cv::cvtColor(cv_ptr->image, cv_ptr->image, cv::COLOR_GRAY2BGR);
+                }
+                else if (cv_ptr->image.channels() == 4) {
+                    // 如果是RGBA图像，转换为BGR
+                    cv::cvtColor(cv_ptr->image, cv_ptr->image, cv::COLOR_BGRA2BGR);
+                }
+            }
+            catch (cv_bridge::Exception& e2) {
+                logMessage(QString("深度图像转换错误，尝试所有格式都失败: %1, %2").arg(e.what()).arg(e2.what()));
+                return;
+            }
+        }
+        
+        // 检查图像是否为空或损坏
+        if (cv_ptr->image.empty() || cv_ptr->image.rows <= 0 || cv_ptr->image.cols <= 0) {
+            logMessage("深度图像为空或损坏");
+            return;
+        }
+        
         depth_image_ = cv_ptr->image;
         
         if (current_view_mode_ == 2) {
             current_display_image_ = cvMatToQImage(depth_image_);
         }
     }
-    catch (cv_bridge::Exception& e) {
-        logMessage(QString("深度图像转换错误: %1").arg(e.what()));
+    catch (std::exception& e) {
+        logMessage(QString("深度图像处理错误: %1").arg(e.what()));
     }
 }
 

@@ -5,6 +5,7 @@ import numpy as np
 import os
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
+import warnings
 
 class CameraNode:
     """摄像头节点，用于获取摄像头图像并发布到ROS话题"""
@@ -20,12 +21,15 @@ class CameraNode:
         self.fps = rospy.get_param('~fps', 30)
         self.retry_count = rospy.get_param('~retry_count', 5)
         self.retry_delay = rospy.get_param('~retry_delay', 2.0)
-        self.pixel_format = rospy.get_param('~pixel_format', 'mjpeg')  # OV4689摄像头使用MJPEG
+        self.pixel_format = rospy.get_param('~pixel_format', 'yuyv')  # 默认使用YUYV格式，更稳定
+        self.error_count = 0
+        self.max_errors = 10  # 最大连续错误次数，超过则重新初始化摄像头
         
         rospy.loginfo(f"摄像头配置: 设备={self.device}, 分辨率={self.width}x{self.height}, FPS={self.fps}, 像素格式={self.pixel_format}")
         
         # 创建图像发布器
         self.image_pub = rospy.Publisher('/camera/image_raw', Image, queue_size=10)
+        self.right_image_pub = rospy.Publisher('/camera/right/image_raw', Image, queue_size=10)
         
         # 创建OpenCV桥接器
         self.bridge = CvBridge()
@@ -90,8 +94,21 @@ class CameraNode:
                 rospy.loginfo(f"摄像头实际设置: 分辨率={actual_width}x{actual_height}, FPS={actual_fps}, FOURCC={int(actual_fourcc)}")
                 
                 # 检查摄像头是否工作
-                ret, frame = self.cap.read()
-                if not ret:
+                # 多次尝试读取帧，避免JPEG错误
+                success = False
+                for i in range(5):  # 尝试5次读取
+                    try:
+                        with warnings.catch_warnings():
+                            warnings.simplefilter("ignore")  # 忽略警告
+                            ret, frame = self.cap.read()
+                            if ret:
+                                success = True
+                                break
+                    except Exception as e:
+                        rospy.logwarn(f"读取帧尝试 {i+1}/5 失败: {str(e)}")
+                    rospy.sleep(0.1)  # 短暂延迟
+                
+                if not success:
                     attempts += 1
                     rospy.logwarn(f"摄像头读取失败，尝试 {attempts}/{self.retry_count}")
                     if attempts < self.retry_count:
@@ -100,6 +117,7 @@ class CameraNode:
                 
                 rospy.loginfo(f"成功读取第一帧，尺寸: {frame.shape[1]}x{frame.shape[0]}")
                 self.use_test_image = False
+                self.error_count = 0  # 重置错误计数
                 rospy.loginfo("摄像头已成功初始化")
                 return
                 
@@ -147,31 +165,69 @@ class CameraNode:
         if self.use_test_image:
             # 使用测试图像
             frame = self.create_test_image()
+            # 分割测试图像为左右两部分
+            height, width = frame.shape[:2]
+            mid = width // 2
+            left_frame = frame[:, :mid]
+            right_frame = frame[:, mid:]
         else:
             # 从摄像头获取图像
             try:
-                ret, frame = self.cap.read()
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")  # 忽略警告
+                    ret, frame = self.cap.read()
                 
                 if not ret:
-                    rospy.logwarn("无法获取图像，使用测试图像代替")
-                    frame = self.create_test_image()
+                    self.error_count += 1
+                    rospy.logwarn(f"无法获取图像，错误计数: {self.error_count}/{self.max_errors}")
                     
-                    # 尝试重新初始化摄像头
-                    self.init_camera()
+                    if self.error_count >= self.max_errors:
+                        rospy.logwarn("错误次数过多，尝试重新初始化摄像头")
+                        self.init_camera()
+                    
+                    frame = self.create_test_image()
+                    # 分割测试图像为左右两部分
+                    height, width = frame.shape[:2]
+                    mid = width // 2
+                    left_frame = frame[:, :mid]
+                    right_frame = frame[:, mid:]
+                else:
+                    self.error_count = 0  # 成功读取，重置错误计数
+                    # 分割图像为左右两部分
+                    height, width = frame.shape[:2]
+                    mid = width // 2
+                    left_frame = frame[:, :mid]
+                    right_frame = frame[:, mid:]
             except Exception as e:
-                rospy.logerr(f"读取摄像头时出错: {str(e)}")
-                frame = self.create_test_image()
+                self.error_count += 1
+                rospy.logerr(f"读取摄像头时出错: {str(e)}，错误计数: {self.error_count}/{self.max_errors}")
                 
-                # 尝试重新初始化摄像头
-                self.init_camera()
+                if self.error_count >= self.max_errors:
+                    rospy.logwarn("错误次数过多，尝试重新初始化摄像头")
+                    self.init_camera()
+                
+                frame = self.create_test_image()
+                # 分割测试图像为左右两部分
+                height, width = frame.shape[:2]
+                mid = width // 2
+                left_frame = frame[:, :mid]
+                right_frame = frame[:, mid:]
         
         try:
             # 转换为ROS图像消息并发布
-            img_msg = self.bridge.cv2_to_imgmsg(frame, "bgr8")
-            img_msg.header.stamp = rospy.Time.now()
-            img_msg.header.frame_id = "camera"
+            timestamp = rospy.Time.now()
             
-            self.image_pub.publish(img_msg)
+            # 发布左图像（作为主图像）
+            left_msg = self.bridge.cv2_to_imgmsg(left_frame, "bgr8")
+            left_msg.header.stamp = timestamp
+            left_msg.header.frame_id = "camera_left"
+            self.image_pub.publish(left_msg)
+            
+            # 发布右图像
+            right_msg = self.bridge.cv2_to_imgmsg(right_frame, "bgr8")
+            right_msg.header.stamp = timestamp
+            right_msg.header.frame_id = "camera_right"
+            self.right_image_pub.publish(right_msg)
             
         except Exception as e:
             rospy.logerr(f"发布图像时出错: {str(e)}")

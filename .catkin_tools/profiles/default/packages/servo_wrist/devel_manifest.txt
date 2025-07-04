@@ -13,6 +13,7 @@ servo_wrist
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/lib/libSCServo.a /home/jfy/arm/rosarm/devel/lib/libSCServo.a
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/lib/servo_wrist/servo_wrist_node /home/jfy/arm/rosarm/devel/lib/servo_wrist/servo_wrist_node
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/lib/servo_wrist/wrist_ctrl /home/jfy/arm/rosarm/devel/lib/servo_wrist/wrist_ctrl
+/home/jfy/arm/rosarm/devel/.private/servo_wrist/lib/servo_wrist/vacuum_controller /home/jfy/arm/rosarm/devel/lib/servo_wrist/vacuum_controller
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/lib/python3/dist-packages/servo_wrist/__init__.py /home/jfy/arm/rosarm/devel/lib/python3/dist-packages/servo_wrist/__init__.py
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/lib/python3/dist-packages/servo_wrist/msg/__init__.py /home/jfy/arm/rosarm/devel/lib/python3/dist-packages/servo_wrist/msg/__init__.py
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/lib/python3/dist-packages/servo_wrist/msg/_SerControl.py /home/jfy/arm/rosarm/devel/lib/python3/dist-packages/servo_wrist/msg/_SerControl.py

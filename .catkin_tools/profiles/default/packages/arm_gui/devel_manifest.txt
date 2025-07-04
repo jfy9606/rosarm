@@ -1,6 +1,7 @@
 arm_gui
 /home/jfy/arm/rosarm/devel/.private/arm_gui/lib/libarm_gui.so /home/jfy/arm/rosarm/devel/lib/libarm_gui.so
 /home/jfy/arm/rosarm/devel/.private/arm_gui/lib/pkgconfig/arm_gui.pc /home/jfy/arm/rosarm/devel/lib/pkgconfig/arm_gui.pc
+/home/jfy/arm/rosarm/devel/.private/arm_gui/lib/arm_gui/enhanced_arm_gui_node /home/jfy/arm/rosarm/devel/lib/arm_gui/enhanced_arm_gui_node
 /home/jfy/arm/rosarm/devel/.private/arm_gui/lib/arm_gui/joint_state_publisher_node /home/jfy/arm/rosarm/devel/lib/arm_gui/joint_state_publisher_node
 /home/jfy/arm/rosarm/devel/.private/arm_gui/lib/arm_gui/arm_gui_node /home/jfy/arm/rosarm/devel/lib/arm_gui/arm_gui_node
 /home/jfy/arm/rosarm/devel/.private/arm_gui/share/arm_gui/cmake/arm_guiConfig-version.cmake /home/jfy/arm/rosarm/devel/share/arm_gui/cmake/arm_guiConfig-version.cmake

@@ -1,5 +1,4 @@
 stereo_vision
-/home/jfy/arm/rosarm/devel/.private/stereo_vision/include/stereo_vision/DetectionArray.h /home/jfy/arm/rosarm/devel/include/stereo_vision/DetectionArray.h
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/include/stereo_vision/DetectionControl.h /home/jfy/arm/rosarm/devel/include/stereo_vision/DetectionControl.h
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/include/stereo_vision/DetectionControlRequest.h /home/jfy/arm/rosarm/devel/include/stereo_vision/DetectionControlRequest.h
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/include/stereo_vision/SetViewModeResponse.h /home/jfy/arm/rosarm/devel/include/stereo_vision/SetViewModeResponse.h
@@ -8,9 +7,7 @@ stereo_vision
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/include/stereo_vision/Detection.h /home/jfy/arm/rosarm/devel/include/stereo_vision/Detection.h
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/include/stereo_vision/SetViewMode.h /home/jfy/arm/rosarm/devel/include/stereo_vision/SetViewMode.h
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/include/stereo_vision/SetViewModeRequest.h /home/jfy/arm/rosarm/devel/include/stereo_vision/SetViewModeRequest.h
-/home/jfy/arm/rosarm/devel/.private/stereo_vision/lib/libstereo_vision.so /home/jfy/arm/rosarm/devel/lib/libstereo_vision.so
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/lib/python3/dist-packages/stereo_vision/__init__.py /home/jfy/arm/rosarm/devel/lib/python3/dist-packages/stereo_vision/__init__.py
-/home/jfy/arm/rosarm/devel/.private/stereo_vision/lib/python3/dist-packages/stereo_vision/msg/_DetectionArray.py /home/jfy/arm/rosarm/devel/lib/python3/dist-packages/stereo_vision/msg/_DetectionArray.py
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/lib/python3/dist-packages/stereo_vision/msg/_ObjectDetection.py /home/jfy/arm/rosarm/devel/lib/python3/dist-packages/stereo_vision/msg/_ObjectDetection.py
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/lib/python3/dist-packages/stereo_vision/msg/__init__.py /home/jfy/arm/rosarm/devel/lib/python3/dist-packages/stereo_vision/msg/__init__.py
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/lib/python3/dist-packages/stereo_vision/msg/_Detection.py /home/jfy/arm/rosarm/devel/lib/python3/dist-packages/stereo_vision/msg/_Detection.py
@@ -21,7 +18,6 @@ stereo_vision
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/lib/stereo_vision/camera_config.py /home/jfy/arm/rosarm/devel/lib/stereo_vision/camera_config.py
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/lib/stereo_vision/stereo_detection_node.py /home/jfy/arm/rosarm/devel/lib/stereo_vision/stereo_detection_node.py
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/lib/stereo_vision/camera_node.py /home/jfy/arm/rosarm/devel/lib/stereo_vision/camera_node.py
-/home/jfy/arm/rosarm/devel/.private/stereo_vision/lib/stereo_vision/stereo_vision_node /home/jfy/arm/rosarm/devel/lib/stereo_vision/stereo_vision_node
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/lib/stereo_vision/view_mode_switcher.py /home/jfy/arm/rosarm/devel/lib/stereo_vision/view_mode_switcher.py
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/lib/stereo_vision/yolo_detector.py /home/jfy/arm/rosarm/devel/lib/stereo_vision/yolo_detector.py
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/lib/stereo_vision/test_view_modes.py /home/jfy/arm/rosarm/devel/lib/stereo_vision/test_view_modes.py
@@ -29,12 +25,10 @@ stereo_vision
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/share/gennodejs/ros/stereo_vision/msg/_index.js /home/jfy/arm/rosarm/devel/share/gennodejs/ros/stereo_vision/msg/_index.js
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/share/gennodejs/ros/stereo_vision/msg/Detection.js /home/jfy/arm/rosarm/devel/share/gennodejs/ros/stereo_vision/msg/Detection.js
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/share/gennodejs/ros/stereo_vision/msg/ObjectDetection.js /home/jfy/arm/rosarm/devel/share/gennodejs/ros/stereo_vision/msg/ObjectDetection.js
-/home/jfy/arm/rosarm/devel/.private/stereo_vision/share/gennodejs/ros/stereo_vision/msg/DetectionArray.js /home/jfy/arm/rosarm/devel/share/gennodejs/ros/stereo_vision/msg/DetectionArray.js
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/share/gennodejs/ros/stereo_vision/srv/_index.js /home/jfy/arm/rosarm/devel/share/gennodejs/ros/stereo_vision/srv/_index.js
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/share/gennodejs/ros/stereo_vision/srv/SetViewMode.js /home/jfy/arm/rosarm/devel/share/gennodejs/ros/stereo_vision/srv/SetViewMode.js
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/share/gennodejs/ros/stereo_vision/srv/DetectionControl.js /home/jfy/arm/rosarm/devel/share/gennodejs/ros/stereo_vision/srv/DetectionControl.js
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/share/roseus/ros/stereo_vision/manifest.l /home/jfy/arm/rosarm/devel/share/roseus/ros/stereo_vision/manifest.l
-/home/jfy/arm/rosarm/devel/.private/stereo_vision/share/roseus/ros/stereo_vision/msg/DetectionArray.l /home/jfy/arm/rosarm/devel/share/roseus/ros/stereo_vision/msg/DetectionArray.l
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/share/roseus/ros/stereo_vision/msg/Detection.l /home/jfy/arm/rosarm/devel/share/roseus/ros/stereo_vision/msg/Detection.l
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/share/roseus/ros/stereo_vision/msg/ObjectDetection.l /home/jfy/arm/rosarm/devel/share/roseus/ros/stereo_vision/msg/ObjectDetection.l
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/share/roseus/ros/stereo_vision/srv/DetectionControl.l /home/jfy/arm/rosarm/devel/share/roseus/ros/stereo_vision/srv/DetectionControl.l
@@ -44,8 +38,6 @@ stereo_vision
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/share/common-lisp/ros/stereo_vision/msg/_package_ObjectDetection.lisp /home/jfy/arm/rosarm/devel/share/common-lisp/ros/stereo_vision/msg/_package_ObjectDetection.lisp
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/share/common-lisp/ros/stereo_vision/msg/stereo_vision-msg.asd /home/jfy/arm/rosarm/devel/share/common-lisp/ros/stereo_vision/msg/stereo_vision-msg.asd
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/share/common-lisp/ros/stereo_vision/msg/_package_Detection.lisp /home/jfy/arm/rosarm/devel/share/common-lisp/ros/stereo_vision/msg/_package_Detection.lisp
-/home/jfy/arm/rosarm/devel/.private/stereo_vision/share/common-lisp/ros/stereo_vision/msg/_package_DetectionArray.lisp /home/jfy/arm/rosarm/devel/share/common-lisp/ros/stereo_vision/msg/_package_DetectionArray.lisp
-/home/jfy/arm/rosarm/devel/.private/stereo_vision/share/common-lisp/ros/stereo_vision/msg/DetectionArray.lisp /home/jfy/arm/rosarm/devel/share/common-lisp/ros/stereo_vision/msg/DetectionArray.lisp
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/share/common-lisp/ros/stereo_vision/msg/ObjectDetection.lisp /home/jfy/arm/rosarm/devel/share/common-lisp/ros/stereo_vision/msg/ObjectDetection.lisp
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/share/common-lisp/ros/stereo_vision/srv/_package.lisp /home/jfy/arm/rosarm/devel/share/common-lisp/ros/stereo_vision/srv/_package.lisp
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/share/common-lisp/ros/stereo_vision/srv/_package_SetViewMode.lisp /home/jfy/arm/rosarm/devel/share/common-lisp/ros/stereo_vision/srv/_package_SetViewMode.lisp
