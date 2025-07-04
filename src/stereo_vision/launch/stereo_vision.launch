@@ -25,7 +25,7 @@
     <param name="width" value="$(arg image_width)" />
     <param name="height" value="$(arg image_height)" />
     <param name="fps" value="$(arg frame_rate)" />
-    <param name="pixel_format" value="mjpeg" />
+    <param name="pixel_format" value="yuyv" />
   </node>
   
   <!-- 创建必要的话题转发 -->
@@ -64,13 +64,13 @@
         args="0.4 0 0.8 0 0.35 0 world camera_link" />
   
   <!-- 启动舵机控制节点 -->
-  <node name="servo" pkg="servo_wrist" type="wrist_ctrl" args="$(arg servo_port)" output="screen" respawn="true">
+  <node name="servo" pkg="servo_wrist" type="wrist_ctrl" args="$(arg servo_port)" output="screen" respawn="true" respawn_delay="2">
     <param name="baudrate" value="1000000" />
   </node>
   
   <!-- 启动真空吸盘控制节点 -->
   <group if="$(arg vacuum_enabled)">
-    <node name="vacuum_controller" pkg="servo_wrist" type="vacuum_controller" args="$(arg motor_port)" output="screen" respawn="true">
+    <node name="vacuum_controller" pkg="servo_wrist" type="vacuum_controller" args="$(arg motor_port)" output="screen" respawn="true" respawn_delay="2">
       <param name="baudrate" value="115200" />
       <param name="max_power" value="100" />
       <param name="default_power" value="80" />
@@ -78,8 +78,9 @@
   </group>
   
   <!-- 启动关节状态发布节点 -->
-  <node name="joint_publisher" pkg="arm_gui" type="joint_state_publisher_node" output="screen">
-    <param name="publish_rate" value="50" />
+  <node name="joint_publisher" pkg="arm_gui" type="joint_state_publisher_node" output="screen" respawn="true">
+    <param name="publish_rate" value="20" />
+    <param name="use_sim_time" value="false" />
   </node>
   
   <!-- 启动视觉伺服控制器 -->

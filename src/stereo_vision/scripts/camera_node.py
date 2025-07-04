@@ -55,15 +55,29 @@ class CameraNode:
                     self.cap = cv2.VideoCapture(self.device)
                     rospy.loginfo(f"尝试打开摄像头设备: {self.device}")
                 else:
-                    # 如果设备路径不存在，尝试使用索引
-                    try:
-                        device_index = int(self.device.split('video')[-1])
-                        self.cap = cv2.VideoCapture(device_index)
-                        rospy.loginfo(f"尝试打开摄像头索引: {device_index}")
-                    except (ValueError, IndexError):
-                        # 如果无法解析索引，尝试使用默认设备
-                        self.cap = cv2.VideoCapture(0)
-                        rospy.loginfo("尝试打开默认摄像头 (索引 0)")
+                    # 尝试其他可能的视频设备
+                    devices = ["/dev/video0", "/dev/video2", "/dev/video4"]
+                    for dev in devices:
+                        if os.path.exists(dev) and dev != self.device:
+                            rospy.loginfo(f"原始设备不可用，尝试备选设备: {dev}")
+                            self.cap = cv2.VideoCapture(dev)
+                            if self.cap.isOpened():
+                                self.device = dev  # 更新设备路径
+                                break
+                    
+                    # 如果仍然未能打开设备，尝试使用索引
+                    if not hasattr(self, 'cap') or not self.cap.isOpened():
+                        try:
+                            for idx in range(0, 10, 2):  # 尝试不同的索引（通常双目相机有两个索引）
+                                rospy.loginfo(f"尝试打开摄像头索引: {idx}")
+                                self.cap = cv2.VideoCapture(idx)
+                                if self.cap.isOpened():
+                                    break
+                        except (ValueError, IndexError) as e:
+                            rospy.logwarn(f"无法解析索引: {str(e)}")
+                            # 如果无法解析索引，尝试使用默认设备
+                            self.cap = cv2.VideoCapture(0)
+                            rospy.loginfo("尝试打开默认摄像头 (索引 0)")
                 
                 if not self.cap.isOpened():
                     attempts += 1

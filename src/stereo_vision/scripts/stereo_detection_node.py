@@ -201,11 +201,23 @@ class StereoDetectionNode:
                 rospy.logwarn("处理无效的立体图像对")
                 return
             
+            # 确保图像尺寸匹配
+            if left_img.shape[0] != right_img.shape[0] or left_img.shape[1] != right_img.shape[1]:
+                rospy.logwarn(f"左右图像尺寸不匹配: 左{left_img.shape}，右{right_img.shape}")
+                # 调整尺寸到相同大小
+                min_height = min(left_img.shape[0], right_img.shape[0])
+                min_width = min(left_img.shape[1], right_img.shape[1])
+                left_img = left_img[:min_height, :min_width]
+                right_img = right_img[:min_height, :min_width]
+            
             # Publish left and right images
-            left_msg = self.bridge.cv2_to_imgmsg(left_img, "bgr8")
-            right_msg = self.bridge.cv2_to_imgmsg(right_img, "bgr8")
-            self.left_image_pub.publish(left_msg)
-            self.right_image_pub.publish(right_msg)
+            try:
+                left_msg = self.bridge.cv2_to_imgmsg(left_img, "bgr8")
+                right_msg = self.bridge.cv2_to_imgmsg(right_img, "bgr8")
+                self.left_image_pub.publish(left_msg)
+                self.right_image_pub.publish(right_msg)
+            except Exception as e:
+                rospy.logerr(f"发布原始图像时出错: {str(e)}")
             
             try:
                 # Convert to grayscale for stereo matching
@@ -220,7 +232,8 @@ class StereoDetectionNode:
                 disparity = self.stereo.compute(img1_rectified, img2_rectified)
                 
                 # Convert to depth map
-                disp_color = cv2.applyColorMap(cv2.convertScaleAbs(disparity, alpha=255 / 16), cv2.COLORMAP_JET)
+                disp_normalized = cv2.normalize(disparity, None, 0, 255, cv2.NORM_MINMAX, cv2.CV_8U)
+                disp_color = cv2.applyColorMap(disp_normalized, cv2.COLORMAP_JET)
                 depth_msg = self.bridge.cv2_to_imgmsg(disp_color, "bgr8")
                 self.depth_image_pub.publish(depth_msg)
                 

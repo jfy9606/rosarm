@@ -6,6 +6,8 @@
 #include <termios.h>
 #include <unistd.h>
 #include <string>
+#include <vector>
+#include <dirent.h>
 
 class VacuumController {
 private:
@@ -13,6 +15,7 @@ private:
     ros::Subscriber vacuum_cmd_sub_;
     ros::Subscriber vacuum_power_sub_;
     ros::ServiceServer vacuum_service_;
+    ros::Timer reconnect_timer_;
     
     int serial_port_;
     int max_power_;
@@ -21,18 +24,66 @@ private:
     bool is_on_;
     std::string port_name_;
     
-public:
-    VacuumController(const std::string& port, int baudrate) : is_on_(false), current_power_(0) {
-        // 获取参数
-        nh_.param("max_power", max_power_, 100);
-        nh_.param("default_power", default_power_, 80);
-        port_name_ = port;
+    // 尝试自动查找USB串口设备
+    std::string findSerialDevice(const std::string& preferred_port) {
+        // 首先检查指定的端口
+        if (access(preferred_port.c_str(), F_OK) != -1) {
+            return preferred_port;
+        }
+        
+        // 如果指定端口不可用，尝试查找其他可能的USB串口设备
+        std::vector<std::string> possible_devices;
+        
+        // 搜索/dev目录
+        DIR* dir = opendir("/dev");
+        if (dir) {
+            struct dirent* entry;
+            while ((entry = readdir(dir)) != nullptr) {
+                std::string name = entry->d_name;
+                // 查找可能的串口设备
+                if (name.find("ttyUSB") == 0 || name.find("ttyACM") == 0) {
+                    possible_devices.push_back("/dev/" + name);
+                }
+            }
+            closedir(dir);
+        }
+        
+        // 如果找到多个设备，优先选择备选端口
+        for (const auto& device : possible_devices) {
+            if (device == "/dev/ttyUSB1" || device == "/dev/ttyUSB0") {
+                ROS_WARN("使用备选串口设备: %s", device.c_str());
+                return device;
+            }
+        }
+        
+        // 如果找到任何设备，返回第一个
+        if (!possible_devices.empty()) {
+            ROS_WARN("使用可用的串口设备: %s", possible_devices[0].c_str());
+            return possible_devices[0];
+        }
+        
+        // 如果没有找到设备，返回原始端口
+        ROS_ERROR("未找到可用的串口设备，将尝试使用原始端口: %s", preferred_port.c_str());
+        return preferred_port;
+    }
+    
+    // 初始化串口连接
+    bool initializeSerialPort(const std::string& port, int baudrate) {
+        // 检查并关闭已存在的连接
+        if (serial_port_ >= 0) {
+            close(serial_port_);
+            serial_port_ = -1;
+        }
+        
+        // 尝试查找可用串口设备
+        std::string actual_port = findSerialDevice(port);
+        port_name_ = actual_port;
         
         // 打开串口
-        serial_port_ = open(port.c_str(), O_RDWR | O_NOCTTY);
+        serial_port_ = open(actual_port.c_str(), O_RDWR | O_NOCTTY);
         if (serial_port_ < 0) {
-            ROS_ERROR("无法打开串口 %s", port.c_str());
-            return;
+            ROS_ERROR("无法打开串口 %s", actual_port.c_str());
+            return false;
         }
         
         // 配置串口
@@ -42,7 +93,7 @@ public:
             ROS_ERROR("tcgetattr 错误");
             close(serial_port_);
             serial_port_ = -1;
-            return;
+            return false;
         }
         
         // 设置波特率
@@ -82,7 +133,31 @@ public:
             ROS_ERROR("tcsetattr 错误");
             close(serial_port_);
             serial_port_ = -1;
-            return;
+            return false;
+        }
+        
+        ROS_INFO("成功连接到串口: %s，波特率: %d", actual_port.c_str(), baudrate);
+        return true;
+    }
+    
+public:
+    VacuumController(const std::string& port, int baudrate) : serial_port_(-1), is_on_(false), current_power_(0) {
+        // 获取参数
+        nh_.param("max_power", max_power_, 100);
+        nh_.param("default_power", default_power_, 80);
+        port_name_ = port;
+        
+        // 初始化串口
+        if (!initializeSerialPort(port, baudrate)) {
+            ROS_ERROR("初始化串口失败，将尝试定期重新连接");
+            // 设置定期重试连接的定时器
+            reconnect_timer_ = nh_.createTimer(ros::Duration(5.0), 
+                                              [this, port, baudrate](const ros::TimerEvent&) {
+                                                  if (serial_port_ < 0) {
+                                                      ROS_INFO("尝试重新连接串口...");
+                                                      initializeSerialPort(port, baudrate);
+                                                  }
+                                              });
         }
         
         // 设置订阅者
@@ -135,9 +210,12 @@ public:
     }
     
     bool setVacuum(bool enable, int power) {
+        // 如果端口未打开，尝试重新连接
         if (serial_port_ < 0) {
-            ROS_ERROR("串口未打开");
-            return false;
+            ROS_ERROR("串口未打开，尝试重新连接");
+            if (!initializeSerialPort(port_name_, 115200)) {
+                return false;
+            }
         }
         
         // 限制功率范围
@@ -152,10 +230,27 @@ public:
         cmd[3] = static_cast<uint8_t>(power);  // 功率
         cmd[4] = cmd[0] ^ cmd[1] ^ cmd[2] ^ cmd[3];  // 校验和
         
-        // 发送命令
-        ssize_t bytes_written = write(serial_port_, cmd, sizeof(cmd));
-        if (bytes_written != sizeof(cmd)) {
-            ROS_ERROR("写入串口失败");
+        // 发送命令，尝试多次
+        bool success = false;
+        for (int i = 0; i < 3; i++) { // 最多尝试3次
+            ssize_t bytes_written = write(serial_port_, cmd, sizeof(cmd));
+            if (bytes_written == sizeof(cmd)) {
+                success = true;
+                break;
+            }
+            
+            ROS_WARN("写入串口失败，尝试重新发送 (%d/3)", i+1);
+            // 短暂延迟后重试
+            ros::Duration(0.1).sleep();
+        }
+        
+        if (!success) {
+            ROS_ERROR("多次尝试写入串口失败，可能需要检查硬件连接");
+            // 可能是串口断开，将端口标记为无效以便重新连接
+            if (serial_port_ >= 0) {
+                close(serial_port_);
+                serial_port_ = -1;
+            }
             return false;
         }
         
