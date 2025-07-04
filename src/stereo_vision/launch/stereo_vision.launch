@@ -25,7 +25,7 @@
     <param name="width" value="$(arg image_width)" />
     <param name="height" value="$(arg image_height)" />
     <param name="fps" value="$(arg frame_rate)" />
-    <param name="pixel_format" value="yuyv" />
+    <param name="pixel_format" value="mjpeg" />
   </node>
   
   <!-- 创建必要的话题转发 -->

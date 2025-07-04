@@ -9,14 +9,26 @@
 系统依赖以下Python库：
 
 ```bash
-# 安装ultralytics用于YOLOv8目标检测
+# 安装ultralytics用于YOLO目标检测
 pip3 install ultralytics
 
 # 安装opencv-contrib-python用于立体视觉和深度图处理
 pip3 install opencv-contrib-python
 ```
 
-### 2. 验证安装
+### 2. 下载YOLO模型
+
+系统使用YOLO11n模型进行目标检测，您可以从以下地址下载模型文件：
+
+```bash
+# 下载YOLO11n模型
+wget https://ghproxy.cfd/https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.pt
+
+# 将模型文件放置在当前目录或指定路径
+# 如果使用其他路径，请在启动系统时通过yolo_model_path参数指定
+```
+
+### 3. 验证安装
 
 执行以下命令验证环境配置是否正确：
 
@@ -28,7 +40,7 @@ python3 -c "import ultralytics; print(f'Ultralytics版本: {ultralytics.__versio
 python3 -c "import sys; sys.path.append('$(pwd)/src/arm_trajectory/scripts'); import whales_optimizer; print('WhaleOptimizer导入成功')"
 ```
 
-### 3. Docker容器环境特殊配置
+### 4. Docker容器环境特殊配置
 
 如果在Docker容器中运行，可能需要额外的权限：
 
