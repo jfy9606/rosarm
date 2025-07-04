@@ -33,8 +33,10 @@ class ViewModeSwitcher:
         
         # Create service for switching view modes if service type is available
         if SetViewMode is not None:
-            self.service = rospy.Service('/stereo_vision/switch_view', SetViewMode, self.handle_switch_view)
-            rospy.loginfo("View mode switching service started at /stereo_vision/switch_view")
+            # 创建两个服务，一个是原来的，一个是GUI使用的
+            self.service1 = rospy.Service('/stereo_vision/switch_view', SetViewMode, self.handle_switch_view)
+            self.service2 = rospy.Service('/set_view_mode', SetViewMode, self.handle_switch_view)
+            rospy.loginfo("View mode switching services started at /stereo_vision/switch_view and /set_view_mode")
         
         # 初始化日志控制
         self.last_log_time = rospy.Time.now()
