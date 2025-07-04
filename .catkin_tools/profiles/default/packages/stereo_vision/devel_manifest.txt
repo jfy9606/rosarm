@@ -18,10 +18,13 @@ stereo_vision
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/lib/python3/dist-packages/stereo_vision/srv/_DetectionControl.py /home/jfy/arm/rosarm/devel/lib/python3/dist-packages/stereo_vision/srv/_DetectionControl.py
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/lib/python3/dist-packages/stereo_vision/srv/_SetViewMode.py /home/jfy/arm/rosarm/devel/lib/python3/dist-packages/stereo_vision/srv/_SetViewMode.py
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/lib/pkgconfig/stereo_vision.pc /home/jfy/arm/rosarm/devel/lib/pkgconfig/stereo_vision.pc
+/home/jfy/arm/rosarm/devel/.private/stereo_vision/lib/stereo_vision/camera_config.py /home/jfy/arm/rosarm/devel/lib/stereo_vision/camera_config.py
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/lib/stereo_vision/stereo_detection_node.py /home/jfy/arm/rosarm/devel/lib/stereo_vision/stereo_detection_node.py
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/lib/stereo_vision/camera_node.py /home/jfy/arm/rosarm/devel/lib/stereo_vision/camera_node.py
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/lib/stereo_vision/stereo_vision_node /home/jfy/arm/rosarm/devel/lib/stereo_vision/stereo_vision_node
+/home/jfy/arm/rosarm/devel/.private/stereo_vision/lib/stereo_vision/view_mode_switcher.py /home/jfy/arm/rosarm/devel/lib/stereo_vision/view_mode_switcher.py
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/lib/stereo_vision/yolo_detector.py /home/jfy/arm/rosarm/devel/lib/stereo_vision/yolo_detector.py
+/home/jfy/arm/rosarm/devel/.private/stereo_vision/lib/stereo_vision/test_view_modes.py /home/jfy/arm/rosarm/devel/lib/stereo_vision/test_view_modes.py
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/share/gennodejs/ros/stereo_vision/_index.js /home/jfy/arm/rosarm/devel/share/gennodejs/ros/stereo_vision/_index.js
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/share/gennodejs/ros/stereo_vision/msg/_index.js /home/jfy/arm/rosarm/devel/share/gennodejs/ros/stereo_vision/msg/_index.js
 /home/jfy/arm/rosarm/devel/.private/stereo_vision/share/gennodejs/ros/stereo_vision/msg/Detection.js /home/jfy/arm/rosarm/devel/share/gennodejs/ros/stereo_vision/msg/Detection.js

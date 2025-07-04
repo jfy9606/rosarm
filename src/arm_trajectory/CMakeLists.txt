@@ -48,13 +48,6 @@ add_service_files(
   InverseKinematics.srv
 )
 
-## Generate actions in the 'action' folder
-# add_action_files(
-#   FILES
-#   Action1.action
-#   Action2.action
-# )
-
 ## Generate added messages and services with any dependencies listed here
 generate_messages(
   DEPENDENCIES
@@ -142,7 +135,6 @@ target_link_libraries(${PROJECT_NAME}
 ## in contrast to setup.py, you can choose the destination
 catkin_install_python(PROGRAMS
   scripts/trajectory_bridge_node.py
-  scripts/whales_optimizer.py
   scripts/path_planner.py
   scripts/visual_servo_controller.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
@@ -168,11 +160,10 @@ install(DIRECTORY include/${PROJECT_NAME}/
 )
 
 ## Mark other files for installation (e.g. launch and bag files, etc.)
-# install(FILES
-#   # myfile1
-#   # myfile2
-#   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
-# )
+install(DIRECTORY launch/ config/ rviz/
+  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
+  FILES_MATCHING PATTERN "*.launch" PATTERN "*.yaml" PATTERN "*.rviz"
+)
 
 #############
 ## Testing ##
