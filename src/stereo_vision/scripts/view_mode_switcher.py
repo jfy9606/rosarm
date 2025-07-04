@@ -55,13 +55,20 @@ class ViewModeSwitcher:
         # Use frame_id to store the view mode instead of seq (which is deprecated)
         header.frame_id = str(self.current_mode)
         self.view_mode_pub.publish(header)
-        rospy.loginfo(f"Published view mode: {self.current_mode}")
     
     def run(self):
         """Run the node"""
         rate = rospy.Rate(1)  # 1 Hz
+        last_published_mode = self.current_mode
+        rospy.loginfo(f"Starting view mode: {self.current_mode} (0=left, 1=right, 2=depth)")
+        
         while not rospy.is_shutdown():
-            # Periodically publish current mode
+            # 只在模式变化时输出日志
+            if self.current_mode != last_published_mode:
+                rospy.loginfo(f"View mode changed to: {self.current_mode} (0=left, 1=right, 2=depth)")
+                last_published_mode = self.current_mode
+            
+            # 周期性发布当前模式
             self.publish_current_mode()
             rate.sleep()
 

@@ -21,7 +21,7 @@ class CameraNode:
         self.fps = rospy.get_param('~fps', 30)
         self.retry_count = rospy.get_param('~retry_count', 5)
         self.retry_delay = rospy.get_param('~retry_delay', 2.0)
-        self.pixel_format = rospy.get_param('~pixel_format', 'yuyv')  # 默认使用YUYV格式，更稳定
+        self.pixel_format = rospy.get_param('~pixel_format', 'mjpeg')  # 默认使用MJPEG格式
         self.error_count = 0
         self.max_errors = 10  # 最大连续错误次数，超过则重新初始化摄像头
         
@@ -104,8 +104,18 @@ class CameraNode:
                 actual_height = self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
                 actual_fps = self.cap.get(cv2.CAP_PROP_FPS)
                 actual_fourcc = self.cap.get(cv2.CAP_PROP_FOURCC)
+                actual_fourcc_str = "".join([chr((int(actual_fourcc) >> 8*i) & 0xFF) for i in range(4)])
                 
-                rospy.loginfo(f"摄像头实际设置: 分辨率={actual_width}x{actual_height}, FPS={actual_fps}, FOURCC={int(actual_fourcc)}")
+                rospy.loginfo(f"摄像头实际设置: 分辨率={actual_width}x{actual_height}, FPS={actual_fps}, FOURCC={actual_fourcc_str}")
+                
+                # 如果实际格式与请求格式不符，尝试强制设置
+                if self.pixel_format.lower() == 'mjpeg' and actual_fourcc_str != 'MJPG':
+                    rospy.logwarn(f"请求的MJPEG格式未应用，实际格式为{actual_fourcc_str}，尝试再次设置...")
+                    self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M','J','P','G'))
+                    # 重新检查
+                    actual_fourcc = self.cap.get(cv2.CAP_PROP_FOURCC)
+                    actual_fourcc_str = "".join([chr((int(actual_fourcc) >> 8*i) & 0xFF) for i in range(4)])
+                    rospy.loginfo(f"重设后的格式: FOURCC={actual_fourcc_str}")
                 
                 # 检查摄像头是否工作
                 # 多次尝试读取帧，避免JPEG错误
@@ -193,7 +203,9 @@ class CameraNode:
                 
                 if not ret:
                     self.error_count += 1
-                    rospy.logwarn(f"无法获取图像，错误计数: {self.error_count}/{self.max_errors}")
+                    # 减少日志输出频率，只在错误计数是5的倍数时输出
+                    if self.error_count % 5 == 0:
+                        rospy.logwarn(f"无法获取图像，错误计数: {self.error_count}/{self.max_errors}")
                     
                     if self.error_count >= self.max_errors:
                         rospy.logwarn("错误次数过多，尝试重新初始化摄像头")
@@ -214,7 +226,9 @@ class CameraNode:
                     right_frame = frame[:, mid:]
             except Exception as e:
                 self.error_count += 1
-                rospy.logerr(f"读取摄像头时出错: {str(e)}，错误计数: {self.error_count}/{self.max_errors}")
+                # 减少日志输出频率，只在错误计数是5的倍数时输出
+                if self.error_count % 5 == 0:
+                    rospy.logerr(f"读取摄像头时出错: {str(e)}，错误计数: {self.error_count}/{self.max_errors}")
                 
                 if self.error_count >= self.max_errors:
                     rospy.logwarn("错误次数过多，尝试重新初始化摄像头")

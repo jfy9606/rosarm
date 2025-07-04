@@ -134,8 +134,10 @@ class StereoDetectionNode:
             try:
                 mode = int(msg.frame_id)
                 if 0 <= mode <= 2:
-                    self.view_mode = mode
-                    rospy.loginfo(f"Changed view mode to {mode} (0=left, 1=right, 2=depth)")
+                    if self.view_mode != mode:
+                        self.view_mode = mode
+                        rospy.loginfo(f"Changed view mode to {mode} (0=left, 1=right, 2=depth)")
+                # 否则不重复输出
             except ValueError:
                 rospy.logwarn(f"Invalid view mode: {msg.frame_id}")
     
