@@ -52,7 +52,7 @@ class YoloDetector:
     YOLO目标检测器，用于检测图像中的物体并发布检测结果
     """
     
-    def __init__(self, model_name="yolov8n.pt", conf_threshold=0.25):
+    def __init__(self, model_name="yolo11n.pt", conf_threshold=0.25):
         """
         初始化YOLO检测器
         
@@ -94,20 +94,19 @@ class YoloDetector:
                         self.model_loaded = True
                         rospy.loginfo(f"成功下载并加载YOLO模型: {self.model_name}")
                     except Exception as e:
-                        rospy.logerr(f"自动下载YOLO模型失败: {str(e)}，尝试使用默认模型yolov8n.pt")
+                        rospy.logerr(f"自动下载YOLO模型失败: {str(e)}，尝试使用默认模型yolo11n.pt")
                         try:
-                            self.model = YOLO('yolov8n.pt')  # 尝试使用默认模型
-                            self.model_loaded = True
-                            rospy.loginfo("成功加载默认YOLO模型: yolov8n.pt")
+                            self.model = YOLO('yolo11n.pt')  # 尝试使用默认模型
+                            rospy.loginfo("成功加载默认YOLO模型: yolo11n.pt")
                         except Exception as e2:
                             rospy.logerr(f"加载默认YOLO模型失败: {str(e2)}")
+                            self.model = None
                 else:
                     # 如果指定模型不存在且未启用自动下载，尝试加载默认模型
-                    rospy.logwarn(f"模型文件不存在: {self.model_name}，尝试使用默认模型yolov8n.pt")
+                    rospy.logwarn(f"模型文件不存在: {self.model_name}，尝试使用默认模型yolo11n.pt")
                     try:
-                        self.model = YOLO('yolov8n.pt')
-                        self.model_loaded = True
-                        rospy.loginfo("成功加载默认YOLO模型")
+                        self.model = YOLO('yolo11n.pt')
+                        rospy.loginfo("Successfully loaded default YOLO model")
                     except Exception as e:
                         rospy.logerr(f"加载默认YOLO模型失败: {str(e)}")
                 

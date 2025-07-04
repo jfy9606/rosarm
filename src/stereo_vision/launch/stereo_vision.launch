@@ -2,7 +2,7 @@
 <launch>
   <!-- 设置启动参数 -->
   <arg name="stereo_cam_device" default="/dev/video0" />
-  <arg name="yolo_model_path" default="yolov8n.pt" />
+  <arg name="yolo_model_path" default="yolo11n.pt" />
   <arg name="image_width" default="1280" />
   <arg name="image_height" default="480" />
   <arg name="frame_rate" default="30" />

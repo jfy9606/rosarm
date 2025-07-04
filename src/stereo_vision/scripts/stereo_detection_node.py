@@ -24,7 +24,7 @@ class StereoDetectionNode:
         rospy.init_node('stereo_detection_node', anonymous=True)
         
         # Load YOLOv8 model
-        model_path = rospy.get_param('~yolo_model_path', 'yolov8n.pt')
+        model_path = rospy.get_param('~yolo_model_path', 'yolo11n.pt')
         auto_download = rospy.get_param('~auto_download', True)
         
         try:
@@ -40,27 +40,27 @@ class StereoDetectionNode:
                     self.model = YOLO(model_path)  # 自动下载模型
                     rospy.loginfo(f"成功下载并加载YOLO模型: {model_path}")
                 except Exception as e:
-                    rospy.logerr(f"自动下载YOLO模型失败: {str(e)}，尝试使用默认模型yolov8n.pt")
+                    rospy.logerr(f"自动下载YOLO模型失败: {str(e)}，尝试使用默认模型yolo11n.pt")
                     try:
-                        self.model = YOLO('yolov8n.pt')  # 尝试使用默认模型
-                        rospy.loginfo("成功加载默认YOLO模型: yolov8n.pt")
+                        self.model = YOLO('yolo11n.pt')  # 尝试使用默认模型
+                        rospy.loginfo("成功加载默认YOLO模型: yolo11n.pt")
                     except Exception as e2:
                         rospy.logerr(f"加载默认YOLO模型失败: {str(e2)}")
                         self.model = None
             else:
                 # 如果模型不存在且未启用自动下载，尝试使用默认模型
-                rospy.logwarn(f"模型文件不存在: {model_path}，尝试使用默认模型yolov8n.pt")
+                rospy.logwarn(f"模型文件不存在: {model_path}，尝试使用默认模型yolo11n.pt")
                 try:
-                    self.model = YOLO('yolov8n.pt')
+                    self.model = YOLO('yolo11n.pt')
                     rospy.loginfo("Successfully loaded default YOLO model")
                 except Exception as e:
                     rospy.logerr(f"Failed to load default YOLO model: {str(e)}")
                     self.model = None
         except Exception as e:
             rospy.logerr(f"Failed to load YOLO model: {str(e)}")
-            rospy.loginfo("Trying default model yolov8n.pt")
+            rospy.loginfo("Trying default model yolo11n.pt")
             try:
-                self.model = YOLO('yolov8n.pt')
+                self.model = YOLO('yolo11n.pt')
                 rospy.loginfo("Successfully loaded default YOLO model")
             except Exception as e:
                 rospy.logerr(f"Failed to load default YOLO model: {str(e)}")

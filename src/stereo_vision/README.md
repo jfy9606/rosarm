@@ -11,13 +11,22 @@
 ## 功能特点
 
 - **相机视图**：在左相机、右相机和深度图之间切换
-- **物体检测**：基于YOLO的物体检测，显示边界框
+- **物体检测**：基于YOLO11n的物体检测，显示边界框
 - **深度计算**：从立体相机图像计算深度图
 - **3D位置**：估计检测到的物体的3D位置和距离
 - **机械臂控制**：支持关节空间和笛卡尔空间的机械臂控制
 - **集成GUI**：提供直观的用户界面进行操作
 
 ## 使用方法
+
+### 下载YOLO模型
+
+```bash
+# 下载YOLO11n模型
+wget https://ghproxy.cfd/https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.pt
+
+# 将模型文件放置在当前目录或通过参数指定路径
+```
 
 ### 启动系统
 
@@ -28,7 +37,7 @@ roslaunch stereo_vision stereo_vision.launch
 ### 启动参数
 
 - `stereo_cam_device`: 相机设备 (默认: `/dev/video0`)
-- `yolo_model_path`: YOLO模型路径 (默认: `$(env HOME)/arm/best.pt`)
+- `yolo_model_path`: YOLO模型路径 (默认: `yolo11n.pt`)
 - `image_width`: 相机图像宽度 (默认: `1280`)
 - `image_height`: 相机图像高度 (默认: `480`)
 - `frame_rate`: 相机帧率 (默认: `30`)
