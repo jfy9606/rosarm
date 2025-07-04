@@ -5,51 +5,48 @@ import numpy as np
 from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge, CvBridgeError
 import threading
-# 重命名time模块以避免可能的命名冲突
 import time as time_module
-from std_msgs.msg import Int32  # 添加用于接收视图模式切换的消息类型
+from std_msgs.msg import Int32
 
-# 增加额外导入(只在深度计算时使用)
+# 检查是否支持深度处理
 try:
     import cv2.ximgproc
     HAVE_XIMGPROC = True
-    rospy.loginfo("cv2.ximgproc available, depth processing enabled")
+    rospy.loginfo("cv2.ximgproc可用，深度处理已启用")
 except ImportError:
     HAVE_XIMGPROC = False
-    rospy.logwarn("cv2.ximgproc not available, advanced depth processing will be disabled")
+    rospy.logwarn("cv2.ximgproc不可用，高级深度处理将被禁用")
 
 class StereoCameraNode:
-    """Stereo camera node for capturing and publishing stereo images"""
+    """双目相机节点，用于捕获和发布立体图像"""
     
     def __init__(self):
         rospy.init_node('stereo_camera_node', anonymous=True)
         
-        # Get parameters
+        # 获取参数
         self.camera_index = int(rospy.get_param('~camera_index', 0))
         self.frame_rate = int(rospy.get_param('~frame_rate', 30))
-        self.use_depth = rospy.get_param('~use_depth', True)  # 默认启用深度图
+        self.use_depth = rospy.get_param('~use_depth', True)
         
-        # 如果cv2.ximgproc不可用，则禁用深度图
+        # 如果ximgproc不可用，禁用深度图
         if not HAVE_XIMGPROC and self.use_depth:
-            rospy.logwarn("Depth processing requested but cv2.ximgproc is not available. Install opencv-contrib-python package.")
-            rospy.logwarn("Depth map generation will be disabled.")
+            rospy.logwarn("请求了深度处理但cv2.ximgproc不可用。请安装opencv-contrib-python包。")
+            rospy.logwarn("深度图生成将被禁用。")
             self.use_depth = False
         
         # 视图模式: 0=左图, 1=右图, 2=深度图
         self.view_mode = int(rospy.get_param('~view_mode', 0))
+        self.use_mock_camera = rospy.get_param('~use_mock_camera', False)
         
-        # 开发环境中使用模拟相机模式的参数（在初始化时设置）
-        self.use_mock_camera = rospy.get_param('~use_mock_camera', False)  # 默认不使用模拟相机
-        
-        # Initialize bridge
+        # 初始化bridge
         self.bridge = CvBridge()
         
-        # Initialize publishers
+        # 初始化发布器
         self.left_pub = rospy.Publisher('/stereo_camera/left/image_raw', Image, queue_size=1)
         self.right_pub = rospy.Publisher('/stereo_camera/right/image_raw', Image, queue_size=1)
         self.current_view_pub = rospy.Publisher('/stereo_camera/current_view', Image, queue_size=1)
         
-        # 只有在启用深度图且ximgproc可用时才创建深度图发布器
+        # 仅在启用深度图且ximgproc可用时创建深度图发布器
         if self.use_depth and HAVE_XIMGPROC:
             self.depth_pub = rospy.Publisher('/stereo_camera/depth/image_raw', Image, queue_size=1)
             self.raw_depth_pub = rospy.Publisher('/stereo_camera/depth/raw', Image, queue_size=1)
@@ -63,41 +60,41 @@ class StereoCameraNode:
         # 订阅视图模式切换消息
         self.view_mode_sub = rospy.Subscriber('/stereo_camera/view_mode', Int32, self.view_mode_callback)
         
-        # Initialize camera
+        # 初始化相机
         self.camera = None
         self.is_running = False
-        self.is_reconnecting = False  # 添加重连标志
-        self.frame_count_fail = 0     # 添加失败帧计数
+        self.is_reconnecting = False
+        self.frame_count_fail = 0
         self.camera_lock = threading.Lock()
         
-        # Initialize frames
+        # 初始化帧
         self.left_frame = None
         self.right_frame = None
         
-        # Initialize stereo processor
+        # 初始化立体处理器
         self.stereo_processor = None
         self.stereo_processor_right = None
         self.wls_filter = None
         self.init_stereo_processor()
         
-        # Try to open the camera
+        # 尝试打开相机
         self.open_camera()
         
-        # Start publishing thread
+        # 启动发布线程
         self.thread = threading.Thread(target=self.publish_loop)
         self.thread.daemon = True
         self.thread.start()
         
-        rospy.loginfo("Stereo Camera Node initialized")
+        rospy.loginfo("立体相机节点初始化完成")
         
-        # Register shutdown hook
+        # 注册关闭钩子
         rospy.on_shutdown(self.shutdown)
     
-    def view_mode_callback(self, msg):
+        def view_mode_callback(self, msg):
         """处理视图模式切换消息"""
         new_mode = msg.data
         # 确保模式在有效范围内
-        if new_mode >= 0 and new_mode <= 2:
+        if 0 <= new_mode <= 2:
             if new_mode != self.view_mode:
                 rospy.loginfo(f"切换视图模式到: {new_mode}")
                 self.view_mode = new_mode
@@ -116,28 +113,28 @@ class StereoCameraNode:
             rospy.logwarn(f"无效的视图模式: {new_mode}，有效值为 0(左图)、1(右图)、2(深度图)")
             
     def init_stereo_processor(self):
-        """Initialize stereo vision processor based on selected method"""
+        """初始化立体视觉处理器"""
         # 只在启用深度图且ximgproc可用时初始化
         if not self.use_depth or not HAVE_XIMGPROC:
-            rospy.loginfo("Depth processing is disabled")
+            rospy.loginfo("深度处理已禁用")
             return
             
         try:
-            rospy.loginfo("Initializing stereo processors for depth calculation")
+            rospy.loginfo("正在初始化立体处理器以计算深度")
             
             # 创建视差计算器 - SGBM算法
             self.stereo_processor = cv2.StereoSGBM.create(
                 minDisparity=0,
                 numDisparities=128,  # 必须是16的倍数
                 blockSize=5,
-                P1=8 * 3 * 5 ** 2,  # 控制视差平滑度的参数
-                P2=32 * 3 * 5 ** 2,  # 控制视差平滑度的参数
+                P1=8 * 3 * 5 ** 2,
+                P2=32 * 3 * 5 ** 2,
                 disp12MaxDiff=1,
                 uniquenessRatio=15,
                 speckleWindowSize=100,
                 speckleRange=1,
                 preFilterCap=63,
-                mode=1  # 使用cv2.STEREO_SGBM_MODE_SGBM_3WAY的值
+                mode=1  # cv2.STEREO_SGBM_MODE_SGBM_3WAY
             )
             
             # 用于视差后处理
@@ -155,21 +152,21 @@ class StereoCameraNode:
                 speckleWindowSize=100,
                 speckleRange=1,
                 preFilterCap=63,
-                mode=1  # 使用cv2.STEREO_SGBM_MODE_SGBM_3WAY的值
+                mode=1
             )
             self.wls_filter.setLambda(8000)
             self.wls_filter.setSigmaColor(1.5)
             
-            rospy.loginfo("Stereo processors initialized successfully")
+            rospy.loginfo("立体处理器初始化成功")
             
         except Exception as e:
-            rospy.logerr(f"Error initializing stereo processors: {e}")
+            rospy.logerr(f"初始化立体处理器错误: {e}")
             self.use_depth = False
             self.stereo_processor = None
             self.stereo_processor_right = None
             self.wls_filter = None
-            
-    def open_camera(self):
+
+        def open_camera(self):
         """打开相机并设置参数"""
         # 如果使用模拟相机模式，则不需要真实相机
         if self.use_mock_camera:
@@ -195,22 +192,17 @@ class StereoCameraNode:
                     except:
                         pass
                     
-                    # 给系统一点时间完全释放资源
-                    # 确保使用导入的全局time模块，而不是局部变量
+                    # 给系统时间完全释放资源
                     try:
-                        time_module.sleep(2.0)  # 增加等待时间到2秒
+                        time_module.sleep(2.0)
                     except Exception as e:
                         rospy.logwarn(f"休眠时出错: {e}")
                 
-                # 获取分辨率参数，允许从launch文件中配置
-                camera_width = rospy.get_param('~camera_width', 1280)
-                camera_height = rospy.get_param('~camera_height', 480)
-                camera_format = rospy.get_param('~camera_format', 'MJPEG')  # MJPEG 或 YUY2
+                # 获取分辨率参数
+                camera_width = int(rospy.get_param('~camera_width', 1280))
+                camera_height = int(rospy.get_param('~camera_height', 480))
+                camera_format = rospy.get_param('~camera_format', 'MJPEG')
                 
-                # 根据配置选择分辨率
-                # 支持的分辨率:
-                # MJPEG: 1280x480, 1920x1080, 2160x1080, 2560x720, 3840x1080, 3840x1520
-                # YUY2:  1280x480, 1920x1080, 2160x1080, 2560x720, 3840x1080, 3840x1520
                 rospy.loginfo(f"尝试设置相机分辨率为 {camera_width}x{camera_height}，格式: {camera_format}")
                 
                 # 记录相机参数
@@ -226,7 +218,7 @@ class StereoCameraNode:
                     
                     # 尝试直接打开相机
                     try:
-                        # 使用超时设置打开相机，明确指定V4L2后端
+                        # 明确指定V4L2后端
                         self.camera = cv2.VideoCapture(device, cv2.CAP_V4L2)
                         
                         # 检查相机是否成功打开
@@ -236,32 +228,30 @@ class StereoCameraNode:
                         
                         # 重要：首先设置FOURCC（格式），然后再设置其他参数
                         if camera_format == 'MJPEG':
-                            mjpg_fourcc = cv2.VideoWriter.fourcc('M','J','P','G')  # 使用推荐的方式设置MJPG
+                            mjpg_fourcc = cv2.VideoWriter.fourcc('M','J','P','G')
                             self.camera.set(cv2.CAP_PROP_FOURCC, mjpg_fourcc)
                         else:
-                            yuyv_fourcc = cv2.VideoWriter.fourcc('Y','U','Y','V')  # 使用推荐的方式设置YUY2
+                            yuyv_fourcc = cv2.VideoWriter.fourcc('Y','U','Y','V')
                             self.camera.set(cv2.CAP_PROP_FOURCC, yuyv_fourcc)
 
-                        # 设置相机缓冲区大小
+                        # 设置相机参数
                         self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-                        
-                        # 设置分辨率 - 根据参数设置
                         self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, camera_width)
                         self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, camera_height)
                         self.camera.set(cv2.CAP_PROP_FPS, self.frame_rate)
                         
-                        # 添加额外的诊断信息
+                        # 添加诊断信息
                         current_fourcc = int(self.camera.get(cv2.CAP_PROP_FOURCC))
                         current_fourcc_str = "".join([chr((current_fourcc >> 8 * i) & 0xFF) for i in range(4)])
                         rospy.loginfo(f"相机格式: {current_fourcc_str}")
                         rospy.loginfo(f"相机分辨率: {self.camera.get(cv2.CAP_PROP_FRAME_WIDTH)}x{self.camera.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
                         rospy.loginfo(f"相机帧率: {self.camera.get(cv2.CAP_PROP_FPS)}")
                         
-                        # 给相机一些时间初始化
-                        time_module.sleep(2.0)  # 等待2秒，让相机完全初始化
-                        
-                        # 尝试读取测试帧
-                        for attempt in range(5):  # 最多尝试5次
+                        # 给相机时间初始化
+                        time_module.sleep(2.0)
+    
+                            # 尝试读取测试帧
+                        for attempt in range(5):
                             try:
                                 start_time = time_module.time()
                                 ret, test_frame = self.camera.read()
@@ -276,13 +266,13 @@ class StereoCameraNode:
                                     height, width = test_frame.shape[:2]
                                     rospy.loginfo(f"相机已成功打开，设备: {device}, 分辨率: {width}x{height}, 帧率: {self.frame_rate}")
                                     
-                                    # 相机参数记录，用于深度计算
+                                    # 相机参数记录
                                     self.image_width = width
                                     self.image_height = height
                                     
                                     self.is_running = True
-                                    self.is_reconnecting = False  # 确保重连标志被重置
-                                    self.frame_count_fail = 0     # 重置失败计数
+                                    self.is_reconnecting = False
+                                    self.frame_count_fail = 0
                                     return True
                                 else:
                                     # 如果读取失败，等待后重试
@@ -297,14 +287,13 @@ class StereoCameraNode:
                         self.camera.release()
                         self.camera = None
                         
-                        # 尝试使用替代的GStreamer方法（如果是Linux平台）
+                        # 尝试使用GStreamer方法
                         try:
                             import platform
                             if platform.system() == "Linux":
-                                # 尝试使用GStreamer管道
                                 rospy.loginfo(f"尝试使用GStreamer打开设备: {device}")
                                 if isinstance(device, str) and device.startswith("/dev/video"):
-                                    # 为相机设置特殊的GStreamer管道
+                                    # 设置GStreamer管道
                                     if camera_format == 'MJPEG':
                                         gst_str = f"v4l2src device={device} ! image/jpeg,width={camera_width},height={camera_height},framerate={self.frame_rate}/1 ! jpegdec ! videoconvert ! appsink"
                                     else:  # YUY2
@@ -317,19 +306,19 @@ class StereoCameraNode:
                                     time_module.sleep(2.0)
                                     
                                     if self.camera.isOpened():
-                                        # 添加GStreamer状态诊断信息
+                                        # 添加GStreamer状态诊断
                                         current_fourcc = int(self.camera.get(cv2.CAP_PROP_FOURCC))
                                         current_fourcc_str = "".join([chr((current_fourcc >> 8 * i) & 0xFF) for i in range(4)])
                                         rospy.loginfo(f"GStreamer相机格式: {current_fourcc_str}")
                                         rospy.loginfo(f"GStreamer相机分辨率: {self.camera.get(cv2.CAP_PROP_FRAME_WIDTH)}x{self.camera.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
                                         
-                                        # 读取多帧测试相机是否正常工作
+                                        # 测试GStreamer相机
                                         success = False
-                                        for i in range(5):  # 尝试多次读取
+                                        for i in range(5):
                                             ret, test_frame = self.camera.read()
                                             if ret and test_frame is not None and test_frame.size > 0:
                                                 height, width = test_frame.shape[:2]
-                                                rospy.loginfo(f"使用GStreamer成功打开相机，设备: {device}, 分辨率: {width}x{height}")
+                                                rospy.loginfo(f"GStreamer成功打开相机: {device}, 分辨率: {width}x{height}")
                                                 self.is_running = True
                                                 self.is_reconnecting = False
                                                 self.frame_count_fail = 0
@@ -352,34 +341,34 @@ class StereoCameraNode:
                                 self.camera.release()
                                 self.camera = None
                     except Exception as e:
-                        rospy.logwarn(f"打开相机 {device} 时出现异常: {e}")
+                        rospy.logwarn(f"打开相机异常: {e}")
                         if self.camera:
                             try:
                                 self.camera.release()
                             except:
                                 pass
                             self.camera = None
-                
-                # 如果所有设备都失败
+    
+                    # 如果所有设备都失败
                 rospy.logerr("所有相机设备都无法正常工作")
                 # 检查相机设备是否存在
                 try:
                     import os
                     if os.path.exists("/dev/video0"):
                         rospy.loginfo("设备/dev/video0存在，但无法正常访问，可能是权限或驱动问题")
-                        # 尝试检查设备权限
+                        # 检查设备权限
                         try:
                             import subprocess
                             result = subprocess.run(["ls", "-l", "/dev/video0"], capture_output=True, text=True)
                             rospy.loginfo(f"设备权限: {result.stdout.strip()}")
                             
-                            # 尝试检查是否支持所请求的分辨率
+                            # 检查支持的分辨率
                             try:
                                 result = subprocess.run(["v4l2-ctl", "-d", "/dev/video0", "--list-formats-ext"], 
                                                        capture_output=True, text=True)
                                 rospy.loginfo(f"支持的格式:\n{result.stdout.strip()}")
                             except:
-                                rospy.logwarn("无法获取支持的格式信息，请确保安装了v4l-utils")
+                                rospy.logwarn("无法获取支持的格式信息，请确保安装v4l-utils")
                             
                         except Exception as e:
                             rospy.logwarn(f"无法检查设备权限: {e}")
@@ -392,21 +381,19 @@ class StereoCameraNode:
                 return False
                 
         except Exception as e:
-            # 确保异常处理中不会引用未定义的变量
             rospy.logerr(f"打开相机时出错: {e}")
             self.is_running = False
             self.is_reconnecting = True
             return False
     
-    def get_current_view(self, left_image, right_image):
-        """基于当前视图模式返回相应的图像"""
-        # 如果任一图像为空，创建一个占位图像
+        def get_current_view(self, left_image, right_image):
+        """根据当前视图模式返回相应的图像"""
+        # 如果任一图像为空，创建占位图像
         if left_image is None or right_image is None:
             return self.create_placeholder_image("等待摄像头连接...", 640, 480)
             
-        # 确保图像尺寸一致，便于显示
+        # 确保图像尺寸一致
         if left_image.shape != right_image.shape:
-            # 调整尺寸使其一致
             try:
                 height = min(left_image.shape[0], right_image.shape[0])
                 width = min(left_image.shape[1], right_image.shape[1])
@@ -423,21 +410,17 @@ class StereoCameraNode:
         try:
             if self.view_mode == 0:
                 # 左图模式
-                rospy.logdebug("显示左视图")
                 return left_image
             elif self.view_mode == 1:
                 # 右图模式
-                rospy.logdebug("显示右视图")
                 return right_image
             elif self.view_mode == 2:
                 # 深度图模式
                 if self.use_depth and HAVE_XIMGPROC:
-                    rospy.logdebug("计算深度图")
                     depth_map = self.compute_depth_map(left_image, right_image)
                     if depth_map is not None:
-                        # 创建彩色深度图用于显示
+                        # 创建彩色深度图
                         colored_depth = self.create_colored_depth_map(depth_map)
-                        rospy.logdebug("显示深度视图")
                         return colored_depth
                     else:
                         # 如果深度图计算失败，返回左图
@@ -454,8 +437,8 @@ class StereoCameraNode:
         except Exception as e:
             rospy.logerr(f"获取当前视图错误: {e}")
             return self.create_placeholder_image("视图处理错误", 640, 480)
-    
-    def compute_depth_map(self, left_image, right_image):
+
+        def compute_depth_map(self, left_image, right_image):
         """计算深度图"""
         if not self.use_depth or not HAVE_XIMGPROC or self.stereo_processor is None:
             return None
@@ -472,22 +455,15 @@ class StereoCameraNode:
             if self.stereo_processor_right:
                 right_disp = self.stereo_processor_right.compute(right_gray, left_gray)
                 
-                # 使用WLS滤波器进行优化
+                # 使用WLS滤波器优化
                 if self.wls_filter:
                     filtered_disp = self.wls_filter.filter(left_disp, left_gray, disparity_map_right=right_disp)
                     # 处理无效区域
                     _, filtered_disp = cv2.threshold(filtered_disp, 0, np.inf, cv2.THRESH_TOZERO)
                     
-                    # 转换视差图到实际深度值（可选）
-                    # 注意: 这需要相机标定参数才能正确计算
-                    # 基础公式: depth = (baseline * focal_length) / disparity
+                    # 转换视差图到实际深度值
                     if hasattr(self, 'camera_baseline') and hasattr(self, 'camera_focal_length'):
                         # 把视差图转换为毫米单位的深度图
-                        # 我们需要考虑像素大小和分辨率
-                        # 估计像素大小基于图像分辨率和视场角
-                        
-                        # 如果视差图是float32，单位是像素，我们需要将其转换为米
-                        # 防止除以零
                         valid_mask = filtered_disp > 0
                         depth_map = np.zeros_like(filtered_disp)
                         
@@ -498,25 +474,23 @@ class StereoCameraNode:
                             pixel_size_mm = 2 * np.tan(fov_rad / 2) * self.camera_focal_length / self.image_width
                             
                             # 转换视差到实际深度值
-                            # depth = baseline * focal_length / (disparity * pixel_size)
                             depth_map[valid_mask] = self.camera_baseline * self.camera_focal_length / (filtered_disp[valid_mask] * pixel_size_mm)
                             
-                            # 限制深度范围（例如0.1米到10米）
+                            # 限制深度范围
                             depth_map = np.clip(depth_map, 100, 10000)  # 100mm到10000mm
                             
                             return depth_map
                     
                     return filtered_disp
                     
-            # 如果没有进行WLS滤波，则返回原始视差图
-            # 注意：视差图是16位有符号整数，需要转换以便可视化
+            # 如果没有WLS滤波，返回原始视差图
             return left_disp
             
         except Exception as e:
             rospy.logerr(f"深度图计算错误: {e}")
             return None
-            
-    def create_colored_depth_map(self, depth_map):
+    
+        def create_colored_depth_map(self, depth_map):
         """将深度图转换为彩色可视化图像"""
         try:
             # 归一化深度图
@@ -555,25 +529,24 @@ class StereoCameraNode:
             return
             
         try:
-            # 检查深度图的类型
-            if len(depth_map.shape) == 2:  # 单通道深度图 (32FC1)
-                # 将浮点深度图转换为彩色可视化图
-                # 归一化深度图
+            # 检查深度图类型
+            if len(depth_map.shape) == 2:  # 单通道深度图
+                # 将浮点深度图转换为彩色可视化
                 colored_depth = self.create_colored_depth_map(depth_map)
                 
-                # 创建彩色深度图
+                # 创建彩色深度图消息
                 colored_depth_msg = self.bridge.cv2_to_imgmsg(colored_depth, encoding="bgr8")
                 colored_depth_msg.header.stamp = rospy.Time.now()
                 
                 # 发布彩色深度图
                 self.depth_pub.publish(colored_depth_msg)
                 
-                # 同时发布原始深度图（保留精确的深度信息）
+                # 同时发布原始深度图（保留精确深度信息）
                 raw_depth_msg = self.bridge.cv2_to_imgmsg(depth_map.astype(np.float32), encoding="32FC1")
                 raw_depth_msg.header.stamp = rospy.Time.now()
                 self.raw_depth_pub.publish(raw_depth_msg)
                 
-            else:  # 彩色深度图 (已经是BGR格式)
+            else:  # 彩色深度图（已经是BGR格式）
                 # 发布深度图
                 depth_msg = self.bridge.cv2_to_imgmsg(depth_map, encoding="bgr8")
                 depth_msg.header.stamp = rospy.Time.now()
@@ -598,15 +571,14 @@ class StereoCameraNode:
         except Exception as e:
             rospy.logerr(f"图像转换错误: {e}")
 
-    def publish_loop(self):
+        def publish_loop(self):
         """发布图像的主循环"""
-        rate = rospy.Rate(self.frame_rate)  # 使用设置的帧率
+        rate = rospy.Rate(self.frame_rate)
         placeholder_image = self.create_placeholder_image("等待相机连接...", 640, 480)
         
-        # 如果启用了模拟相机，创建模拟图像
+        # 如果使用模拟相机，创建模拟图像
         if self.use_mock_camera:
-            # 获取模拟相机的图案类型
-            mock_camera_pattern = rospy.get_param('~mock_camera_pattern', 'checkerboard')  # 默认使用棋盘格
+            mock_camera_pattern = rospy.get_param('~mock_camera_pattern', 'checkerboard')
             
             rospy.loginfo("启用模拟相机模式，实际相机将被忽略")
             # 创建左右模拟图像
@@ -627,12 +599,12 @@ class StereoCameraNode:
         
         while not rospy.is_shutdown():
             try:
-                # 如果启用了模拟相机，直接使用模拟图像
+                # 模拟相机模式处理
                 if self.use_mock_camera:
                     left_frame = self.mock_left_frame.copy()
                     right_frame = self.mock_right_frame.copy()
                     
-                    # 在模拟图像上添加时间戳
+                    # 添加时间戳
                     try:
                         timestamp = time_module.strftime("%H:%M:%S", time_module.localtime())
                         cv2.putText(left_frame, f"Mock Left {timestamp}", (20, 30), 
@@ -641,13 +613,12 @@ class StereoCameraNode:
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
                     except Exception as e:
                         rospy.logwarn(f"时间戳格式化错误: {e}")
-                        # 使用简单文本代替时间戳
                         cv2.putText(left_frame, "Mock Left", (20, 30), 
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
                         cv2.putText(right_frame, "Mock Right", (20, 30), 
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
                     
-                    # 缓存帧用于视图切换
+                    # 缓存帧
                     self.left_frame = left_frame
                     self.right_frame = right_frame
                     
@@ -674,7 +645,6 @@ class StereoCameraNode:
                         self.left_info_pub.publish(camera_info)
                         self.right_info_pub.publish(camera_info)
                         
-                        # 重置失败计数
                         consecutive_failures = 0
                     except Exception as e:
                         rospy.logerr(f"发布模拟图像错误: {e}")
@@ -682,8 +652,8 @@ class StereoCameraNode:
                         
                     rate.sleep()
                     continue
-                
-                # 正常相机模式
+    
+                    # 实时相机模式
                 with self.camera_lock:
                     if self.camera is None or not self.camera.isOpened():
                         if not self.is_reconnecting:
@@ -699,7 +669,7 @@ class StereoCameraNode:
                     # 读取帧，添加超时检测
                     try:
                         start_time = time_module.time()
-                        # 在读取前，确认相机还处于打开状态
+                        # 确认相机处于打开状态
                         if not self.camera.isOpened():
                             rospy.logwarn("相机已关闭，尝试重新打开")
                             self.camera.release()
@@ -732,19 +702,21 @@ class StereoCameraNode:
                             rospy.logwarn(f"重新读取帧失败: {e2}")
                             success = False
                             frame = None
+                            elapsed = 0
+
                     # 定期输出诊断信息
                     try:
                         current_time = time_module.time()
                         if current_time - last_diagnostic_time > 30.0:  # 每30秒输出一次诊断信息
-                            rospy.loginfo(f"相机状态: isOpened={self.camera.isOpened()}, 读取耗时={elapsed:.3f}秒")
+                            if self.camera and self.camera.isOpened():
+                                rospy.loginfo(f"相机状态: isOpened=True, 读取耗时={elapsed:.3f}秒")
+                            else:
+                                rospy.loginfo("相机状态: isOpened=False")
                             last_diagnostic_time = current_time
                     except Exception as e:
                         rospy.logwarn(f"诊断时间计算错误: {e}")
                     
-                    # 检测读取超时
-                    if elapsed > 1.0:  # 如果读取耗时超过1秒，记录警告
-                        rospy.logwarn(f"相机读取帧耗时过长: {elapsed:.3f}秒")
-                    
+                    # 检查读取结果
                     if not success or frame is None or frame.size == 0:
                         self.frame_count_fail += 1
                         consecutive_failures += 1
@@ -752,7 +724,8 @@ class StereoCameraNode:
                         
                         if self.frame_count_fail > 5:  # 连续5次失败，尝试重新打开摄像头
                             rospy.logwarn("摄像头读取失败，尝试重新连接...")
-                            self.camera.release()
+                            if self.camera:
+                                self.camera.release()
                             self.camera = None
                             self.is_reconnecting = True
                             self.open_camera()
@@ -761,13 +734,13 @@ class StereoCameraNode:
                         self.publish_placeholder_images(placeholder_image)
                         rate.sleep()
                         continue
-                        
-                    # 重置失败计数
+    
+                        # 重置失败计数
                     self.frame_count_fail = 0
                     consecutive_failures = 0
                     self.is_reconnecting = False
                     
-                    # 对于宽幅摄像头，分割图像为左右两部分
+                    # 处理双目相机图像
                     height, width = frame.shape[:2]
                     
                     # 如果是宽幅图像，认为左右各占一半
@@ -803,7 +776,7 @@ class StereoCameraNode:
                             # 发布当前视图
                             self.publish_current_view(current_view)
                             
-                            # 如果启用了深度图并且ximgproc可用，计算并发布深度图
+                            # 如果启用深度图且ximgproc可用，计算并发布深度图
                             if self.use_depth and HAVE_XIMGPROC:
                                 depth_map = self.compute_depth_map(left_frame, right_frame)
                                 if depth_map is not None:
@@ -822,7 +795,7 @@ class StereoCameraNode:
                     else:
                         # 单目图像，只发布左图
                         try:
-                            # 缓存帧用于视图切换
+                            # 缓存帧
                             self.left_frame = frame
                             self.right_frame = frame  # 对于单目相机，左右图相同
                             
@@ -840,7 +813,6 @@ class StereoCameraNode:
                             self.left_info_pub.publish(camera_info)
                         except CvBridgeError as e:
                             rospy.logerr(f"图像转换错误: {e}")
-                            
             except Exception as e:
                 rospy.logerr(f"相机处理异常: {e}")
                 consecutive_failures += 1
@@ -858,11 +830,11 @@ class StereoCameraNode:
                             consecutive_failures = 0
                     except Exception as e:
                         rospy.logerr(f"重新初始化相机失败: {e}")
-                
-            rate.sleep()
             
-    def create_placeholder_image(self, text, width=640, height=480):
-        """创建一个占位图像，显示文本消息"""
+            rate.sleep()
+
+        def create_placeholder_image(self, text, width=640, height=480):
+        """创建占位图像，显示文本消息"""
         placeholder = np.zeros((height, width, 3), dtype=np.uint8)
         font = cv2.FONT_HERSHEY_SIMPLEX
         font_scale = 1.0
@@ -914,13 +886,13 @@ class StereoCameraNode:
         # 绘制棋盘格
         for row in range(num_rows):
             for col in range(num_cols):
-                # 计算当前方块的左上角坐标
+                # 计算当前方块坐标
                 y1 = row * square_size
                 x1 = col * square_size
                 y2 = min(y1 + square_size, height)
                 x2 = min(x1 + square_size, width)
                 
-                # 确定颜色 (交替使用两种颜色)
+                # 确定颜色
                 if (row + col) % 2 == 0:
                     color = color1
                 else:
@@ -932,41 +904,39 @@ class StereoCameraNode:
         return img
 
     def shutdown(self):
-        """Clean up on shutdown"""
-        rospy.loginfo("Shutting down stereo camera node")
+        """清理并关闭资源"""
+        rospy.loginfo("关闭立体相机节点")
         self.is_running = False
         
-        # 确保正确释放相机资源
+        # 释放相机资源
         with self.camera_lock:
             if self.camera is not None:
-                # 释放摄像头资源
                 try:
                     self.camera.release()
-                    rospy.loginfo("Camera released successfully")
+                    rospy.loginfo("相机成功释放")
                 except Exception as e:
-                    rospy.logerr(f"Error releasing camera: {e}")
+                    rospy.logerr(f"释放相机出错: {e}")
                 
-                # 确保设置为None
                 self.camera = None
                 
-        # 等待一小段时间确保资源彻底释放
+        # 等待资源完全释放
         try:
             time_module.sleep(0.5)
         except Exception as e:
             rospy.logwarn(f"关闭时休眠错误: {e}")
         
-        # 显式调用GC
+        # 调用GC
         try:
             import gc
             gc.collect()
         except:
             pass
         
-        rospy.loginfo("Camera resources released successfully")
+        rospy.loginfo("相机资源已成功释放")
 
 if __name__ == '__main__':
     try:
         node = StereoCameraNode()
         rospy.spin()
     except rospy.ROSInterruptException:
-        pass 
+        pass
