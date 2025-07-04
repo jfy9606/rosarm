@@ -56,8 +56,17 @@
     <param name="initial_view_mode" value="$(arg initial_view_mode)" />
     <param name="left_image_topic" value="/left_camera/image_raw"/>
     <param name="right_image_topic" value="/right_camera/image_raw"/>
-    <param name="depth_image_topic" value="/stereo_camera/depth/image_raw"/>
+    <param name="depth_image_topic" value="/depth_image"/>
+    <remap from="/stereo_vision/view_mode" to="/stereo_vision/view_mode"/>
   </node>
+  
+  <!-- 确保检测话题和视图模式话题之间的连接 -->
+  <node name="detection_relay" pkg="topic_tools" type="relay" 
+        args="/detection_image /detections/image" />
+  <node name="poses_relay" pkg="topic_tools" type="relay" 
+        args="/detected_poses /detections/poses" />
+  <node name="depth_relay" pkg="topic_tools" type="relay" 
+        args="/depth_image /stereo_camera/depth/image_raw" />
 
   <!-- TF静态发布器，用于相机到世界坐标系的转换 -->
   <node pkg="tf2_ros" type="static_transform_publisher" name="camera_link_broadcaster"

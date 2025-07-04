@@ -23,12 +23,21 @@ class ViewModeSwitcher:
             rospy.logwarn("Invalid initial_view_mode parameter, using default (0)")
             self.current_mode = 0
         
+        # 获取图像话题名称
+        self.left_image_topic = rospy.get_param('~left_image_topic', '/left_camera/image_raw')
+        self.right_image_topic = rospy.get_param('~right_image_topic', '/right_camera/image_raw')
+        self.depth_image_topic = rospy.get_param('~depth_image_topic', '/depth_image')
+        
         # Create publisher for view mode changes
         self.view_mode_pub = rospy.Publisher('/stereo_vision/view_mode', Header, queue_size=10)
         
         # Create service for switching view modes if service type is available
         if SetViewMode is not None:
-            rospy.Service('/stereo_vision/switch_view', SetViewMode, self.handle_switch_view)
+            self.service = rospy.Service('/stereo_vision/switch_view', SetViewMode, self.handle_switch_view)
+            rospy.loginfo("View mode switching service started at /stereo_vision/switch_view")
+        
+        # 添加辅助转发以确保视图正确显示
+        self.image_pub = rospy.Publisher('/detections/image', Header, queue_size=10)
         
         rospy.loginfo(f"View mode switcher initialized with mode {self.current_mode} (0=left, 1=right, 2=depth)")
         self.publish_current_mode()
@@ -36,8 +45,12 @@ class ViewModeSwitcher:
     def handle_switch_view(self, req):
         """Handle request to switch view mode"""
         if 0 <= req.view_mode <= 2:
-            self.current_mode = req.view_mode
-            self.publish_current_mode()
+            # 检查是否切换到了新的模式
+            if self.current_mode != req.view_mode:
+                self.current_mode = req.view_mode
+                rospy.loginfo(f"Switched to view mode {self.current_mode} (0=left, 1=right, 2=depth)")
+                self.publish_current_mode()
+            
             response = SetViewModeResponse()
             response.success = True
             response.message = f"Switched to view mode {self.current_mode}"
@@ -55,6 +68,14 @@ class ViewModeSwitcher:
         # Use frame_id to store the view mode instead of seq (which is deprecated)
         header.frame_id = str(self.current_mode)
         self.view_mode_pub.publish(header)
+        
+        # 记录当前模式的描述
+        mode_descriptions = {
+            0: "左摄像头",
+            1: "右摄像头",
+            2: "深度视图"
+        }
+        rospy.loginfo(f"当前视图模式: {mode_descriptions.get(self.current_mode, '未知')}")
     
     def run(self):
         """Run the node"""
