@@ -67,6 +67,7 @@ class YoloDetector:
         self.conf_threshold = rospy.get_param('~conf_threshold', conf_threshold)
         self.image_topic = rospy.get_param('~image_topic', '/stereo_camera/image_raw')
         self.detection_enabled = rospy.get_param('~detection_enabled', True)
+        self.auto_download = rospy.get_param('~auto_download', True)
         
         # 初始化OpenCV桥接器
         self.bridge = CvBridge()
@@ -81,11 +82,27 @@ class YoloDetector:
             try:
                 # 尝试加载指定的模型
                 if os.path.exists(str(self.model_name)):
+                    rospy.loginfo(f"正在加载本地YOLO模型: {self.model_name}")
                     self.model = YOLO(str(self.model_name))
                     self.model_loaded = True
                     rospy.loginfo(f"成功加载YOLO模型: {self.model_name}")
+                elif self.auto_download:
+                    # 如果指定模型不存在但启用了自动下载，尝试自动下载并加载模型
+                    rospy.loginfo(f"模型文件不存在: {self.model_name}，尝试自动下载")
+                    try:
+                        self.model = YOLO(self.model_name)  # 自动下载模型
+                        self.model_loaded = True
+                        rospy.loginfo(f"成功下载并加载YOLO模型: {self.model_name}")
+                    except Exception as e:
+                        rospy.logerr(f"自动下载YOLO模型失败: {str(e)}，尝试使用默认模型yolov8n.pt")
+                        try:
+                            self.model = YOLO('yolov8n.pt')  # 尝试使用默认模型
+                            self.model_loaded = True
+                            rospy.loginfo("成功加载默认YOLO模型: yolov8n.pt")
+                        except Exception as e2:
+                            rospy.logerr(f"加载默认YOLO模型失败: {str(e2)}")
                 else:
-                    # 如果指定模型不存在，尝试加载默认模型
+                    # 如果指定模型不存在且未启用自动下载，尝试加载默认模型
                     rospy.logwarn(f"模型文件不存在: {self.model_name}，尝试使用默认模型yolov8n.pt")
                     try:
                         self.model = YOLO('yolov8n.pt')

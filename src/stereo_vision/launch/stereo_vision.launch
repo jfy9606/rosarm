@@ -2,7 +2,7 @@
 <launch>
   <!-- 设置启动参数 -->
   <arg name="stereo_cam_device" default="/dev/video0" />
-  <arg name="yolo_model_path" default="$(env HOME)/arm/best.pt" />
+  <arg name="yolo_model_path" default="yolov8n.pt" />
   <arg name="image_width" default="1280" />
   <arg name="image_height" default="480" />
   <arg name="frame_rate" default="30" />
@@ -39,6 +39,7 @@
     <param name="conf_threshold" value="0.25"/>
     <param name="detection_enabled" value="$(arg enable_detection)"/>
     <param name="image_topic" value="/stereo_camera/image_raw"/>
+    <param name="auto_download" value="true"/>
   </node>
 
   <!-- 启动立体视觉检测节点进行深度计算 -->
@@ -47,6 +48,7 @@
     <param name="use_split_feed" value="false"/>
     <param name="left_image_topic" value="/left_camera/image_raw"/>
     <param name="right_image_topic" value="/right_camera/image_raw"/>
+    <param name="auto_download" value="true"/>
   </node>
   
   <!-- 启动视图模式切换器 -->

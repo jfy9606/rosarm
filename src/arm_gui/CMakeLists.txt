@@ -93,7 +93,7 @@ target_link_libraries(${PROJECT_NAME}
   Qt5::OpenGL
 )
 
-add_executable(${PROJECT_NAME}_node src/arm_gui.cpp)
+add_executable(${PROJECT_NAME}_node src/arm_gui_node.cpp)
 add_executable(joint_state_publisher_node src/joint_state_publisher_node.cpp)
 
 target_link_libraries(${PROJECT_NAME}_node

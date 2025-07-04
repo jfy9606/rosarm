@@ -3,6 +3,7 @@ import rospy
 import cv2
 import numpy as np
 import time
+import os
 from ultralytics import YOLO
 from cv_bridge import CvBridge
 from sensor_msgs.msg import Image, CameraInfo
@@ -23,9 +24,37 @@ class StereoDetectionNode:
         
         # Load YOLOv8 model
         model_path = rospy.get_param('~yolo_model_path', 'yolov8n.pt')
+        auto_download = rospy.get_param('~auto_download', True)
+        
         try:
-            self.model = YOLO(model_path)
-            rospy.loginfo(f"Successfully loaded YOLO model: {model_path}")
+            # 检查模型文件是否存在
+            if os.path.exists(str(model_path)):
+                rospy.loginfo(f"正在加载本地YOLO模型: {model_path}")
+                self.model = YOLO(model_path)
+                rospy.loginfo(f"Successfully loaded YOLO model: {model_path}")
+            elif auto_download:
+                # 如果模型不存在但启用了自动下载，尝试自动下载
+                rospy.loginfo(f"模型文件不存在: {model_path}，尝试自动下载")
+                try:
+                    self.model = YOLO(model_path)  # 自动下载模型
+                    rospy.loginfo(f"成功下载并加载YOLO模型: {model_path}")
+                except Exception as e:
+                    rospy.logerr(f"自动下载YOLO模型失败: {str(e)}，尝试使用默认模型yolov8n.pt")
+                    try:
+                        self.model = YOLO('yolov8n.pt')  # 尝试使用默认模型
+                        rospy.loginfo("成功加载默认YOLO模型: yolov8n.pt")
+                    except Exception as e2:
+                        rospy.logerr(f"加载默认YOLO模型失败: {str(e2)}")
+                        self.model = None
+            else:
+                # 如果模型不存在且未启用自动下载，尝试使用默认模型
+                rospy.logwarn(f"模型文件不存在: {model_path}，尝试使用默认模型yolov8n.pt")
+                try:
+                    self.model = YOLO('yolov8n.pt')
+                    rospy.loginfo("Successfully loaded default YOLO model")
+                except Exception as e:
+                    rospy.logerr(f"Failed to load default YOLO model: {str(e)}")
+                    self.model = None
         except Exception as e:
             rospy.logerr(f"Failed to load YOLO model: {str(e)}")
             rospy.loginfo("Trying default model yolov8n.pt")
