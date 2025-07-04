@@ -91,7 +91,6 @@ class StereoCameraNode:
         rospy.on_shutdown(self.shutdown)
     
         def view_mode_callback(self, msg):
-        """处理视图模式切换消息"""
         new_mode = msg.data
         # 确保模式在有效范围内
         if 0 <= new_mode <= 2:
@@ -113,7 +112,6 @@ class StereoCameraNode:
             rospy.logwarn(f"无效的视图模式: {new_mode}，有效值为 0(左图)、1(右图)、2(深度图)")
             
     def init_stereo_processor(self):
-        """初始化立体视觉处理器"""
         # 只在启用深度图且ximgproc可用时初始化
         if not self.use_depth or not HAVE_XIMGPROC:
             rospy.loginfo("深度处理已禁用")
