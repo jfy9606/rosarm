@@ -18,7 +18,6 @@ except ImportError:
     rospy.logwarn("cv2.ximgproc不可用，高级深度处理将被禁用")
 
 class StereoCameraNode:
-    """双目相机节点，用于捕获和发布立体图像"""
     
     def __init__(self):
         rospy.init_node('stereo_camera_node', anonymous=True)
@@ -90,7 +89,7 @@ class StereoCameraNode:
         # 注册关闭钩子
         rospy.on_shutdown(self.shutdown)
     
-        def view_mode_callback(self, msg):
+    def view_mode_callback(self, msg):
         new_mode = msg.data
         # 确保模式在有效范围内
         if 0 <= new_mode <= 2:
@@ -165,7 +164,6 @@ class StereoCameraNode:
             self.wls_filter = None
 
         def open_camera(self):
-        """打开相机并设置参数"""
         # 如果使用模拟相机模式，则不需要真实相机
         if self.use_mock_camera:
             rospy.loginfo("使用模拟相机模式，跳过真实相机初始化")
@@ -385,7 +383,6 @@ class StereoCameraNode:
             return False
     
         def get_current_view(self, left_image, right_image):
-        """根据当前视图模式返回相应的图像"""
         # 如果任一图像为空，创建占位图像
         if left_image is None or right_image is None:
             return self.create_placeholder_image("等待摄像头连接...", 640, 480)
@@ -437,7 +434,6 @@ class StereoCameraNode:
             return self.create_placeholder_image("视图处理错误", 640, 480)
 
         def compute_depth_map(self, left_image, right_image):
-        """计算深度图"""
         if not self.use_depth or not HAVE_XIMGPROC or self.stereo_processor is None:
             return None
             
@@ -489,7 +485,6 @@ class StereoCameraNode:
             return None
     
         def create_colored_depth_map(self, depth_map):
-        """将深度图转换为彩色可视化图像"""
         try:
             # 归一化深度图
             if depth_map.dtype != np.float32:
@@ -522,7 +517,6 @@ class StereoCameraNode:
             return np.zeros((depth_map.shape[0], depth_map.shape[1], 3), dtype=np.uint8)
             
     def publish_depth_images(self, depth_map, left_image):
-        """发布原始深度图和彩色深度图"""
         if depth_map is None or self.depth_pub is None or self.raw_depth_pub is None:
             return
             
@@ -556,7 +550,6 @@ class StereoCameraNode:
             rospy.logerr(f"深度图像转换错误: {e}")
             
     def publish_current_view(self, image):
-        """发布当前视图"""
         if image is None:
             return
             
@@ -570,7 +563,6 @@ class StereoCameraNode:
             rospy.logerr(f"图像转换错误: {e}")
 
         def publish_loop(self):
-        """发布图像的主循环"""
         rate = rospy.Rate(self.frame_rate)
         placeholder_image = self.create_placeholder_image("等待相机连接...", 640, 480)
         
@@ -832,7 +824,6 @@ class StereoCameraNode:
             rate.sleep()
 
         def create_placeholder_image(self, text, width=640, height=480):
-        """创建占位图像，显示文本消息"""
         placeholder = np.zeros((height, width, 3), dtype=np.uint8)
         font = cv2.FONT_HERSHEY_SIMPLEX
         font_scale = 1.0
@@ -850,7 +841,6 @@ class StereoCameraNode:
         return placeholder
         
     def publish_placeholder_images(self, placeholder):
-        """发布占位图像到所有图像话题"""
         try:
             timestamp = rospy.Time.now()
             img_msg = self.bridge.cv2_to_imgmsg(placeholder, "bgr8")
@@ -873,7 +863,6 @@ class StereoCameraNode:
             rospy.logerr(f"发布占位图像错误: {e}")
 
     def create_checkerboard_pattern(self, width, height, color1=(255, 255, 255), color2=(0, 0, 0), square_size=40):
-        """创建棋盘格图案用于模拟相机图像"""
         # 创建空白图像
         img = np.zeros((height, width, 3), dtype=np.uint8)
         
@@ -902,7 +891,6 @@ class StereoCameraNode:
         return img
 
     def shutdown(self):
-        """清理并关闭资源"""
         rospy.loginfo("关闭立体相机节点")
         self.is_running = False
         
