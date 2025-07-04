@@ -13,6 +13,8 @@
   <arg name="with_path_planner" default="true" />
   <arg name="start_rviz" default="false" doc="是否启动RViz可视化" />
   <arg name="servo_port" default="/dev/ttyUSB0" doc="舵机控制串口（波特率1000000）" />
+  <arg name="motor_port" default="/dev/ttyUSB1" doc="电机控制串口（波特率115200）" />
+  <arg name="vacuum_enabled" default="true" doc="是否启用真空吸盘功能" />
 
   <!-- 设置参数服务器 -->
   <param name="/use_sim_time" value="false"/>
@@ -64,6 +66,15 @@
     <param name="baudrate" value="1000000" />
   </node>
   
+  <!-- 启动真空吸盘控制节点 -->
+  <group if="$(arg vacuum_enabled)">
+    <node name="vacuum_controller" pkg="servo_wrist" type="vacuum_controller" args="$(arg motor_port)" output="screen" respawn="true">
+      <param name="baudrate" value="115200" />
+      <param name="max_power" value="100" />
+      <param name="default_power" value="80" />
+    </node>
+  </group>
+  
   <!-- 启动关节状态发布节点 -->
   <node name="joint_publisher" pkg="arm_gui" type="joint_state_publisher_node" output="screen">
     <param name="publish_rate" value="50" />
@@ -94,6 +105,7 @@
     <!-- GUI参数 -->
     <param name="update_rate" value="20" />
     <param name="use_stereo_camera" value="true" />
+    <param name="vacuum_enabled" value="$(arg vacuum_enabled)" />
   </node>
 
   <!-- 可选启动RViz -->

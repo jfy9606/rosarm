@@ -305,7 +305,7 @@ detect_ports() {
         echo -e "${GREEN}将使用 ${DETECTED_SERVO_PORT} 作为舵机控制串口，${DETECTED_MOTOR_PORT} 作为电机控制串口${NC}"
         
         # 更新launch文件中的串口配置
-        LAUNCH_FILE="$WORKSPACE_DIR/src/arm_trajectory/launch/visual_servo.launch"
+        LAUNCH_FILE="$WORKSPACE_DIR/src/stereo_vision/launch/stereo_vision.launch"
         if [ -f "${LAUNCH_FILE}" ]; then
             # 备份原始文件
             cp "${LAUNCH_FILE}" "${LAUNCH_FILE}.bak" 2>/dev/null
@@ -313,8 +313,16 @@ detect_ports() {
             # 更新串口配置
             sed -i "s|<arg name=\"servo_port\" default=\"/dev/ttyUSB[0-9]*\"|<arg name=\"servo_port\" default=\"${DETECTED_SERVO_PORT}\"|g" "${LAUNCH_FILE}" 2>/dev/null
             sed -i "s|<arg name=\"servo_port\" default=\"/dev/ttyACM[0-9]*\"|<arg name=\"servo_port\" default=\"${DETECTED_SERVO_PORT}\"|g" "${LAUNCH_FILE}" 2>/dev/null
-            sed -i "s|<arg name=\"motor_port\" default=\"/dev/ttyUSB[0-9]*\"|<arg name=\"motor_port\" default=\"${DETECTED_MOTOR_PORT}\"|g" "${LAUNCH_FILE}" 2>/dev/null
-            sed -i "s|<arg name=\"motor_port\" default=\"/dev/ttyACM[0-9]*\"|<arg name=\"motor_port\" default=\"${DETECTED_MOTOR_PORT}\"|g" "${LAUNCH_FILE}" 2>/dev/null
+            
+            # 添加或更新电机端口配置
+            if grep -q "motor_port" "${LAUNCH_FILE}"; then
+                # 如果已存在motor_port参数，则更新
+                sed -i "s|<arg name=\"motor_port\" default=\"/dev/ttyUSB[0-9]*\"|<arg name=\"motor_port\" default=\"${DETECTED_MOTOR_PORT}\"|g" "${LAUNCH_FILE}" 2>/dev/null
+                sed -i "s|<arg name=\"motor_port\" default=\"/dev/ttyACM[0-9]*\"|<arg name=\"motor_port\" default=\"${DETECTED_MOTOR_PORT}\"|g" "${LAUNCH_FILE}" 2>/dev/null
+            else
+                # 如果不存在motor_port参数，则添加
+                sed -i "/<arg name=\"servo_port\"/a \  <arg name=\"motor_port\" default=\"${DETECTED_MOTOR_PORT}\" doc=\"电机控制串口（波特率115200）\" />" "${LAUNCH_FILE}" 2>/dev/null
+            fi
             
             echo -e "${GREEN}已更新 ${LAUNCH_FILE} 中的串口配置${NC}"
             echo -e "${YELLOW}按任意键继续...${NC}"
@@ -354,7 +362,7 @@ log4j.logger.ros.roscpp=WARN
 log4j.logger.ros.roscpp.superdebug=WARN
 
 # 特定节点的日志级别
-log4j.logger.ros.stereo_camera_node=WARN
+log4j.logger.ros.camera_node=WARN
 log4j.logger.ros.arm_gui_node=WARN
 
 # 允许ERROR级别的日志
@@ -362,6 +370,7 @@ log4j.logger.ros.servo=ERROR
 log4j.logger.ros.visual_servo_controller=ERROR
 log4j.logger.ros.trajectory_bridge=ERROR
 log4j.logger.ros.path_planner=ERROR
+log4j.logger.ros.vacuum_controller=ERROR
 EOF
     
     echo -e "${GREEN}已创建日志配置文件: ${LOG_CONFIG_FILE}${NC}"
@@ -396,6 +405,9 @@ setup_log_config
 YOLO_ENABLED=true
 YOLO_MODEL=""
 YOLO_THRESHOLD=0.5
+STEREO_CAM_DEVICE="/dev/video0"
+INITIAL_VIEW_MODE=0
+VACUUM_ENABLED=true
 
 # 命令行参数模式
 COMMAND_MODE=false
@@ -407,6 +419,9 @@ show_help() {
     echo "  -y, --yolo             启用YOLO目标检测"
     echo "  -m, --model PATH       指定YOLOv8模型路径"
     echo "  -t, --threshold VALUE  设置检测置信度阈值 (0.0-1.0)"
+    echo "  -c, --camera DEVICE    指定摄像头设备 (默认: /dev/video0)"
+    echo "  -v, --view-mode MODE   设置初始视图模式 (0=左, 1=右, 2=深度)"
+    echo "  -n, --no-vacuum        禁用真空吸盘功能"
     echo "  -h, --help             显示此帮助信息"
     exit 0
 }
@@ -429,6 +444,21 @@ while [[ $# -gt 0 ]]; do
             COMMAND_MODE=true
             shift 2
             ;;
+        -c|--camera)
+            STEREO_CAM_DEVICE="$2"
+            COMMAND_MODE=true
+            shift 2
+            ;;
+        -v|--view-mode)
+            INITIAL_VIEW_MODE="$2"
+            COMMAND_MODE=true
+            shift 2
+            ;;
+        -n|--no-vacuum)
+            VACUUM_ENABLED=false
+            COMMAND_MODE=true
+            shift
+            ;;
         -h|--help)
             show_help
             ;;
@@ -449,16 +479,19 @@ launch_full_system() {
         echo -e "${CYAN}使用默认YOLOv8n模型${NC}"
     fi
     echo -e "${CYAN}检测置信度阈值: $YOLO_THRESHOLD${NC}"
+    echo -e "${CYAN}摄像头设备: $STEREO_CAM_DEVICE${NC}"
+    echo -e "${CYAN}初始视图模式: $INITIAL_VIEW_MODE${NC}"
+    echo -e "${CYAN}真空吸盘功能: $([ "$VACUUM_ENABLED" = true ] && echo "启用" || echo "禁用")${NC}"
     
     # 构建启动命令
-    LAUNCH_CMD="roslaunch arm_trajectory visual_servo.launch yolo_enabled:=$YOLO_ENABLED"
+    LAUNCH_CMD="roslaunch stereo_vision stereo_vision.launch enable_detection:=$YOLO_ENABLED"
     
     # 添加额外参数
     if [ -n "$YOLO_MODEL" ]; then
         LAUNCH_CMD="$LAUNCH_CMD yolo_model_path:=$YOLO_MODEL"
     fi
     
-    LAUNCH_CMD="$LAUNCH_CMD yolo_confidence:=$YOLO_THRESHOLD"
+    LAUNCH_CMD="$LAUNCH_CMD stereo_cam_device:=$STEREO_CAM_DEVICE initial_view_mode:=$INITIAL_VIEW_MODE vacuum_enabled:=$VACUUM_ENABLED"
     
     # 执行启动命令
     $LAUNCH_CMD
@@ -528,6 +561,29 @@ configure_params() {
     read -r new_threshold
     if [ -n "$new_threshold" ]; then
         YOLO_THRESHOLD="$new_threshold"
+    fi
+    
+    echo -e "${YELLOW}当前摄像头设备: $STEREO_CAM_DEVICE${NC}"
+    echo -ne "${GREEN}输入新的摄像头设备 (留空保持不变): ${NC}"
+    read -r new_camera
+    if [ -n "$new_camera" ]; then
+        STEREO_CAM_DEVICE="$new_camera"
+    fi
+    
+    echo -e "${YELLOW}当前视图模式: $INITIAL_VIEW_MODE${NC}"
+    echo -ne "${GREEN}输入新的视图模式 (0=左, 1=右, 2=深度，留空保持不变): ${NC}"
+    read -r new_view_mode
+    if [ -n "$new_view_mode" ]; then
+        INITIAL_VIEW_MODE="$new_view_mode"
+    fi
+    
+    echo -e "${YELLOW}真空吸盘功能: $([ "$VACUUM_ENABLED" = true ] && echo "启用" || echo "禁用")${NC}"
+    echo -ne "${GREEN}启用真空吸盘功能? (y/n，留空保持不变): ${NC}"
+    read -r vacuum_choice
+    if [ "$vacuum_choice" = "y" ] || [ "$vacuum_choice" = "Y" ]; then
+        VACUUM_ENABLED=true
+    elif [ "$vacuum_choice" = "n" ] || [ "$vacuum_choice" = "N" ]; then
+        VACUUM_ENABLED=false
     fi
     
     echo -e "${BLUE}=====================================${NC}"
