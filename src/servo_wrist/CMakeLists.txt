@@ -72,6 +72,7 @@ add_dependencies(${PROJECT_NAME} ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EX
 ## Declare a C++ executable
 add_executable(${PROJECT_NAME}_node src/servo_wrist_node.cpp)
 add_executable(wrist_ctrl src/wrist_ctrl.cpp)
+add_executable(vacuum_controller src/vacuum_controller.cpp)
 
 ## Specify libraries to link a library or executable target against
 target_link_libraries(${PROJECT_NAME}_node
@@ -85,12 +86,17 @@ target_link_libraries(wrist_ctrl
   SCServo
 )
 
+target_link_libraries(vacuum_controller
+  ${PROJECT_NAME}
+  ${catkin_LIBRARIES}
+)
+
 #############
 ## Install ##
 #############
 
 ## Mark executables for installation
-install(TARGETS ${PROJECT_NAME}_node wrist_ctrl
+install(TARGETS ${PROJECT_NAME}_node wrist_ctrl vacuum_controller
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

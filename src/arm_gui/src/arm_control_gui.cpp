@@ -566,6 +566,7 @@ void ArmControlGUI::sendJointCommand()
 
 void ArmControlGUI::sendVacuumCommand(bool on, int power)
 {
+    // 发布消息（保持向后兼容）
     std_msgs::Bool on_msg;
     on_msg.data = on;
     vacuum_cmd_pub_.publish(on_msg);
@@ -573,6 +574,25 @@ void ArmControlGUI::sendVacuumCommand(bool on, int power)
     std_msgs::Int32 power_msg;
     power_msg.data = power;
     vacuum_power_pub_.publish(power_msg);
+    
+    // 使用服务调用
+    if (vacuum_control_client_.exists()) {
+        servo_wrist::VacuumControl srv;
+        srv.request.enable = on;
+        srv.request.power = power;
+        
+        if (vacuum_control_client_.call(srv)) {
+            if (srv.response.success) {
+                ROS_INFO("真空吸盘控制成功: %s, 功率: %d%%", on ? "开启" : "关闭", power);
+            } else {
+                ROS_WARN("真空吸盘控制失败: %s", srv.response.message.c_str());
+            }
+        } else {
+            ROS_ERROR("调用真空吸盘控制服务失败");
+        }
+    } else {
+        ROS_WARN("真空吸盘控制服务不可用，仅使用消息发布");
+    }
     
     vacuum_on_ = on;
     vacuum_power_ = power;

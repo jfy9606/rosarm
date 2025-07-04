@@ -1,4 +1,4 @@
-string arm_id
+# 空请求
 ---
 bool success
 string message 

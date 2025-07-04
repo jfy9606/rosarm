@@ -103,7 +103,7 @@
   </group>
 
   <!-- 启动GUI界面 -->
-  <node pkg="arm_gui" type="arm_gui_node" name="arm_gui_node" output="screen" respawn="true">
+  <node pkg="arm_gui" type="enhanced_arm_gui_node" name="arm_gui_node" output="screen" respawn="true">
     <!-- GUI参数 -->
     <param name="update_rate" value="20" />
     <param name="use_stereo_camera" value="true" />

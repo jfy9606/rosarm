@@ -1,4 +1,4 @@
-#include "arm_gui/arm_control_gui.h"
+#include "arm_gui/enhanced_arm_gui.h"
 #include <QApplication>
 #include <ros/ros.h>
 
@@ -15,7 +15,7 @@ int main(int argc, char** argv)
     app.setStyle("Fusion");
     
     // 创建和显示主窗口
-    ArmControlGUI gui(nh);
+    EnhancedArmGUI gui(nh);
     gui.show();
     
     // 设置ROS异步处理

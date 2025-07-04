@@ -60,12 +60,14 @@ include_directories(
 set(HEADER_FILES
   include/arm_gui/arm_control_gui.h
   include/arm_gui/scene_3d_renderer.h
+  include/arm_gui/enhanced_arm_gui.h
 )
 
 # 源文件
 set(SOURCE_FILES
   src/arm_control_gui.cpp
   src/scene_3d_renderer.cpp
+  src/enhanced_arm_gui.cpp
 )
 
 # 自动处理Qt元对象
@@ -94,9 +96,22 @@ target_link_libraries(${PROJECT_NAME}
 )
 
 add_executable(${PROJECT_NAME}_node src/arm_gui_node.cpp)
+add_executable(enhanced_${PROJECT_NAME}_node src/enhanced_arm_gui_node.cpp)
 add_executable(joint_state_publisher_node src/joint_state_publisher_node.cpp)
 
 target_link_libraries(${PROJECT_NAME}_node
+  ${PROJECT_NAME}
+  ${catkin_LIBRARIES}
+  ${OpenCV_LIBRARIES}
+  ${OPENGL_LIBRARIES}
+  ${GLUT_LIBRARIES}
+  Qt5::Widgets
+  Qt5::Core
+  Qt5::Gui
+  Qt5::OpenGL
+)
+
+target_link_libraries(enhanced_${PROJECT_NAME}_node
   ${PROJECT_NAME}
   ${catkin_LIBRARIES}
   ${OpenCV_LIBRARIES}
@@ -113,7 +128,7 @@ target_link_libraries(joint_state_publisher_node
   ${catkin_LIBRARIES}
 )
 
-install(TARGETS ${PROJECT_NAME} ${PROJECT_NAME}_node joint_state_publisher_node
+install(TARGETS ${PROJECT_NAME} ${PROJECT_NAME}_node enhanced_${PROJECT_NAME}_node joint_state_publisher_node
   ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
