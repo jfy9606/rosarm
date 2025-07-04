@@ -17,6 +17,7 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QTextEdit>
+#include <unistd.h> // 用于access函数
 
 ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     : QMainWindow(parent), ui(new Ui::ArmControlMainWindow), nh_(nh),
@@ -31,6 +32,9 @@ ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     
     // 设置状态栏
     statusBar()->showMessage("机械臂控制界面初始化中...");
+    
+    // 创建占位图像 - 即使没有相机也先创建
+    createPlaceholderImage("等待摄像头连接...");
     
     // 初始化ROS
     initializeROS();
@@ -61,6 +65,7 @@ ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     
     // 设置相机重连定时器
     connect(&camera_reconnect_timer_, &QTimer::timeout, this, &ArmControlGUI::attemptCameraReconnect);
+    camera_reconnect_timer_.start(5000);  // 每5秒尝试重连相机
     
     // 设置标志
     ignore_slider_events_ = false;
@@ -70,14 +75,14 @@ ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     stereo_camera_error_count_ = 0;
     camera_view_mode_ = 0;  // 默认左视图
     
-    // 创建占位图像
-    createPlaceholderImage();
-    
     // 将界面设置为初始状态
     updateGUIJointValues();
     
     // 更新UI
     updateUI();
+    
+    // 更新相机视图（使用占位图像）
+    updateCameraView();
     
     statusBar()->showMessage("机械臂控制界面已启动");
 }
@@ -129,9 +134,20 @@ void ArmControlGUI::initializeMembers()
     ui_processing_ = false;
     arm_ready_ = false;
     
-    // 初始化末端执行器状态
-    current_end_position_ = QVector3D(0, 0, 30);  // 初始位置，单位厘米
-    current_end_orientation_ = QQuaternion(1, 0, 0, 0);  // 初始方向（单位四元数）
+    // 初始化末端执行器状态 - 确保有有效值
+    current_end_position_ = QVector3D(30.0f, 0.0f, 30.0f);  // 初始位置，单位厘米
+    current_end_orientation_ = QQuaternion(1.0f, 0.0f, 0.0f, 0.0f);  // 初始方向（单位四元数）
+    
+    // 初始化默认末端位姿
+    geometry_msgs::Pose default_pose;
+    default_pose.position.x = 0.3;  // 30cm
+    default_pose.position.y = 0.0;
+    default_pose.position.z = 0.3;  // 30cm
+    default_pose.orientation.w = 1.0;
+    default_pose.orientation.x = 0.0;
+    default_pose.orientation.y = 0.0;
+    default_pose.orientation.z = 0.0;
+    current_end_pose_ = default_pose;
     
     // 初始化真空吸盘状态
     vacuum_on_ = false;
@@ -385,10 +401,11 @@ void ArmControlGUI::updateEndEffectorPose()
         
         // 更新UI显示
         if (ui->endEffectorStatusLabel) {
-            QString posText = QString("末端位置: X=%.2f, Y=%.2f, Z=%.2f cm")
-                .arg(current_end_position_.x())
-                .arg(current_end_position_.y())
-                .arg(current_end_position_.z());
+            // 使用Qt的数字占位符格式，而不是printf风格的占位符
+            QString posText = QString("末端位置: X=%1, Y=%2, Z=%3 cm")
+                .arg(current_end_position_.x(), 0, 'f', 2)
+                .arg(current_end_position_.y(), 0, 'f', 2)
+                .arg(current_end_position_.z(), 0, 'f', 2);
             ui->endEffectorStatusLabel->setText(posText);
         }
         
@@ -487,13 +504,37 @@ geometry_msgs::Pose ArmControlGUI::forwardKinematics(const std::vector<double>& 
     if (!kinematics_utils_) {
         // Fallback if kinematics_utils_ is not initialized
         geometry_msgs::Pose default_pose;
-        default_pose.position.x = 0.0;
+        default_pose.position.x = 0.3; // 默认30cm前方
         default_pose.position.y = 0.0;
-        default_pose.position.z = 0.3;  // 30cm default height
+        default_pose.position.z = 0.3; // 默认30cm高度
         default_pose.orientation.w = 1.0;
+        default_pose.orientation.x = 0.0;
+        default_pose.orientation.y = 0.0;
+        default_pose.orientation.z = 0.0;
+        
+        // 记录警告
+        ROS_WARN("运动学工具未初始化，使用默认位姿");
+        
         return default_pose;
     }
-    return kinematics_utils_->forwardKinematics(joint_values);
+    
+    try {
+        return kinematics_utils_->forwardKinematics(joint_values);
+    } catch (const std::exception& e) {
+        // 捕获可能的异常并提供默认值
+        ROS_ERROR("正向运动学计算失败: %s", e.what());
+        
+        geometry_msgs::Pose default_pose;
+        default_pose.position.x = 0.3;
+        default_pose.position.y = 0.0;
+        default_pose.position.z = 0.3;
+        default_pose.orientation.w = 1.0;
+        default_pose.orientation.x = 0.0;
+        default_pose.orientation.y = 0.0;
+        default_pose.orientation.z = 0.0;
+        
+        return default_pose;
+    }
 }
 
 // 使用KinematicsUtils实现逆运动学计算
@@ -869,53 +910,186 @@ void ArmControlGUI::updateCameraView()
 {
     ui_processing_ = true;
     
-    // 根据当前视图模式显示相应的图像
-    QLabel* cameraView = findChild<QLabel*>("cameraView");
-    if (!cameraView) {
-        ui_processing_ = false;
-        return;
-    }
-    
-    // 根据当前视图模式选择要显示的图像
-    switch (camera_view_mode_) {
-        case 0: // 左视图
-            if (!left_camera_image_.isNull()) {
-                cameraView->setPixmap(QPixmap::fromImage(left_camera_image_).scaled(
-                    cameraView->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    try {
+        // 根据当前视图模式显示相应的图像
+        QLabel* cameraView = findChild<QLabel*>("cameraView");
+        if (!cameraView) {
+            ROS_WARN("无法找到相机视图标签组件");
+            ui_processing_ = false;
+            return;
+        }
+        
+        // 如果相机不可用，直接显示占位图像
+        if (!is_camera_available_) {
+            if (!current_camera_image_.isNull()) {
+                try {
+                    QPixmap pixmap = QPixmap::fromImage(current_camera_image_);
+                    if (!pixmap.isNull() && cameraView->width() > 0 && cameraView->height() > 0) {
+                        pixmap = pixmap.scaled(cameraView->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                        cameraView->setPixmap(pixmap);
+                    } else {
+                        // 使用备用占位图像
+                        QPixmap fallbackPixmap(cameraView->size().isValid() ? cameraView->size() : QSize(640, 480));
+                        fallbackPixmap.fill(QColor(40, 40, 40));
+                        cameraView->setPixmap(fallbackPixmap);
+                    }
+                } catch (const std::exception& e) {
+                    ROS_ERROR("处理占位图像时出错: %s", e.what());
+                }
             } else {
-                createPlaceholderImage();
-                cameraView->setPixmap(QPixmap::fromImage(current_camera_image_).scaled(
-                    cameraView->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+                // 创建默认占位图像
+                createPlaceholderImage("相机不可用");
+                // 重新调用自己来显示新创建的占位图像
+                updateCameraView();
             }
-            break;
             
-        case 1: // 右视图
-            if (!right_camera_image_.isNull()) {
-                cameraView->setPixmap(QPixmap::fromImage(right_camera_image_).scaled(
-                    cameraView->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
-            } else {
-                createPlaceholderImage();
-                cameraView->setPixmap(QPixmap::fromImage(current_camera_image_).scaled(
-                    cameraView->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            // 更新深度视图按钮状态 - 不可用
+            QPushButton* depthViewButton = findChild<QPushButton*>("depthViewButton");
+            if (depthViewButton) {
+                depthViewButton->setEnabled(false);
             }
-            break;
             
-        case 2: // 深度视图
-            if (!current_depth_image_.isNull()) {
-                cameraView->setPixmap(QPixmap::fromImage(current_depth_image_).scaled(
-                    cameraView->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
-            } else {
-                createPlaceholderImage("深度图不可用");
-                cameraView->setPixmap(QPixmap::fromImage(current_camera_image_).scaled(
-                    cameraView->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
-            }
-            break;
-    }
-    
-    // 更新深度视图按钮状态
-    QPushButton* depthViewButton = findChild<QPushButton*>("depthViewButton");
-    if (depthViewButton) {
-        depthViewButton->setEnabled(!current_depth_image_.isNull());
+            ui_processing_ = false;
+            return;
+        }
+        
+        QPixmap pixmap;
+        bool pixmapSet = false;
+        
+        // 根据当前视图模式选择要显示的图像
+        switch (camera_view_mode_) {
+            case 0: // 左视图
+                if (!left_camera_image_.isNull()) {
+                    try {
+                        pixmap = QPixmap::fromImage(left_camera_image_);
+                        if (!pixmap.isNull()) {
+                            // 确保窗口有效大小
+                            if (cameraView->width() > 0 && cameraView->height() > 0) {
+                                pixmap = pixmap.scaled(cameraView->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                            }
+                            pixmapSet = true;
+                        } else {
+                            ROS_WARN("左相机图像转换为QPixmap失败");
+                        }
+                    } catch (const std::exception& e) {
+                        ROS_ERROR("处理左相机图像时出错: %s", e.what());
+                    }
+                }
+                
+                if (!pixmapSet) {
+                    createPlaceholderImage("左相机图像不可用");
+                    if (!current_camera_image_.isNull()) {
+                        try {
+                            pixmap = QPixmap::fromImage(current_camera_image_);
+                            if (!pixmap.isNull()) {
+                                // 确保窗口有效大小
+                                if (cameraView->width() > 0 && cameraView->height() > 0) {
+                                    pixmap = pixmap.scaled(cameraView->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                                }
+                                pixmapSet = true;
+                            }
+                        } catch (const std::exception& e) {
+                            ROS_ERROR("处理占位图像时出错: %s", e.what());
+                        }
+                    }
+                }
+                break;
+                
+            case 1: // 右视图
+                if (!right_camera_image_.isNull()) {
+                    try {
+                        pixmap = QPixmap::fromImage(right_camera_image_);
+                        if (!pixmap.isNull()) {
+                            // 确保窗口有效大小
+                            if (cameraView->width() > 0 && cameraView->height() > 0) {
+                                pixmap = pixmap.scaled(cameraView->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                            }
+                            pixmapSet = true;
+                        } else {
+                            ROS_WARN("右相机图像转换为QPixmap失败");
+                        }
+                    } catch (const std::exception& e) {
+                        ROS_ERROR("处理右相机图像时出错: %s", e.what());
+                    }
+                }
+                
+                if (!pixmapSet) {
+                    createPlaceholderImage("右相机图像不可用");
+                    if (!current_camera_image_.isNull()) {
+                        try {
+                            pixmap = QPixmap::fromImage(current_camera_image_);
+                            if (!pixmap.isNull()) {
+                                // 确保窗口有效大小
+                                if (cameraView->width() > 0 && cameraView->height() > 0) {
+                                    pixmap = pixmap.scaled(cameraView->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                                }
+                                pixmapSet = true;
+                            }
+                        } catch (const std::exception& e) {
+                            ROS_ERROR("处理占位图像时出错: %s", e.what());
+                        }
+                    }
+                }
+                break;
+                
+            case 2: // 深度视图
+                if (!current_depth_image_.isNull()) {
+                    try {
+                        pixmap = QPixmap::fromImage(current_depth_image_);
+                        if (!pixmap.isNull()) {
+                            // 确保窗口有效大小
+                            if (cameraView->width() > 0 && cameraView->height() > 0) {
+                                pixmap = pixmap.scaled(cameraView->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                            }
+                            pixmapSet = true;
+                        } else {
+                            ROS_WARN("深度图像转换为QPixmap失败");
+                        }
+                    } catch (const std::exception& e) {
+                        ROS_ERROR("处理深度图像时出错: %s", e.what());
+                    }
+                }
+                
+                if (!pixmapSet) {
+                    createPlaceholderImage("深度图像不可用");
+                    if (!current_camera_image_.isNull()) {
+                        try {
+                            pixmap = QPixmap::fromImage(current_camera_image_);
+                            if (!pixmap.isNull()) {
+                                // 确保窗口有效大小
+                                if (cameraView->width() > 0 && cameraView->height() > 0) {
+                                    pixmap = pixmap.scaled(cameraView->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                                }
+                                pixmapSet = true;
+                            }
+                        } catch (const std::exception& e) {
+                            ROS_ERROR("处理占位图像时出错: %s", e.what());
+                        }
+                    }
+                }
+                break;
+        }
+        
+        // 设置图像
+        if (pixmapSet && !pixmap.isNull()) {
+            cameraView->setPixmap(pixmap);
+        } else {
+            // 如果所有图像处理都失败，使用纯色图像
+            QPixmap fallbackPixmap(cameraView->size().isValid() ? cameraView->size() : QSize(640, 480));
+            fallbackPixmap.fill(QColor(40, 40, 40));
+            cameraView->setPixmap(fallbackPixmap);
+            ROS_ERROR("所有图像处理均失败，使用纯色占位图像");
+        }
+        
+        // 更新深度视图按钮状态
+        QPushButton* depthViewButton = findChild<QPushButton*>("depthViewButton");
+        if (depthViewButton) {
+            depthViewButton->setEnabled(!current_depth_image_.isNull());
+        }
+    } catch (const std::exception& e) {
+        ROS_ERROR("更新相机视图时发生异常: %s", e.what());
+    } catch (...) {
+        ROS_ERROR("更新相机视图时发生未知异常");
     }
     
     ui_processing_ = false;
@@ -1008,85 +1182,293 @@ void ArmControlGUI::createPlaceholderImage(const std::string& message)
 
 QImage ArmControlGUI::cvMatToQImage(const cv::Mat& mat)
 {
-    // 将OpenCV的Mat转换为Qt的QImage
-    if(mat.type() == CV_8UC1) {
-        // 灰度图像
-        QImage image(mat.cols, mat.rows, QImage::Format_Grayscale8);
-        for(int i = 0; i < mat.rows; i++) {
-            memcpy(image.scanLine(i), mat.ptr(i), mat.cols);
-        }
-        return image;
-    } else if(mat.type() == CV_8UC3) {
-        // BGR颜色图像转换为RGB
-        cv::Mat rgbMat;
-        cv::cvtColor(mat, rgbMat, cv::COLOR_BGR2RGB);
-        return QImage(rgbMat.data, rgbMat.cols, rgbMat.rows, 
-                     static_cast<int>(rgbMat.step), QImage::Format_RGB888).copy();
-    } else if(mat.type() == CV_8UC4) {
-        // BGRA颜色图像
-        return QImage(mat.data, mat.cols, mat.rows, 
-                    static_cast<int>(mat.step), QImage::Format_ARGB32).copy();
+    // 增加额外的检查，避免处理空图像或非法图像
+    if(mat.empty() || mat.cols <= 0 || mat.rows <= 0) {
+        ROS_WARN("尝试转换空的或无效的图像");
+        return QImage();
     }
-    
-    // 不支持的格式，返回空图像
-    return QImage();
+
+    try {
+        // 将OpenCV的Mat转换为Qt的QImage
+        if(mat.type() == CV_8UC1) {
+            // 灰度图像
+            QImage image(mat.cols, mat.rows, QImage::Format_Grayscale8);
+            for(int i = 0; i < mat.rows; i++) {
+                if (mat.ptr(i) != nullptr) {
+                    memcpy(image.scanLine(i), mat.ptr(i), static_cast<size_t>(mat.cols));
+                } else {
+                    ROS_ERROR("空图像数据指针");
+                    return QImage();
+                }
+            }
+            return image;
+        } else if(mat.type() == CV_8UC3) {
+            // BGR颜色图像转换为RGB - 使用更安全的深拷贝方式
+            cv::Mat rgbMat;
+            try {
+                cv::cvtColor(mat, rgbMat, cv::COLOR_BGR2RGB);
+                if (rgbMat.empty() || rgbMat.data == nullptr) {
+                    ROS_ERROR("颜色转换后图像为空");
+                    return QImage();
+                }
+                
+                // 创建一个完整的拷贝，避免共享内存
+                return QImage(rgbMat.data, rgbMat.cols, rgbMat.rows, 
+                            static_cast<int>(rgbMat.step), QImage::Format_RGB888).copy();
+            } catch (const cv::Exception& e) {
+                ROS_ERROR("OpenCV转换错误: %s", e.what());
+                return QImage();
+            }
+        } else if(mat.type() == CV_8UC4) {
+            // BGRA颜色图像
+            if (mat.data == nullptr) {
+                ROS_ERROR("BGRA图像数据为空");
+                return QImage();
+            }
+            
+            // 创建一个完整的拷贝，避免共享内存
+            return QImage(mat.data, mat.cols, mat.rows, 
+                        static_cast<int>(mat.step), QImage::Format_ARGB32).copy();
+        }
+        
+        // 不支持的格式，返回空图像
+        ROS_WARN("不支持的图像格式: %d", mat.type());
+        return QImage();
+    } catch (const std::exception& e) {
+        ROS_ERROR("图像转换过程中出现异常: %s", e.what());
+        return QImage();
+    } catch (...) {
+        ROS_ERROR("图像转换过程中出现未知异常");
+        return QImage();
+    }
 }
 
-void ArmControlGUI::attemptCameraReconnect() {}
-bool ArmControlGUI::findAvailableCamera() { return false; }
+void ArmControlGUI::attemptCameraReconnect() 
+{
+    // 如果相机已经可用，不需要重连
+    if (is_camera_available_) {
+        return;
+    }
+    
+    ROS_INFO("尝试重新连接相机...");
+    
+    // 这里只需要显示更新后的状态信息，实际重连由stereo_camera_node负责
+    // 我们只需要在这里更新UI状态
+    
+    // 更新占位图像消息，告知用户我们正在尝试重连
+    static int reconnect_attempts = 0;
+    reconnect_attempts++;
+    
+    QString message = QString("相机未连接，正在尝试重连... (尝试 %1 次)").arg(reconnect_attempts);
+    createPlaceholderImage(message.toStdString());
+    
+    // 更新相机视图
+    updateCameraView();
+    
+    // 记录到状态栏
+    statusBar()->showMessage(message, 2000);
+    
+    // 检查是否有相机可用
+    if (findAvailableCamera()) {
+        ROS_INFO("找到可用相机");
+        is_camera_available_ = true;
+        reconnect_attempts = 0;
+        statusBar()->showMessage("相机已重新连接", 2000);
+    }
+}
+
+bool ArmControlGUI::findAvailableCamera()
+{
+    // 这个方法会检查相机的可用性
+    // 在ROS系统中，我们依赖于相机节点，所以这里只是检查是否收到了图像消息
+    
+    // 如果最近收到了图像，则认为相机可用
+    if (!left_camera_image_.isNull() || !right_camera_image_.isNull() || !current_depth_image_.isNull()) {
+        return true;
+    }
+    
+    // 否则，检查是否有相机设备存在
+    // 注意：这里只是简单检查设备文件，实际上并不保证相机可用
+    bool device_exists = false;
+    
+    // 检查常见的相机设备
+    std::vector<std::string> devices = {"/dev/video0", "/dev/video1", "/dev/video2"};
+    for (const auto& device : devices) {
+        if (access(device.c_str(), F_OK) != -1) {
+            ROS_INFO_THROTTLE(10, "相机设备存在: %s", device.c_str());
+            device_exists = true;
+            break;
+        }
+    }
+    
+    if (!device_exists) {
+        ROS_INFO_THROTTLE(10, "未找到相机设备，GUI将使用占位图像");
+    }
+    
+    // 即使设备不存在，我们也允许GUI继续工作，只是显示占位图像
+    return false;
+}
+
 void ArmControlGUI::stereoMergedCallback(const sensor_msgs::Image::ConstPtr& msg)
 {
+    // 检查消息是否有效
+    if (!msg) {
+        ROS_WARN("接收到空的图像消息指针");
+        return;
+    }
+
     try {
+        // 检查消息大小
+        if (msg->width == 0 || msg->height == 0 || msg->data.empty()) {
+            ROS_WARN("接收到无效尺寸的图像消息 (%dx%d)", msg->width, msg->height);
+            return;
+        }
+
+        // 检查编码格式
+        std::string encoding = msg->encoding;
+        if (encoding.empty()) {
+            encoding = sensor_msgs::image_encodings::BGR8;  // 默认假设BGR8格式
+            ROS_WARN("图像消息没有指定编码格式，假设为BGR8");
+        }
+
         // 将ROS图像消息转换为OpenCV格式
-        cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
+        cv_bridge::CvImagePtr cv_ptr;
+        try {
+            cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
+        } catch (cv_bridge::Exception& e) {
+            ROS_ERROR("CV Bridge转换错误: %s", e.what());
+            stereo_camera_error_count_++;
+            
+            // 如果错误次数过多，标记相机不可用
+            if (stereo_camera_error_count_ > 10) {
+                is_camera_available_ = false;
+                createPlaceholderImage("图像格式转换错误"); 
+            }
+            return;
+        }
+
+        // 安全检查：确保cv_ptr和cv_ptr->image有效
+        if (!cv_ptr || cv_ptr->image.empty()) {
+            ROS_WARN("CV桥接转换后图像为空");
+            stereo_camera_error_count_++;
+            if (stereo_camera_error_count_ > 10) {
+                is_camera_available_ = false;
+                createPlaceholderImage("图像转换后为空");
+            }
+            return;
+        }
+
         cv::Mat cv_image = cv_ptr->image;
         
-        if (!cv_image.empty()) {
+        if (!cv_image.empty() && cv_image.cols > 0 && cv_image.rows > 0) {
             // 保存当前图像
             current_image_ = cv_image.clone();
             
             // 根据当前视图模式决定使用哪个图像
             if (msg->header.frame_id == "stereo_left" || msg->header.frame_id == "") {
-                left_camera_image_ = cvMatToQImage(cv_image);
-                if (camera_view_mode_ == 0) {
-                    current_camera_image_ = left_camera_image_;
+                QImage qimg = cvMatToQImage(cv_image);
+                if (!qimg.isNull()) {
+                    left_camera_image_ = qimg;
+                    if (camera_view_mode_ == 0) {
+                        current_camera_image_ = left_camera_image_;
+                    }
+                } else {
+                    ROS_WARN("左相机图像转换为QImage失败");
                 }
             }
             else if (msg->header.frame_id == "stereo_right") {
-                right_camera_image_ = cvMatToQImage(cv_image);
-                if (camera_view_mode_ == 1) {
-                    current_camera_image_ = right_camera_image_;
+                QImage qimg = cvMatToQImage(cv_image);
+                if (!qimg.isNull()) {
+                    right_camera_image_ = qimg;
+                    if (camera_view_mode_ == 1) {
+                        current_camera_image_ = right_camera_image_;
+                    }
+                } else {
+                    ROS_WARN("右相机图像转换为QImage失败");
                 }
             }
             else {
                 // 通用处理，直接显示收到的图像
-                current_camera_image_ = cvMatToQImage(cv_image);
+                QImage qimg = cvMatToQImage(cv_image);
+                if (!qimg.isNull()) {
+                    current_camera_image_ = qimg;
+                } else {
+                    ROS_WARN("相机图像转换为QImage失败");
+                }
             }
             
             // 标记相机为可用
             is_camera_available_ = true;
             stereo_camera_error_count_ = 0;
+        } else {
+            ROS_WARN("接收到空图像");
+            stereo_camera_error_count_++;
+            
+            // 如果错误次数过多，标记相机不可用
+            if (stereo_camera_error_count_ > 10) {
+                is_camera_available_ = false;
+                createPlaceholderImage("接收到空图像"); 
+            }
         }
-    } catch (cv_bridge::Exception& e) {
-        ROS_ERROR("CV Bridge error: %s", e.what());
+    } catch (std::exception& e) {
+        ROS_ERROR("处理图像时发生未知错误: %s", e.what());
         stereo_camera_error_count_++;
         
         // 如果错误次数过多，标记相机不可用
         if (stereo_camera_error_count_ > 10) {
             is_camera_available_ = false;
-            createPlaceholderImage(); // 创建一个占位图像
+            createPlaceholderImage("图像处理错误"); 
+        }
+    } catch (...) {
+        ROS_ERROR("处理图像时发生未知异常");
+        stereo_camera_error_count_++;
+        
+        // 如果错误次数过多，标记相机不可用
+        if (stereo_camera_error_count_ > 10) {
+            is_camera_available_ = false;
+            createPlaceholderImage("未知图像错误");
         }
     }
 }
 
 void ArmControlGUI::depthImageCallback(const sensor_msgs::Image::ConstPtr& msg)
 {
+    // 检查消息是否有效
+    if (!msg) {
+        ROS_WARN("接收到空的深度图像消息指针");
+        return;
+    }
+
     try {
+        // 检查消息大小
+        if (msg->width == 0 || msg->height == 0 || msg->data.empty()) {
+            ROS_WARN("接收到无效尺寸的深度图像消息 (%dx%d)", msg->width, msg->height);
+            return;
+        }
+
+        cv_bridge::CvImagePtr cv_ptr;
+        
         // 根据深度图编码格式进行不同处理
         if (msg->encoding == "32FC1") {
-            // 原始深度图 - 转换为可视化格式
-            cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::TYPE_32FC1);
+            try {
+                // 原始深度图 - 转换为可视化格式
+                cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::TYPE_32FC1);
+                
+                // 安全检查：确保cv_ptr和cv_ptr->image有效
+                if (!cv_ptr || cv_ptr->image.empty()) {
+                    ROS_WARN("32FC1深度图转换后为空");
+                    return;
+                }
+            } catch (cv_bridge::Exception& e) {
+                ROS_ERROR("CV Bridge 32FC1转换错误: %s", e.what());
+                return;
+            }
+            
             cv::Mat depth_float = cv_ptr->image;
+            if (depth_float.empty() || depth_float.cols <= 0 || depth_float.rows <= 0) {
+                ROS_WARN("32FC1深度图为空或尺寸无效");
+                return;
+            }
             
             // 寻找有效深度值的范围
             double min_val = 0.1, max_val = 5.0; // 默认范围
@@ -1095,41 +1477,125 @@ void ArmControlGUI::depthImageCallback(const sensor_msgs::Image::ConstPtr& msg)
                 cv::minMaxLoc(depth_float, &min_val, &max_val, NULL, NULL, valid_mask);
                 if (min_val < 0.1) min_val = 0.1; // 避免过小值
                 if (max_val > 10.0) max_val = 10.0; // 避免过大值
+            } else {
+                ROS_WARN("深度图中没有有效深度值");
+                return;
             }
             
-            // 归一化并转换为彩色图像
-            cv::Mat depth_norm, depth_color;
-            depth_float.copyTo(depth_norm, valid_mask);
-            depth_norm = (depth_norm - min_val) / (max_val - min_val);
-            depth_norm = depth_norm * 255;
-            depth_norm.convertTo(depth_norm, CV_8UC1);
-            cv::applyColorMap(depth_norm, depth_color, cv::COLORMAP_JET);
-            
-            // 保存为Qt图像
-            current_depth_image_ = cvMatToQImage(depth_color);
+            try {
+                // 归一化并转换为彩色图像
+                cv::Mat depth_norm, depth_color;
+                
+                // 安全拷贝
+                if (!valid_mask.empty() && !depth_float.empty() && valid_mask.size() == depth_float.size()) {
+                    depth_float.copyTo(depth_norm, valid_mask);
+                } else {
+                    ROS_WARN("深度图掩码尺寸不匹配");
+                    return;
+                }
+                
+                if (!depth_norm.empty()) {
+                    depth_norm = (depth_norm - min_val) / (max_val - min_val);
+                    depth_norm = depth_norm * 255;
+                    depth_norm.convertTo(depth_norm, CV_8UC1);
+                    cv::applyColorMap(depth_norm, depth_color, cv::COLORMAP_JET);
+                    
+                    // 保存为Qt图像
+                    QImage qimg = cvMatToQImage(depth_color);
+                    if (!qimg.isNull()) {
+                        current_depth_image_ = qimg;
+                    } else {
+                        ROS_WARN("32FC1深度图转换为QImage失败");
+                        return;
+                    }
+                } else {
+                    ROS_WARN("深度图归一化后为空");
+                    return;
+                }
+            } catch (const cv::Exception& e) {
+                ROS_ERROR("32FC1深度图处理错误: %s", e.what());
+                return;
+            }
         }
         else if (msg->encoding == "16UC1") {
-            // 16位无符号整数深度图
-            cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::TYPE_16UC1);
+            try {
+                // 16位无符号整数深度图
+                cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::TYPE_16UC1);
+                
+                // 安全检查：确保cv_ptr和cv_ptr->image有效
+                if (!cv_ptr || cv_ptr->image.empty()) {
+                    ROS_WARN("16UC1深度图转换后为空");
+                    return;
+                }
+            } catch (cv_bridge::Exception& e) {
+                ROS_ERROR("CV Bridge 16UC1转换错误: %s", e.what());
+                return;
+            }
+            
             cv::Mat depth_16u = cv_ptr->image;
+            if (depth_16u.empty() || depth_16u.cols <= 0 || depth_16u.rows <= 0) {
+                ROS_WARN("16UC1深度图为空或尺寸无效");
+                return;
+            }
             
-            // 转换为可视化格式
-            cv::Mat depth_norm, depth_color;
-            double scale = 0.001; // 默认比例因子
-            depth_16u.convertTo(depth_norm, CV_8UC1, scale * 255.0 / 10.0); // 假设最大10米
-            cv::applyColorMap(depth_norm, depth_color, cv::COLORMAP_JET);
-            
-            // 保存为Qt图像
-            current_depth_image_ = cvMatToQImage(depth_color);
+            try {
+                // 转换为可视化格式
+                cv::Mat depth_norm, depth_color;
+                double scale = 0.001; // 默认比例因子
+                depth_16u.convertTo(depth_norm, CV_8UC1, scale * 255.0 / 10.0); // 假设最大10米
+                
+                if (!depth_norm.empty()) {
+                    cv::applyColorMap(depth_norm, depth_color, cv::COLORMAP_JET);
+                    
+                    // 保存为Qt图像
+                    QImage qimg = cvMatToQImage(depth_color);
+                    if (!qimg.isNull()) {
+                        current_depth_image_ = qimg;
+                    } else {
+                        ROS_WARN("16UC1深度图转换为QImage失败");
+                        return;
+                    }
+                } else {
+                    ROS_WARN("16UC1深度图归一化后为空");
+                    return;
+                }
+            } catch (const cv::Exception& e) {
+                ROS_ERROR("16UC1深度图处理错误: %s", e.what());
+                return;
+            }
         }
         else if (msg->encoding == "bgr8") {
-            // 已经是彩色深度图
-            cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
+            try {
+                // 已经是彩色深度图
+                cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
+                
+                // 安全检查：确保cv_ptr和cv_ptr->image有效
+                if (!cv_ptr || cv_ptr->image.empty()) {
+                    ROS_WARN("BGR8深度图转换后为空");
+                    return;
+                }
+            } catch (cv_bridge::Exception& e) {
+                ROS_ERROR("CV Bridge BGR8转换错误: %s", e.what());
+                return;
+            }
+            
             cv::Mat depth_color = cv_ptr->image;
-            current_depth_image_ = cvMatToQImage(depth_color);
+            if (depth_color.empty() || depth_color.cols <= 0 || depth_color.rows <= 0) {
+                ROS_WARN("BGR8深度图为空或尺寸无效");
+                return;
+            }
+            
+            // 保存为Qt图像
+            QImage qimg = cvMatToQImage(depth_color);
+            if (!qimg.isNull()) {
+                current_depth_image_ = qimg;
+            } else {
+                ROS_WARN("BGR8深度图转换为QImage失败");
+                return;
+            }
         }
         else {
-            ROS_WARN("Unsupported depth image encoding: %s", msg->encoding.c_str());
+            ROS_WARN("不支持的深度图编码格式: %s", msg->encoding.c_str());
             return;
         }
         
@@ -1137,8 +1603,10 @@ void ArmControlGUI::depthImageCallback(const sensor_msgs::Image::ConstPtr& msg)
         is_camera_available_ = true;
         stereo_camera_error_count_ = 0;
         
-    } catch (cv_bridge::Exception& e) {
-        ROS_ERROR("CV Bridge error: %s", e.what());
+    } catch (std::exception& e) {
+        ROS_ERROR("处理深度图像时发生错误: %s", e.what());
+    } catch (...) {
+        ROS_ERROR("处理深度图像时发生未知异常");
     }
 }
 void ArmControlGUI::detectionImageCallback(const sensor_msgs::Image::ConstPtr& msg) {}
