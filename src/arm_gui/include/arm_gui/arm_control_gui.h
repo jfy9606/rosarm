@@ -19,6 +19,7 @@
 #include <QTextCursor>
 #include <QRect>
 #include <QPainter>
+#include <QMessageBox>
 
 #include <ros/ros.h>
 #include <geometry_msgs/Pose.h>

@@ -253,15 +253,10 @@ void ArmControlGUI::createMissingUIElements()
             controlLayout->addWidget(rightViewButton);
         }
         
-        // 创建深度视图按钮
+        // 隐藏深度视图按钮 - 深度功能已移除
         QPushButton* depthViewButton = findChild<QPushButton*>("depthViewButton");
-        if (!depthViewButton) {
-            depthViewButton = new QPushButton("深度视图", cameraControls);
-            depthViewButton->setObjectName("depthViewButton");
-            depthViewButton->setToolTip("显示深度视图");
-            depthViewButton->setEnabled(false); // 初始禁用
-            connect(depthViewButton, &QPushButton::clicked, this, &ArmControlGUI::onDepthViewButtonClicked);
-            controlLayout->addWidget(depthViewButton);
+        if (depthViewButton) {
+            depthViewButton->hide(); // 隐藏按钮
         }
         
         // 查找cameraLayout并添加控制面板
@@ -1131,10 +1126,11 @@ void ArmControlGUI::initializeGUI()
         ROS_WARN("rightViewButton not found in UI");
     }
     
+    // 隐藏或禁用深度视图按钮 - 深度功能已移除
     QPushButton* depthViewButton = findChild<QPushButton*>("depthViewButton");
     if (depthViewButton) {
-        depthViewButton->setToolTip("显示深度视图");
-        depthViewButton->setEnabled(false); // 初始禁用，等待深度图可用时启用
+        depthViewButton->hide(); // 隐藏按钮
+        // 保持连接以显示提示信息
         connect(depthViewButton, &QPushButton::clicked, this, &ArmControlGUI::onDepthViewButtonClicked);
     } else {
         ROS_WARN("depthViewButton not found in UI");
@@ -1921,41 +1917,6 @@ void ArmControlGUI::onRightViewButtonClicked()
 void ArmControlGUI::on_rightViewButton_clicked()
 {
     onRightViewButtonClicked();
-}
-
-// 实现深度视图切换按钮槽函数
-void ArmControlGUI::onDepthViewButtonClicked()
-{
-    camera_view_mode_ = 2;  // 设置为深度视图模式
-    ROS_INFO("切换到深度视图");
-    
-    // 更新按钮状态
-    QList<QPushButton*> viewButtons = {
-        findChild<QPushButton*>("leftViewButton"),
-        findChild<QPushButton*>("rightViewButton"),
-        findChild<QPushButton*>("depthViewButton")
-    };
-    
-    for (auto btn : viewButtons) {
-        if (btn) {
-            QString name = btn->objectName();
-            if (name == "depthViewButton") {
-                btn->setStyleSheet("QPushButton { background-color: #4CAF50; color: white; }");
-            } else {
-                btn->setStyleSheet("");
-            }
-        }
-    }
-    
-    // 发布相机视图模式
-    std_msgs::Int32 mode_msg;
-    mode_msg.data = camera_view_mode_;
-    if (camera_view_mode_pub_) {
-        camera_view_mode_pub_.publish(mode_msg);
-    }
-    
-    // 更新显示
-    updateCameraView();
 }
 
 void ArmControlGUI::on_depthViewButton_clicked()
