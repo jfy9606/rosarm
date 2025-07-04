@@ -163,7 +163,7 @@ class StereoCameraNode:
             self.stereo_processor_right = None
             self.wls_filter = None
 
-        def open_camera(self):
+    def open_camera(self):
         # 如果使用模拟相机模式，则不需要真实相机
         if self.use_mock_camera:
             rospy.loginfo("使用模拟相机模式，跳过真实相机初始化")
@@ -382,7 +382,7 @@ class StereoCameraNode:
             self.is_reconnecting = True
             return False
     
-        def get_current_view(self, left_image, right_image):
+    def get_current_view(self, left_image, right_image):
         # 如果任一图像为空，创建占位图像
         if left_image is None or right_image is None:
             return self.create_placeholder_image("等待摄像头连接...", 640, 480)
@@ -433,7 +433,7 @@ class StereoCameraNode:
             rospy.logerr(f"获取当前视图错误: {e}")
             return self.create_placeholder_image("视图处理错误", 640, 480)
 
-        def compute_depth_map(self, left_image, right_image):
+    def compute_depth_map(self, left_image, right_image):
         if not self.use_depth or not HAVE_XIMGPROC or self.stereo_processor is None:
             return None
             
@@ -484,7 +484,7 @@ class StereoCameraNode:
             rospy.logerr(f"深度图计算错误: {e}")
             return None
     
-        def create_colored_depth_map(self, depth_map):
+    def create_colored_depth_map(self, depth_map):
         try:
             # 归一化深度图
             if depth_map.dtype != np.float32:
@@ -562,7 +562,7 @@ class StereoCameraNode:
         except Exception as e:
             rospy.logerr(f"图像转换错误: {e}")
 
-        def publish_loop(self):
+    def publish_loop(self):
         rate = rospy.Rate(self.frame_rate)
         placeholder_image = self.create_placeholder_image("等待相机连接...", 640, 480)
         
@@ -823,7 +823,7 @@ class StereoCameraNode:
             
             rate.sleep()
 
-        def create_placeholder_image(self, text, width=640, height=480):
+    def create_placeholder_image(self, text, width=640, height=480):
         placeholder = np.zeros((height, width, 3), dtype=np.uint8)
         font = cv2.FONT_HERSHEY_SIMPLEX
         font_scale = 1.0
