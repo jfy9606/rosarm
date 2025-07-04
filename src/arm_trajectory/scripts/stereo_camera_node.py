@@ -219,67 +219,62 @@ class StereoCameraNode:
                 self.camera_focal_length = 3.6  # 焦距（毫米）
                 
                 # 尝试多个相机设备
-                devices_to_try = ["/dev/video0", "/dev/video1", "/dev/video2", 0, 1, 2]
+                devices_to_try = ["/dev/video0", "/dev/video1", "/dev/video2"]
                 
                 for device in devices_to_try:
                     rospy.loginfo(f"尝试打开相机设备: {device}")
                     
                     # 尝试直接打开相机
                     try:
-                        # 使用超时设置打开相机
-                        self.camera = cv2.VideoCapture(device)
+                        # 使用超时设置打开相机，明确指定V4L2后端
+                        self.camera = cv2.VideoCapture(device, cv2.CAP_V4L2)
                         
                         # 检查相机是否成功打开
                         if not self.camera.isOpened():
                             rospy.logwarn(f"无法打开相机设备: {device}")
                             continue
-                    
-                    # 设置相机参数
-                        self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
                         
-                        # 设置格式 - MJPEG (YUYV/YUY2格式在Linux下可能需要特殊处理)
+                        # 重要：首先设置FOURCC（格式），然后再设置其他参数
                         if camera_format == 'MJPEG':
-                            mjpg_fourcc = int(0x47504A4D)  # MJPG的fourcc代码
+                            mjpg_fourcc = cv2.VideoWriter.fourcc('M','J','P','G')  # 使用推荐的方式设置MJPG
                             self.camera.set(cv2.CAP_PROP_FOURCC, mjpg_fourcc)
                         else:
-                            yuyv_fourcc = int(0x32595559)  # YUY2的fourcc代码
+                            yuyv_fourcc = cv2.VideoWriter.fourcc('Y','U','Y','V')  # 使用推荐的方式设置YUY2
                             self.camera.set(cv2.CAP_PROP_FOURCC, yuyv_fourcc)
+
+                        # 设置相机缓冲区大小
+                        self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
                         
                         # 设置分辨率 - 根据参数设置
                         self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, camera_width)
                         self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, camera_height)
                         self.camera.set(cv2.CAP_PROP_FPS, self.frame_rate)
                         
-                        # 尝试在超时前读取几帧
-                        for attempt in range(5):  # 增加到5次尝试
+                        # 添加额外的诊断信息
+                        current_fourcc = int(self.camera.get(cv2.CAP_PROP_FOURCC))
+                        current_fourcc_str = "".join([chr((current_fourcc >> 8 * i) & 0xFF) for i in range(4)])
+                        rospy.loginfo(f"相机格式: {current_fourcc_str}")
+                        rospy.loginfo(f"相机分辨率: {self.camera.get(cv2.CAP_PROP_FRAME_WIDTH)}x{self.camera.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
+                        rospy.loginfo(f"相机帧率: {self.camera.get(cv2.CAP_PROP_FPS)}")
+                        
+                        # 给相机一些时间初始化
+                        time_module.sleep(2.0)  # 等待2秒，让相机完全初始化
+                        
+                        # 尝试读取测试帧
+                        for attempt in range(5):  # 最多尝试5次
                             try:
-                                # 设置读取超时
-                                try:
-                                    start_time = time_module.time()
-                                    ret, test_frame = self.camera.read()
-                                    end_time = time_module.time()
-                                    elapsed = end_time - start_time
-                                except Exception as e:
-                                    rospy.logwarn(f"读取帧时时间计算错误: {e}")
-                                    # 如果无法获取时间，继续尝试读取帧
-                                    ret, test_frame = self.camera.read()
-                                    elapsed = 0  # 设置一个默认值
+                                start_time = time_module.time()
+                                ret, test_frame = self.camera.read()
+                                end_time = time_module.time()
+                                elapsed = end_time - start_time
                                 
                                 # 记录读取耗时
                                 rospy.loginfo(f"相机读取耗时: {elapsed:.3f}秒")
                                 
-                                # 如果读取超时，可能是相机驱动问题
-                                if elapsed > 5.0:  # 如果读取耗时超过5秒
-                                    rospy.logwarn(f"相机读取超时 ({elapsed:.1f}秒)")
-                                
+                                # 检查是否成功读取帧
                                 if ret and test_frame is not None and test_frame.size > 0:
                                     height, width = test_frame.shape[:2]
                                     rospy.loginfo(f"相机已成功打开，设备: {device}, 分辨率: {width}x{height}, 帧率: {self.frame_rate}")
-                                    
-                                    # 检查实际获取的分辨率是否符合预期
-                                    if abs(width - camera_width) > 10 or abs(height - camera_height) > 10:
-                                        rospy.logwarn(f"警告：实际相机分辨率 ({width}x{height}) 与请求的 ({camera_width}x{camera_height}) 不匹配")
-                                        rospy.logwarn("这可能会影响深度计算精度，请检查相机支持的分辨率")
                                     
                                     # 相机参数记录，用于深度计算
                                     self.image_width = width
@@ -292,16 +287,10 @@ class StereoCameraNode:
                                 else:
                                     # 如果读取失败，等待后重试
                                     rospy.logwarn(f"读取测试帧失败，尝试 {attempt+1}/5")
-                                    try:
-                                        time_module.sleep(1.0)  # 增加等待时间到1秒
-                                    except Exception as e:
-                                        rospy.logwarn(f"休眠时出错: {e}")
+                                    time_module.sleep(1.0)
                             except Exception as e:
                                 rospy.logwarn(f"读取测试帧异常: {e}")
-                                try:
-                                    time_module.sleep(1.0)
-                                except Exception as e2:
-                                    rospy.logwarn(f"休眠时出错: {e2}")
+                                time_module.sleep(1.0)
                         
                         # 如果所有尝试都失败，释放相机
                         rospy.logerr(f"相机设备 {device} 打开成功但无法读取图像")
@@ -315,8 +304,7 @@ class StereoCameraNode:
                                 # 尝试使用GStreamer管道
                                 rospy.loginfo(f"尝试使用GStreamer打开设备: {device}")
                                 if isinstance(device, str) and device.startswith("/dev/video"):
-                                    device_num = device.replace("/dev/video", "")
-                                    # 为HBVCAM相机设置特殊的GStreamer管道
+                                    # 为相机设置特殊的GStreamer管道
                                     if camera_format == 'MJPEG':
                                         gst_str = f"v4l2src device={device} ! image/jpeg,width={camera_width},height={camera_height},framerate={self.frame_rate}/1 ! jpegdec ! videoconvert ! appsink"
                                     else:  # YUY2
@@ -324,16 +312,40 @@ class StereoCameraNode:
                                     
                                     rospy.loginfo(f"使用GStreamer管道: {gst_str}")
                                     self.camera = cv2.VideoCapture(gst_str, cv2.CAP_GSTREAMER)
+                                    
+                                    # 等待GStreamer初始化
+                                    time_module.sleep(2.0)
+                                    
                                     if self.camera.isOpened():
-                                        # 读取一帧测试相机是否正常工作
-                                        ret, test_frame = self.camera.read()
-                                        if ret and test_frame is not None and test_frame.size > 0:
-                                            height, width = test_frame.shape[:2]
-                                            rospy.loginfo(f"使用GStreamer成功打开相机，设备: {device}, 分辨率: {width}x{height}")
-                                            self.is_running = True
-                                            self.is_reconnecting = False
-                                            self.frame_count_fail = 0
-                                            return True
+                                        # 添加GStreamer状态诊断信息
+                                        current_fourcc = int(self.camera.get(cv2.CAP_PROP_FOURCC))
+                                        current_fourcc_str = "".join([chr((current_fourcc >> 8 * i) & 0xFF) for i in range(4)])
+                                        rospy.loginfo(f"GStreamer相机格式: {current_fourcc_str}")
+                                        rospy.loginfo(f"GStreamer相机分辨率: {self.camera.get(cv2.CAP_PROP_FRAME_WIDTH)}x{self.camera.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
+                                        
+                                        # 读取多帧测试相机是否正常工作
+                                        success = False
+                                        for i in range(5):  # 尝试多次读取
+                                            ret, test_frame = self.camera.read()
+                                            if ret and test_frame is not None and test_frame.size > 0:
+                                                height, width = test_frame.shape[:2]
+                                                rospy.loginfo(f"使用GStreamer成功打开相机，设备: {device}, 分辨率: {width}x{height}")
+                                                self.is_running = True
+                                                self.is_reconnecting = False
+                                                self.frame_count_fail = 0
+                                                self.image_width = width
+                                                self.image_height = height
+                                                success = True
+                                                return True
+                                            else:
+                                                rospy.logwarn(f"GStreamer读取测试帧失败，尝试 {i+1}/5")
+                                                time_module.sleep(1.0)
+                                        
+                                        if not success:
+                                            rospy.logwarn("GStreamer无法读取有效帧")
+                                            if self.camera:
+                                                self.camera.release()
+                                                self.camera = None
                         except Exception as e:
                             rospy.logwarn(f"GStreamer尝试失败: {e}")
                             if self.camera and self.camera.isOpened():
@@ -687,14 +699,39 @@ class StereoCameraNode:
                     # 读取帧，添加超时检测
                     try:
                         start_time = time_module.time()
+                        # 在读取前，确认相机还处于打开状态
+                        if not self.camera.isOpened():
+                            rospy.logwarn("相机已关闭，尝试重新打开")
+                            self.camera.release()
+                            self.camera = None
+                            self.is_reconnecting = True
+                            self.open_camera()
+                            self.publish_placeholder_images(placeholder_image)
+                            rate.sleep()
+                            continue
+                            
+                        # 先清除缓冲区（对某些驱动可能有帮助）
+                        for _ in range(2):  # 丢弃可能滞留的帧
+                            self.camera.grab()
+                            
                         success, frame = self.camera.read()
                         end_time = time_module.time()
                         elapsed = end_time - start_time
+                        
+                        # 如果读取超时，重试一次
+                        if elapsed > 1.0:
+                            rospy.logwarn(f"相机读取超时 ({elapsed:.3f}秒)，尝试重新读取")
+                            success, frame = self.camera.read()  # 再次尝试
                     except Exception as e:
-                        rospy.logwarn(f"读取帧时间计算错误: {e}")
-                        # 如果无法获取时间，继续尝试读取帧
-                        success, frame = self.camera.read()
-                        elapsed = 0  # 设置一个默认值
+                        rospy.logwarn(f"读取帧时出错: {e}")
+                        # 如果无法获取时间或读取失败，继续尝试读取帧
+                        try:
+                            success, frame = self.camera.read()
+                            elapsed = 0  # 设置一个默认值
+                        except Exception as e2:
+                            rospy.logwarn(f"重新读取帧失败: {e2}")
+                            success = False
+                            frame = None
                     # 定期输出诊断信息
                     try:
                         current_time = time_module.time()
