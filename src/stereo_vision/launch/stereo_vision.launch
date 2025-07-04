@@ -10,6 +10,7 @@
   <arg name="initial_view_mode" default="0" /> <!-- 0=left, 1=right, 2=depth -->
   <arg name="with_trajectory_planner" default="true" />
   <arg name="with_arm_controller" default="true" />
+  <arg name="with_path_planner" default="true" />
   <arg name="start_rviz" default="false" doc="是否启动RViz可视化" />
 
   <!-- 设置参数服务器 -->
@@ -50,9 +51,19 @@
   <node pkg="tf2_ros" type="static_transform_publisher" name="camera_link_broadcaster"
         args="0.4 0 0.8 0 0.35 0 world camera_link" />
   
+  <!-- 启动路径规划节点 -->
+  <group if="$(arg with_path_planner)">
+    <node pkg="arm_trajectory" type="path_planner.py" name="path_planner_node" output="screen">
+      <param name="arm_config" value="$(find arm_trajectory)/config/arm_params.yaml" />
+      <param name="use_whale_optimizer" value="true" />
+    </node>
+  </group>
+  
   <!-- 启动轨迹规划节点 -->
   <group if="$(arg with_trajectory_planner)">
-    <node pkg="arm_trajectory" type="trajectory_bridge_node.py" name="arm_trajectory_bridge_gui" output="screen" />
+    <node pkg="arm_trajectory" type="trajectory_bridge_node.py" name="arm_trajectory_bridge_gui" output="screen">
+      <param name="use_whale_optimizer" value="true" />
+    </node>
   </group>
   
   <!-- 启动关节状态发布器 -->

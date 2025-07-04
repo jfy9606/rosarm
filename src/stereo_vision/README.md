@@ -22,7 +22,7 @@
 ### 启动系统
 
 ```bash
-roslaunch stereo_vision integrated_arm_vision.launch
+roslaunch stereo_vision stereo_vision.launch
 ```
 
 ### 启动参数
