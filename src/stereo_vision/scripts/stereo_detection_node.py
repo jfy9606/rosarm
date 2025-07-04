@@ -171,10 +171,20 @@ class StereoDetectionNode:
             try:
                 mode = int(msg.frame_id)
                 if 0 <= mode <= 2:
-                    self.view_mode = mode
-                    rospy.loginfo(f"Changed view mode to {mode} (0=left, 1=right, 2=depth)")
+                    # 只在模式实际变化时记录日志
+                    if self.view_mode != mode:
+                        old_mode = self.view_mode
+                        self.view_mode = mode
+                        mode_names = {0: "左视图", 1: "右视图", 2: "深度视图"}
+                        rospy.loginfo(f"视图模式切换: {mode_names.get(old_mode, '未知')} -> {mode_names.get(mode, '未知')}")
+                        
+                        # 强制刷新视图
+                        if self.left_image is not None and self.right_image is not None:
+                            self.process_stereo_pair(self.left_image, self.right_image)
+                else:
+                    rospy.logwarn(f"收到无效的视图模式: {mode}，应为0(左), 1(右), 或2(深度)")
             except ValueError:
-                rospy.logwarn(f"Invalid view mode: {msg.frame_id}")
+                rospy.logwarn(f"无法解析视图模式: {msg.frame_id}")
     
     def left_callback(self, msg):
         try:

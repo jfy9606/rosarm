@@ -76,6 +76,7 @@ catkin_install_python(PROGRAMS
   scripts/camera_config.py
   scripts/view_mode_switcher.py
   scripts/switch_view.py
+  scripts/test_depth_view.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

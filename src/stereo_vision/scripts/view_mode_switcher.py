@@ -36,20 +36,32 @@ class ViewModeSwitcher:
             self.service = rospy.Service('/stereo_vision/switch_view', SetViewMode, self.handle_switch_view)
             rospy.loginfo("View mode switching service started at /stereo_vision/switch_view")
         
-        # 添加辅助转发以确保视图正确显示
-        self.image_pub = rospy.Publisher('/detections/image', Header, queue_size=10)
+        # 初始化日志控制
+        self.last_log_time = rospy.Time.now()
+        self.log_interval = rospy.Duration(5.0)  # 5秒内不重复输出相同的日志
         
         rospy.loginfo(f"View mode switcher initialized with mode {self.current_mode} (0=left, 1=right, 2=depth)")
-        self.publish_current_mode()
+        
+        # 立即发布当前模式几次，确保其他节点能收到
+        for _ in range(3):
+            self.publish_current_mode(force=True)
+            rospy.sleep(0.5)
     
     def handle_switch_view(self, req):
         """Handle request to switch view mode"""
         if 0 <= req.view_mode <= 2:
             # 检查是否切换到了新的模式
             if self.current_mode != req.view_mode:
+                old_mode = self.current_mode
                 self.current_mode = req.view_mode
-                rospy.loginfo(f"Switched to view mode {self.current_mode} (0=left, 1=right, 2=depth)")
-                self.publish_current_mode()
+                rospy.loginfo(f"Switched from mode {old_mode} to mode {self.current_mode} (0=left, 1=right, 2=depth)")
+                
+                # 切换模式时多发布几次，确保接收方能收到
+                for _ in range(5):
+                    self.publish_current_mode(force=True)
+                    rospy.sleep(0.1)
+            else:
+                rospy.loginfo(f"Already in mode {self.current_mode}, no change needed")
             
             response = SetViewModeResponse()
             response.success = True
@@ -61,7 +73,7 @@ class ViewModeSwitcher:
             response.message = "Invalid view mode. Use 0 (left), 1 (right), or 2 (depth)"
             return response
     
-    def publish_current_mode(self):
+    def publish_current_mode(self, force=False):
         """Publish current view mode"""
         header = Header()
         header.stamp = rospy.Time.now()
@@ -69,28 +81,36 @@ class ViewModeSwitcher:
         header.frame_id = str(self.current_mode)
         self.view_mode_pub.publish(header)
         
-        # 记录当前模式的描述
-        mode_descriptions = {
-            0: "左摄像头",
-            1: "右摄像头",
-            2: "深度视图"
-        }
-        rospy.loginfo(f"当前视图模式: {mode_descriptions.get(self.current_mode, '未知')}")
+        # 控制日志输出频率，只有强制输出或达到时间间隔时才输出
+        current_time = rospy.Time.now()
+        if force or (current_time - self.last_log_time) > self.log_interval:
+            mode_descriptions = {
+                0: "左摄像头",
+                1: "右摄像头",
+                2: "深度视图"
+            }
+            rospy.logdebug(f"当前视图模式: {mode_descriptions.get(self.current_mode, '未知')}")
+            self.last_log_time = current_time
     
     def run(self):
         """Run the node"""
-        rate = rospy.Rate(1)  # 1 Hz
+        rate = rospy.Rate(2)  # 2 Hz, 增加频率以确保可靠切换
         last_published_mode = self.current_mode
-        rospy.loginfo(f"Starting view mode: {self.current_mode} (0=left, 1=right, 2=depth)")
+        rospy.loginfo(f"Starting view mode switcher with mode {self.current_mode} (0=left, 1=right, 2=depth)")
         
         while not rospy.is_shutdown():
             # 只在模式变化时输出日志
             if self.current_mode != last_published_mode:
                 rospy.loginfo(f"View mode changed to: {self.current_mode} (0=left, 1=right, 2=depth)")
                 last_published_mode = self.current_mode
+                # 模式变化时多发布几次，确保可靠切换
+                for _ in range(3):
+                    self.publish_current_mode(force=True)
+                    rospy.sleep(0.1)
+            else:
+                # 正常运行时静默发布
+                self.publish_current_mode(force=False)
             
-            # 周期性发布当前模式
-            self.publish_current_mode()
             rate.sleep()
 
 if __name__ == '__main__':
