@@ -190,8 +190,18 @@ private:
     void attemptCameraReconnect();
     bool findAvailableCamera();
     
+    // 增强的相机功能
+    void drawDetectionBoxes(QImage& image, const std::vector<DetectedObject>& objects);
+    void estimateObjectDistances(const std::vector<DetectedObject>& objects, const cv::Mat& depth_map);
+    cv::Mat createColoredDepthMap(const cv::Mat& depth_map);
+    void showObjectDistanceOverlay(QImage& image, const std::vector<DetectedObject>& objects);
+    
     // Helper functions
     QImage cvMatToQImage(const cv::Mat& mat);
+    cv::Mat qImageToCvMat(const QImage& image);
+    QImage overlayText(const QImage& image, const QString& text, const QPoint& position, 
+                     const QColor& color = Qt::white, int fontSize = 12);
+    
     // Helper functions that use arm_trajectory services
     std::vector<double> poseToJoints(const geometry_msgs::Pose& pose);
     geometry_msgs::Pose jointsToPos(const std::vector<double>& joint_values);
@@ -299,6 +309,11 @@ private:
     QImage current_camera_image_;
     QImage current_depth_image_;
     QImage detection_image_;
+    cv::Mat current_depth_map_;      // 原始深度图数据，用于距离计算
+    bool depth_available_;           // 深度数据是否可用
+    bool show_detection_boxes_;      // 是否显示检测框
+    bool show_distance_overlay_;     // 是否显示距离信息
+    std::string current_detection_model_;  // 当前使用的模型名称
     
     // Camera state
     QMatrix4x4 camera_intrinsic_;
