@@ -7,9 +7,7 @@ import os
 from ultralytics import YOLO
 from cv_bridge import CvBridge
 from sensor_msgs.msg import Image, CameraInfo
-from stereo_vision.msg import ObjectDetection
-from geometry_msgs.msg import PoseArray, Pose
-from std_msgs.msg import Header, Bool
+from std_msgs.msg import Header
 import tf2_ros
 import geometry_msgs.msg
 from camera_config import (left_camera_matrix, left_distortion,
@@ -29,6 +27,26 @@ except ImportError:
     rospy.logwarn("cv2.ximgproc not available, advanced disparity filtering disabled")
     HAVE_XIMGPROC = False
 
+# 尝试导入ObjectDetection消息
+try:
+    from stereo_vision.msg import ObjectDetection
+except ImportError:
+    rospy.logerr("Failed to import ObjectDetection message")
+    # 创建一个占位符类，防止代码崩溃
+    class ObjectDetection:
+        def __init__(self):
+            self.header = Header()
+            self.class_name = ""
+            self.confidence = 0.0
+            self.x_min = 0.0
+            self.y_min = 0.0
+            self.x_max = 0.0
+            self.y_max = 0.0
+            self.x_3d = 0.0
+            self.y_3d = 0.0
+            self.z_3d = 0.0
+            self.distance = 0.0
+
 class StereoDetectionNode:
     def __init__(self):
         rospy.init_node('stereo_detection_node', anonymous=True)
@@ -37,14 +55,9 @@ class StereoDetectionNode:
         model_path = rospy.get_param('~yolo_model_path', 'yolo11n.pt')
         auto_download = rospy.get_param('~auto_download', True)
         
-        # 检查是否启用深度视图
-        self.use_depth = True
-        if not HAVE_XIMGPROC:
-            rospy.logwarn("cv2.ximgproc 不可用，深度视图可能无法正常工作")
-        
         try:
             # 检查模型文件是否存在
-            if os.path.exists(str(model_path)):
+            if os.path.exists(model_path):
                 rospy.loginfo(f"正在加载本地YOLO模型: {model_path}")
                 self.model = YOLO(model_path)
                 rospy.loginfo(f"Successfully loaded YOLO model: {model_path}")
@@ -84,9 +97,11 @@ class StereoDetectionNode:
         # Initialize OpenCV bridge
         self.bridge = CvBridge()
         
-        # SGBM parameters for stereo matching
+        # SGBM parameters for stereo matching - 用于测量距离
         blockSize = 8
         img_channels = 3
+        
+        # 使用正确的创建方法
         self.stereo = cv2.StereoSGBM_create(
             minDisparity=1,
             numDisparities=64,
@@ -100,7 +115,7 @@ class StereoDetectionNode:
             speckleRange=100,
             mode=cv2.STEREO_SGBM_MODE_HH)
         
-        # 如果ximgproc可用，创建WLS滤波器用于优化深度图
+        # 如果ximgproc可用，创建WLS滤波器用于优化距离测量
         self.right_matcher = None
         self.wls_filter = None
         if HAVE_XIMGPROC:
@@ -120,22 +135,21 @@ class StereoDetectionNode:
             self.wls_filter = cv2.ximgproc.createDisparityWLSFilter(self.stereo)
             self.wls_filter.setLambda(8000.0)
             self.wls_filter.setSigmaColor(1.5)
-            rospy.loginfo("WLS filter created for enhanced depth processing")
+            rospy.loginfo("WLS filter created for enhanced distance measurement")
         
         # Initialize transform broadcaster
         self.tf_broadcaster = tf2_ros.TransformBroadcaster()
         
         # Publishers
         self.detection_pub = rospy.Publisher('stereo_detections', ObjectDetection, queue_size=10)
-        self.depth_image_pub = rospy.Publisher('depth_image', Image, queue_size=10)
         self.result_image_pub = rospy.Publisher('detection_image', Image, queue_size=10)
-        self.pose_array_pub = rospy.Publisher('detected_poses', PoseArray, queue_size=10)
+        self.pose_array_pub = rospy.Publisher('detected_poses', geometry_msgs.msg.PoseArray, queue_size=10)
         self.left_image_pub = rospy.Publisher('left_image', Image, queue_size=10)
         self.right_image_pub = rospy.Publisher('right_image', Image, queue_size=10)
         
         # GUI compatible publishers
         self.gui_detection_pub = rospy.Publisher('/detections/image', Image, queue_size=10)
-        self.gui_poses_pub = rospy.Publisher('/detections/poses', PoseArray, queue_size=10)
+        self.gui_poses_pub = rospy.Publisher('/detections/poses', geometry_msgs.msg.PoseArray, queue_size=10)
         
         # Set camera parameters
         self.camera_info = CameraInfo()
@@ -146,7 +160,7 @@ class StereoDetectionNode:
         self.camera_info.width = size[0]
         self.camera_info.height = size[1]
         
-        # Current view mode (0=left, 1=right, 2=depth)
+        # Current view mode (0=left, 1=right)
         self.view_mode = 0
         
         # Subscribe to stereo camera input
@@ -170,19 +184,19 @@ class StereoDetectionNode:
         if hasattr(msg, 'frame_id') and msg.frame_id:
             try:
                 mode = int(msg.frame_id)
-                if 0 <= mode <= 2:
+                if 0 <= mode <= 1:  # 只有左右两种视图
                     # 只在模式实际变化时记录日志
                     if self.view_mode != mode:
                         old_mode = self.view_mode
                         self.view_mode = mode
-                        mode_names = {0: "左视图", 1: "右视图", 2: "深度视图"}
+                        mode_names = {0: "左视图", 1: "右视图"}
                         rospy.loginfo(f"视图模式切换: {mode_names.get(old_mode, '未知')} -> {mode_names.get(mode, '未知')}")
                         
                         # 强制刷新视图
                         if self.left_image is not None and self.right_image is not None:
                             self.process_stereo_pair(self.left_image, self.right_image)
                 else:
-                    rospy.logwarn(f"收到无效的视图模式: {mode}，应为0(左), 1(右), 或2(深度)")
+                    rospy.logwarn(f"收到无效的视图模式: {mode}，应为0(左)或1(右)")
             except ValueError:
                 rospy.logwarn(f"无法解析视图模式: {msg.frame_id}")
     
@@ -266,8 +280,8 @@ class StereoDetectionNode:
             except Exception as e:
                 rospy.logerr(f"发布原始图像时出错: {str(e)}")
             
-            # 创建深度图
-            disp_color = None
+            # 计算视差图（用于测量距离，但不显示）
+            points_3d = None
             try:
                 # Convert to grayscale for stereo matching
                 imgL_gray = cv2.cvtColor(left_img, cv2.COLOR_BGR2GRAY)
@@ -280,177 +294,143 @@ class StereoDetectionNode:
                 # Compute disparity
                 disparity = self.stereo.compute(img1_rectified, img2_rectified)
                 
-                # 使用WLS滤波器优化深度图（如果可用）
+                # 使用WLS滤波器优化视差图（如果可用）
                 disp_filtered = disparity
                 if HAVE_XIMGPROC and self.right_matcher and self.wls_filter:
                     try:
                         right_disparity = self.right_matcher.compute(img2_rectified, img1_rectified)
-                        right_disparity = np.int16(right_disparity)
-                        disparity = np.int16(disparity)
-                        disp_filtered = self.wls_filter.filter(disparity, img1_rectified, None, right_disparity)
+                        # 转换为正确的类型
+                        filtered_disp = self.wls_filter.filter(disparity, img1_rectified, disparity_map_right=right_disparity)
+                        if filtered_disp is not None:
+                            disp_filtered = filtered_disp
                     except Exception as e:
                         rospy.logwarn(f"WLS滤波器处理失败: {str(e)}")
-                
-                # Convert to depth map
-                disp_normalized = cv2.normalize(disp_filtered, None, 0, 255, cv2.NORM_MINMAX, cv2.CV_8U)
-                disp_color = cv2.applyColorMap(disp_normalized, cv2.COLORMAP_JET)
-                
-                # 给深度图添加伪彩色指示条
-                height, width = disp_color.shape[:2]
-                scale_height = 30
-                scale_width = width
-                scale = np.zeros((scale_height, scale_width, 3), dtype=np.uint8)
-                for i in range(scale_width):
-                    value = int(i * 255 / scale_width)
-                    color = cv2.applyColorMap(np.array([[value]], dtype=np.uint8), cv2.COLORMAP_JET)[0, 0]
-                    scale[:, i] = color
-                
-                # 在色条上添加近/远文本标签
-                cv2.putText(scale, "近", (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-                cv2.putText(scale, "远", (width - 40, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-                
-                # 将色条添加到深度图底部
-                disp_with_scale = np.vstack([disp_color, scale])
-                
-                # 发布深度图
-                depth_msg = self.bridge.cv2_to_imgmsg(disp_color, "bgr8")
-                self.depth_image_pub.publish(depth_msg)
                 
                 # Reproject to 3D
                 points_3d = cv2.reprojectImageTo3D(disp_filtered, Q, handleMissingValues=True) * 16
             except Exception as e:
                 rospy.logerr(f"计算深度图时出错: {str(e)}")
-                # 创建一个空的深度图
-                disp_color = np.zeros_like(left_img)
-                disp_with_scale = disp_color
-                depth_msg = self.bridge.cv2_to_imgmsg(disp_color, "bgr8")
-                self.depth_image_pub.publish(depth_msg)
+                # 创建一个空的3D点云
                 points_3d = np.zeros((left_img.shape[0], left_img.shape[1], 3), dtype=np.float32)
             
-            # 基于当前视图模式进行物体检测和标注
+            # 物体检测和距离测量
             annotated_left = None
             annotated_right = None
             
-            # 在左右视图中进行物体检测和标注
-            if self.view_mode == 0 or self.view_mode == 1:  # 左视图或右视图
-                # 基于当前模式选择要处理的图像
-                detection_img = left_img if self.view_mode == 0 else right_img
-                
-                if self.model:
-                    try:
-                        # 在当前视图上运行YOLO检测
-                        results = self.model(detection_img, imgsz=640, conf=0.5)
+            # 基于当前模式选择要处理的图像
+            detection_img = left_img if self.view_mode == 0 else right_img
+            
+            if self.model:
+                try:
+                    # 在当前视图上运行YOLO检测
+                    results = self.model(detection_img, imgsz=640, conf=0.5)
+                    
+                    # 处理左视图的标注
+                    annotated_left = left_img.copy()
+                    if self.view_mode == 0:  # 如果在左视图模式下，使用plot好的图像
+                        annotated_left = results[0].plot()
+                    
+                    # 处理右视图的标注
+                    annotated_right = right_img.copy()
+                    
+                    # 标注检测到的所有物体
+                    for box in results[0].boxes:
+                        # 获取框坐标
+                        x1, y1, x2, y2 = map(int, box.xyxy[0])
+                        center_x, center_y = (x1 + x2) // 2, (y1 + y2) // 2
                         
-                        # 处理左视图的标注
-                        annotated_left = left_img.copy()
-                        if self.view_mode == 0:  # 如果在左视图模式下，使用plot好的图像
-                            annotated_left = results[0].plot()
+                        # 检查中心点是否在有效范围内
+                        if (center_y < 0 or center_y >= points_3d.shape[0] or
+                            center_x < 0 or center_x >= points_3d.shape[1]):
+                            continue
                         
-                        # 处理右视图的标注
-                        annotated_right = right_img.copy()
+                        # 获取深度和3D位置
+                        depth = points_3d[center_y][center_x][2] / 1000.0  # 转换为米
                         
-                        # 标注检测到的所有物体
-                        for box in results[0].boxes:
-                            # 获取框坐标
-                            x1, y1, x2, y2 = map(int, box.xyxy[0])
-                            center_x, center_y = (x1 + x2) // 2, (y1 + y2) // 2
+                        if depth > 0:
+                            # 计算3D位置
+                            x_3d = points_3d[center_y][center_x][0] / 10.0  # 转换为厘米
+                            y_3d = points_3d[center_y][center_x][1] / 10.0
+                            z_3d = points_3d[center_y][center_x][2] / 10.0
+                            distance = np.sqrt(x_3d**2 + y_3d**2 + z_3d**2)
                             
-                            # 检查中心点是否在有效范围内
-                            if (center_y < 0 or center_y >= points_3d.shape[0] or
-                                center_x < 0 or center_x >= points_3d.shape[1]):
-                                continue
+                            # 获取类别信息
+                            class_id = int(box.cls[0])
+                            class_name = results[0].names[class_id]
+                            conf = float(box.conf[0])
                             
-                            # 获取深度和3D位置
-                            depth = points_3d[center_y][center_x][2] / 1000.0  # 转换为米
+                            # 距离文本
+                            dist_text = f"{distance:.1f}cm"
                             
-                            if depth > 0:
-                                # 计算3D位置
-                                x_3d = points_3d[center_y][center_x][0] / 10.0  # 转换为厘米
-                                y_3d = points_3d[center_y][center_x][1] / 10.0
-                                z_3d = points_3d[center_y][center_x][2] / 10.0
-                                distance = np.sqrt(x_3d**2 + y_3d**2 + z_3d**2)
-                                
-                                # 获取类别信息
-                                class_id = int(box.cls[0])
-                                class_name = results[0].names[class_id]
-                                conf = float(box.conf[0])
-                                
-                                # 距离文本
-                                dist_text = f"{distance:.1f}cm"
-                                
-                                # 如果是左视图模式且需要添加距离信息
-                                if self.view_mode == 0 and not hasattr(results[0], 'added_distance'):
-                                    # 计算文本位置
-                                    text_pos_y = max(y1 - 10, 20)  # 确保文本不会超出图像顶部
-                                    
-                                    # 绘制距离信息
-                                    text_size = cv2.getTextSize(dist_text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
-                                    cv2.rectangle(annotated_left, 
-                                                (x1, text_pos_y - text_size[1] - 5), 
-                                                (x1 + text_size[0] + 10, text_pos_y + 5), 
-                                                (0, 0, 0), -1)
-                                    cv2.putText(annotated_left, dist_text, (x1 + 5, text_pos_y), 
-                                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-                                
-                                # 在右视图中绘制物体框和信息
-                                cv2.rectangle(annotated_right, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                                
-                                # 构建右视图标签文本
-                                label = f"{class_name} {conf:.2f} {dist_text}"
-                                
+                            # 如果是左视图模式且需要添加距离信息
+                            if self.view_mode == 0 and not hasattr(results[0], 'added_distance'):
                                 # 计算文本位置
                                 text_pos_y = max(y1 - 10, 20)  # 确保文本不会超出图像顶部
                                 
-                                # 绘制标签
-                                text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)[0]
-                                cv2.rectangle(annotated_right, 
+                                # 绘制距离信息
+                                text_size = cv2.getTextSize(dist_text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
+                                cv2.rectangle(annotated_left, 
                                             (x1, text_pos_y - text_size[1] - 5), 
                                             (x1 + text_size[0] + 10, text_pos_y + 5), 
                                             (0, 0, 0), -1)
-                                cv2.putText(annotated_right, label, (x1 + 5, text_pos_y), 
-                                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
-                                
-                                # 创建检测消息
-                                detect_msg = ObjectDetection()
-                                detect_msg.header = Header()
-                                detect_msg.header.stamp = rospy.Time.now()
-                                detect_msg.header.frame_id = "camera_link"
-                                detect_msg.class_name = class_name
-                                detect_msg.confidence = conf
-                                detect_msg.x_min = float(x1)
-                                detect_msg.y_min = float(y1)
-                                detect_msg.x_max = float(x2)
-                                detect_msg.y_max = float(y2)
-                                detect_msg.x_3d = float(x_3d)
-                                detect_msg.y_3d = float(y_3d)
-                                detect_msg.z_3d = float(z_3d)
-                                detect_msg.distance = float(distance)
-                                self.detection_pub.publish(detect_msg)
-                                
-                                # 创建TF帧
-                                tf_id = f"object_{class_name}_{class_id}"
-                                self.publish_tf(tf_id, x_3d/100.0, y_3d/100.0, z_3d/100.0)
-                        
-                        # 标记已添加距离信息
-                        if self.view_mode == 0:
-                            results[0].added_distance = True
-                    except Exception as e:
-                        rospy.logerr(f"YOLO检测或标注时出错: {str(e)}")
-                        if annotated_left is None:
-                            annotated_left = left_img.copy()
-                        if annotated_right is None:
-                            annotated_right = right_img.copy()
-                        cv2.putText(annotated_left, "YOLO detection error", (10, 30), 
-                                   cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-                else:
-                    annotated_left = left_img.copy()
-                    annotated_right = right_img.copy()
-                    cv2.putText(annotated_left, "YOLO model not available", (10, 30), 
+                                cv2.putText(annotated_left, dist_text, (x1 + 5, text_pos_y), 
+                                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+                            
+                            # 在右视图中绘制物体框和信息
+                            cv2.rectangle(annotated_right, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                            
+                            # 构建右视图标签文本
+                            label = f"{class_name} {conf:.2f} {dist_text}"
+                            
+                            # 计算文本位置
+                            text_pos_y = max(y1 - 10, 20)  # 确保文本不会超出图像顶部
+                            
+                            # 绘制标签
+                            text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)[0]
+                            cv2.rectangle(annotated_right, 
+                                        (x1, text_pos_y - text_size[1] - 5), 
+                                        (x1 + text_size[0] + 10, text_pos_y + 5), 
+                                        (0, 0, 0), -1)
+                            cv2.putText(annotated_right, label, (x1 + 5, text_pos_y), 
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+                            
+                            # 创建检测消息
+                            detect_msg = ObjectDetection()
+                            detect_msg.header = Header()
+                            detect_msg.header.stamp = rospy.Time.now()
+                            detect_msg.header.frame_id = "camera_link"
+                            detect_msg.class_name = class_name
+                            detect_msg.confidence = conf
+                            detect_msg.x_min = float(x1)
+                            detect_msg.y_min = float(y1)
+                            detect_msg.x_max = float(x2)
+                            detect_msg.y_max = float(y2)
+                            detect_msg.x_3d = float(x_3d)
+                            detect_msg.y_3d = float(y_3d)
+                            detect_msg.z_3d = float(z_3d)
+                            detect_msg.distance = float(distance)
+                            self.detection_pub.publish(detect_msg)
+                            
+                            # 创建TF帧
+                            tf_id = f"object_{class_name}_{class_id}"
+                            self.publish_tf(tf_id, x_3d/100.0, y_3d/100.0, z_3d/100.0)
+                    
+                    # 标记已添加距离信息
+                    if self.view_mode == 0:
+                        results[0].added_distance = True
+                except Exception as e:
+                    rospy.logerr(f"YOLO检测或标注时出错: {str(e)}")
+                    if annotated_left is None:
+                        annotated_left = left_img.copy()
+                    if annotated_right is None:
+                        annotated_right = right_img.copy()
+                    cv2.putText(annotated_left, "YOLO detection error", (10, 30), 
                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
             else:
-                # 深度视图模式下不进行物体检测
                 annotated_left = left_img.copy()
                 annotated_right = right_img.copy()
+                cv2.putText(annotated_left, "YOLO model not available", (10, 30), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
             
             # 根据视图模式选择要显示的图像
             display_image = None
@@ -466,19 +446,6 @@ class StereoDetectionNode:
                 cv2.putText(display_image, "Right Camera", (10, 30), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
                 rospy.logdebug("显示右摄像头视图")
-            elif self.view_mode == 2:
-                # 深度图像（纯粹的深度信息，带色标）
-                if disp_with_scale is not None:
-                    display_image = disp_with_scale
-                    cv2.putText(display_image, "Depth Map", (10, 30), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
-                    rospy.logdebug("显示深度视图")
-                else:
-                    # 如果深度图不可用，使用带警告的左图
-                    display_image = left_img.copy()
-                    cv2.putText(display_image, "Depth View Not Available", (10, 30), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-                    rospy.logwarn("深度视图不可用，使用左图代替")
             else:
                 # 默认使用左图
                 display_image = annotated_left
@@ -493,7 +460,7 @@ class StereoDetectionNode:
                 rospy.logerr(f"发布显示图像时出错: {str(e)}")
             
             # Create pose array for all detections
-            pose_array = PoseArray()
+            pose_array = geometry_msgs.msg.PoseArray()
             pose_array.header = Header()
             pose_array.header.stamp = rospy.Time.now()
             pose_array.header.frame_id = "camera_link"

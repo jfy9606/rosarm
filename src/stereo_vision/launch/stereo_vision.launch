@@ -7,7 +7,7 @@
   <arg name="image_height" default="480" />
   <arg name="frame_rate" default="30" />
   <arg name="enable_detection" default="true" />
-  <arg name="initial_view_mode" default="0" /> <!-- 0=left, 1=right, 2=depth -->
+  <arg name="initial_view_mode" default="0" /> <!-- 0=left, 1=right -->
   <arg name="with_trajectory_planner" default="true" />
   <arg name="with_arm_controller" default="true" />
   <arg name="with_path_planner" default="true" />
@@ -56,7 +56,6 @@
     <param name="initial_view_mode" value="$(arg initial_view_mode)" />
     <param name="left_image_topic" value="/left_camera/image_raw"/>
     <param name="right_image_topic" value="/right_camera/image_raw"/>
-    <param name="depth_image_topic" value="/depth_image"/>
   </node>
   
   <!-- 确保视图模式话题能被正确接收 -->
@@ -66,8 +65,6 @@
         args="/detection_image /detections/image" />
   <node name="poses_relay" pkg="topic_tools" type="relay" 
         args="/detected_poses /detections/poses" />
-  <node name="depth_relay" pkg="topic_tools" type="relay" 
-        args="/depth_image /stereo_camera/depth/image_raw" />
 
   <!-- TF静态发布器，用于相机到世界坐标系的转换 -->
   <node pkg="tf2_ros" type="static_transform_publisher" name="camera_link_broadcaster"
