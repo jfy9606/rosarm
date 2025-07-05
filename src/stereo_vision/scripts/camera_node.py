@@ -75,9 +75,9 @@ class CameraNode:
                                     break
                         except (ValueError, IndexError) as e:
                             rospy.logwarn(f"无法解析索引: {str(e)}")
-                            # 如果无法解析索引，尝试使用默认设备
-                            self.cap = cv2.VideoCapture(0)
-                            rospy.loginfo("尝试打开默认摄像头 (索引 0)")
+                        # 如果无法解析索引，尝试使用默认设备
+                        self.cap = cv2.VideoCapture(0)
+                        rospy.loginfo("尝试打开默认摄像头 (索引 0)")
                 
                 if not self.cap.isOpened():
                     attempts += 1
@@ -124,7 +124,7 @@ class CameraNode:
                     try:
                         with warnings.catch_warnings():
                             warnings.simplefilter("ignore")  # 忽略警告
-                            ret, frame = self.cap.read()
+                ret, frame = self.cap.read()
                             if ret:
                                 success = True
                                 break
@@ -199,7 +199,7 @@ class CameraNode:
             try:
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")  # 忽略警告
-                    ret, frame = self.cap.read()
+                ret, frame = self.cap.read()
                 
                 if not ret:
                     self.error_count += 1

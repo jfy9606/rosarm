@@ -317,8 +317,8 @@ detect_ports() {
             # 添加或更新电机端口配置
             if grep -q "motor_port" "${LAUNCH_FILE}"; then
                 # 如果已存在motor_port参数，则更新
-                sed -i "s|<arg name=\"motor_port\" default=\"/dev/ttyUSB[0-9]*\"|<arg name=\"motor_port\" default=\"${DETECTED_MOTOR_PORT}\"|g" "${LAUNCH_FILE}" 2>/dev/null
-                sed -i "s|<arg name=\"motor_port\" default=\"/dev/ttyACM[0-9]*\"|<arg name=\"motor_port\" default=\"${DETECTED_MOTOR_PORT}\"|g" "${LAUNCH_FILE}" 2>/dev/null
+            sed -i "s|<arg name=\"motor_port\" default=\"/dev/ttyUSB[0-9]*\"|<arg name=\"motor_port\" default=\"${DETECTED_MOTOR_PORT}\"|g" "${LAUNCH_FILE}" 2>/dev/null
+            sed -i "s|<arg name=\"motor_port\" default=\"/dev/ttyACM[0-9]*\"|<arg name=\"motor_port\" default=\"${DETECTED_MOTOR_PORT}\"|g" "${LAUNCH_FILE}" 2>/dev/null
             else
                 # 如果不存在motor_port参数，则添加
                 sed -i "/<arg name=\"servo_port\"/a \  <arg name=\"motor_port\" default=\"${DETECTED_MOTOR_PORT}\" doc=\"电机控制串口（波特率115200）\" />" "${LAUNCH_FILE}" 2>/dev/null

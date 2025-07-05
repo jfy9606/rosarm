@@ -1,5 +1,12 @@
+#!/usr/bin/env python3
+"""
+Unified camera configuration module for stereo vision.
+This module exports all camera calibration parameters and works with both ROS and non-ROS environments.
+"""
 import numpy as np
 import cv2
+import os
+import sys
 
 # 左相机内参矩阵 [fx, 0, cx; 0, fy, cy; 0, 0, 1]
 left_camera_matrix = np.array([[708.021578084636, 0.0, 317.045973456068],
@@ -11,8 +18,8 @@ left_distortion = np.array([[-0.423530558996000, 0.197897793816823,-0.0004315725
  
 # 右相机内参矩阵
 right_camera_matrix = np.array([[696.214795245276, 0.0, 332.575401506334],
-                                 [0., 697.690484333038, 254.476510158679],
-                                 [0., 0., 1.]])
+                                [0., 697.690484333038, 254.476510158679],
+                                [0., 0., 1.]])
 # 右相机畸变系数:[k1, k2, p1, p2, k3]                                          
 right_distortion = np.array([[-0.446997760685779, 0.334596216137961, -0.00156518872343852, 0.000556305187002041, -0.245497405770906]])
  
@@ -47,4 +54,38 @@ __all__ = [
     'R1', 'R2', 'P1', 'P2', 'Q',
     'left_map1', 'left_map2', 'right_map1', 'right_map2',
     'validPixROI1', 'validPixROI2'
-] 
+]
+
+# 导出函数，用于确保ROS能正确加载
+def get_camera_params():
+    """Return all camera parameters as a dictionary"""
+    return {
+        'left_camera_matrix': left_camera_matrix,
+        'left_distortion': left_distortion,
+        'right_camera_matrix': right_camera_matrix,
+        'right_distortion': right_distortion,
+        'R': R,
+        'T': T,
+        'size': size,
+        'R1': R1,
+        'R2': R2,
+        'P1': P1,
+        'P2': P2,
+        'Q': Q,
+        'left_map1': left_map1,
+        'left_map2': left_map2,
+        'right_map1': right_map1,
+        'right_map2': right_map2,
+        'validPixROI1': validPixROI1,
+        'validPixROI2': validPixROI2
+    }
+
+# 调试信息只在直接运行文件时打印，避免导入时刷屏
+if __name__ == "__main__":
+    debug = False  # 设置为True以启用调试输出
+    if debug:
+        print("Camera config module loaded")
+        print(f"left_camera_matrix shape: {left_camera_matrix.shape}")
+        print(f"left_distortion shape: {left_distortion.shape}")
+        print(f"R1 shape: {R1.shape}")
+        print(f"P1 shape: {P1.shape}") 
