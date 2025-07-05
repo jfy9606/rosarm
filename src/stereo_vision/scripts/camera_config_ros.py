@@ -1,5 +1,15 @@
+#!/usr/bin/env python3
+"""
+ROS-compatible camera configuration module.
+This module explicitly exports all camera calibration parameters.
+"""
 import numpy as np
 import cv2
+import os
+import sys
+
+# Get the directory of this script
+script_dir = os.path.dirname(os.path.abspath(__file__))
 
 # 左相机内参矩阵 [fx, 0, cx; 0, fy, cy; 0, 0, 1]
 left_camera_matrix = np.array([[708.021578084636, 0.0, 317.045973456068],
@@ -47,4 +57,36 @@ __all__ = [
     'R1', 'R2', 'P1', 'P2', 'Q',
     'left_map1', 'left_map2', 'right_map1', 'right_map2',
     'validPixROI1', 'validPixROI2'
-] 
+]
+
+# 打印调试信息
+if __name__ == "__main__":
+    print("Camera config module loaded")
+    print(f"left_camera_matrix shape: {left_camera_matrix.shape}")
+    print(f"left_distortion shape: {left_distortion.shape}")
+    print(f"R1 shape: {R1.shape}")
+    print(f"P1 shape: {P1.shape}")
+
+# 导出函数，用于确保ROS能正确加载
+def get_camera_params():
+    """Return all camera parameters as a dictionary"""
+    return {
+        'left_camera_matrix': left_camera_matrix,
+        'left_distortion': left_distortion,
+        'right_camera_matrix': right_camera_matrix,
+        'right_distortion': right_distortion,
+        'R': R,
+        'T': T,
+        'size': size,
+        'R1': R1,
+        'R2': R2,
+        'P1': P1,
+        'P2': P2,
+        'Q': Q,
+        'left_map1': left_map1,
+        'left_map2': left_map2,
+        'right_map1': right_map1,
+        'right_map2': right_map2,
+        'validPixROI1': validPixROI1,
+        'validPixROI2': validPixROI2
+    } 

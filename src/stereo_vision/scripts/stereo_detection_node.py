@@ -4,17 +4,73 @@ import cv2
 import numpy as np
 import time
 import os
+import sys
 from ultralytics import YOLO
 from cv_bridge import CvBridge
 from sensor_msgs.msg import Image, CameraInfo
 from std_msgs.msg import Header
 import tf2_ros
 import geometry_msgs.msg
-from camera_config import (left_camera_matrix, left_distortion,
-                          right_camera_matrix, right_distortion,
-                          R, T, size,
-                          R1, R2, P1, P2, Q,
-                          left_map1, left_map2, right_map1, right_map2)
+
+# 添加脚本目录到Python路径
+script_dir = os.path.dirname(os.path.abspath(__file__))
+if script_dir not in sys.path:
+    sys.path.insert(0, script_dir)
+
+# 尝试从ROS兼容版本导入相机参数
+try:
+    # 使用ROS兼容版本的相机配置
+    from camera_config_ros import (left_camera_matrix, left_distortion,
+                                  right_camera_matrix, right_distortion,
+                                  R, T, size,
+                                  R1, R2, P1, P2, Q,
+                                  left_map1, left_map2, right_map1, right_map2)
+    rospy.loginfo("Successfully imported camera parameters from camera_config_ros")
+except ImportError as e:
+    rospy.logerr(f"Error importing from camera_config_ros: {e}")
+    # 尝试从原始配置文件导入
+    try:
+        from camera_config import (left_camera_matrix, left_distortion,
+                                  right_camera_matrix, right_distortion,
+                                  R, T, size,
+                                  R1, R2, P1, P2, Q,
+                                  left_map1, left_map2, right_map1, right_map2)
+        rospy.loginfo("Successfully imported camera parameters from camera_config")
+    except ImportError as e2:
+        rospy.logerr(f"Error importing from camera_config: {e2}")
+        # 尝试直接加载camera_config_ros.py
+        try:
+            import importlib.util
+            config_path = os.path.join(script_dir, "camera_config_ros.py")
+            rospy.loginfo(f"Trying to load camera_config_ros.py from: {config_path}")
+            
+            spec = importlib.util.spec_from_file_location("camera_config_ros", config_path)
+            camera_config = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(camera_config)
+            
+            # 从模块中获取所需变量
+            left_camera_matrix = camera_config.left_camera_matrix
+            left_distortion = camera_config.left_distortion
+            right_camera_matrix = camera_config.right_camera_matrix
+            right_distortion = camera_config.right_distortion
+            R = camera_config.R
+            T = camera_config.T
+            size = camera_config.size
+            R1 = camera_config.R1
+            R2 = camera_config.R2
+            P1 = camera_config.P1
+            P2 = camera_config.P2
+            Q = camera_config.Q
+            left_map1 = camera_config.left_map1
+            left_map2 = camera_config.left_map2
+            right_map1 = camera_config.right_map1
+            right_map2 = camera_config.right_map2
+            
+            rospy.loginfo("Successfully loaded camera parameters using importlib")
+        except Exception as e3:
+            rospy.logerr(f"Failed to load camera parameters: {e3}")
+            sys.exit(1)
+
 import warnings
 
 # 尝试导入ximgproc，用于高级视差滤波
