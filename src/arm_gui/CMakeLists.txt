@@ -1,16 +1,25 @@
 cmake_minimum_required(VERSION 3.0.2)
 project(arm_gui)
 
-# 添加Qt5依赖
-find_package(Qt5 REQUIRED COMPONENTS Widgets Core Gui OpenGL)
+# 设置CMake策略
+cmake_policy(SET CMP0071 NEW)  # 避免moc警告
+if(POLICY CMP0072)
+  cmake_policy(SET CMP0072 NEW)  # 避免OpenGL GLVND警告
+endif()
 
-# 添加OpenCV依赖
-find_package(OpenCV REQUIRED)
+# Qt设置
+set(CMAKE_INCLUDE_CURRENT_DIR ON)
+set(CMAKE_AUTOUIC ON)
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
+set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_AUTOUIC_SEARCH_PATHS ${CMAKE_CURRENT_SOURCE_DIR}/ui)
 
-# 添加GL库
-find_package(OpenGL REQUIRED)
-find_package(GLUT REQUIRED)
+# 编译选项
+add_compile_options(-std=c++14)
 
+# 查找依赖包
 find_package(catkin REQUIRED COMPONENTS
   roscpp
   rospy
@@ -19,118 +28,67 @@ find_package(catkin REQUIRED COMPONENTS
   geometry_msgs
   cv_bridge
   image_transport
-  arm_trajectory
   servo_wrist
-  stereo_vision
 )
 
+# 查找Qt5
+find_package(Qt5 COMPONENTS Core Gui Widgets OpenGL REQUIRED)
+
+# 系统依赖
+find_package(OpenGL REQUIRED)
+
+# 声明catkin包
 catkin_package(
   INCLUDE_DIRS include
-  LIBRARIES ${PROJECT_NAME}
-  CATKIN_DEPENDS roscpp rospy std_msgs sensor_msgs geometry_msgs cv_bridge image_transport arm_trajectory servo_wrist stereo_vision
+  CATKIN_DEPENDS 
+    roscpp 
+    std_msgs 
+    sensor_msgs 
+    geometry_msgs 
+    cv_bridge
+    image_transport
+    servo_wrist
+  DEPENDS Qt5Core Qt5Gui Qt5Widgets Qt5OpenGL OPENGL
 )
 
-# 添加Qt5定义
-add_definitions(${Qt5Widgets_DEFINITIONS})
-add_definitions(${Qt5Core_DEFINITIONS})
-add_definitions(${Qt5Gui_DEFINITIONS})
-add_definitions(${Qt5OpenGL_DEFINITIONS})
-
-# 设置自动MOC
-set(CMAKE_AUTOMOC ON)
-set(CMAKE_AUTOUIC ON)
-set(CMAKE_AUTORCC ON)
-
-# 设置UI文件路径
-set(CMAKE_AUTOUIC_SEARCH_PATHS ${CMAKE_CURRENT_SOURCE_DIR}/ui)
-
+# 包含头文件目录
 include_directories(
   include
   ${catkin_INCLUDE_DIRS}
-  ${Qt5Widgets_INCLUDE_DIRS}
   ${Qt5Core_INCLUDE_DIRS}
   ${Qt5Gui_INCLUDE_DIRS}
+  ${Qt5Widgets_INCLUDE_DIRS}
   ${Qt5OpenGL_INCLUDE_DIRS}
-  ${OpenCV_INCLUDE_DIRS}
+  ${CMAKE_CURRENT_BINARY_DIR}
   ${OPENGL_INCLUDE_DIRS}
-  ${GLUT_INCLUDE_DIRS}
 )
 
-# 头文件
-set(HEADER_FILES
-  include/arm_gui/arm_control_gui.h
-  include/arm_gui/scene_3d_renderer.h
-  include/arm_gui/enhanced_arm_gui.h
+# GUI可执行文件
+add_executable(arm_gui_node 
+  src/arm_gui_node.cpp
 )
 
-# 源文件
-set(SOURCE_FILES
-  src/arm_control_gui.cpp
-  src/scene_3d_renderer.cpp
-  src/enhanced_arm_gui.cpp
-)
-
-# 自动处理Qt元对象
-qt5_wrap_cpp(MOC_FILES ${HEADER_FILES})
-
-add_library(${PROJECT_NAME}
-  ${SOURCE_FILES}
-  ${MOC_FILES}
-)
-
-add_dependencies(${PROJECT_NAME} 
-  ${${PROJECT_NAME}_EXPORTED_TARGETS} 
-  ${catkin_EXPORTED_TARGETS}
-)
-
-# 链接Qt5库和OpenCV库
-target_link_libraries(${PROJECT_NAME}
+# 链接库
+target_link_libraries(arm_gui_node
   ${catkin_LIBRARIES}
-  ${OpenCV_LIBRARIES}
-  ${OPENGL_LIBRARIES}
-  ${GLUT_LIBRARIES}
-  Qt5::Widgets
   Qt5::Core
   Qt5::Gui
+  Qt5::Widgets
   Qt5::OpenGL
+  ${OPENGL_LIBRARIES}
 )
 
-add_executable(${PROJECT_NAME}_node src/arm_gui_node.cpp)
-add_executable(enhanced_${PROJECT_NAME}_node src/enhanced_arm_gui_node.cpp)
-add_executable(joint_state_publisher_node src/joint_state_publisher_node.cpp)
-
-target_link_libraries(${PROJECT_NAME}_node
-  ${PROJECT_NAME}
-  ${catkin_LIBRARIES}
-  ${OpenCV_LIBRARIES}
-  ${OPENGL_LIBRARIES}
-  ${GLUT_LIBRARIES}
-  Qt5::Widgets
-  Qt5::Core
-  Qt5::Gui
-  Qt5::OpenGL
-)
-
-target_link_libraries(enhanced_${PROJECT_NAME}_node
-  ${PROJECT_NAME}
-  ${catkin_LIBRARIES}
-  ${OpenCV_LIBRARIES}
-  ${OPENGL_LIBRARIES}
-  ${GLUT_LIBRARIES}
-  Qt5::Widgets
-  Qt5::Core
-  Qt5::Gui
-  Qt5::OpenGL
+# 关节状态发布节点
+add_executable(joint_state_publisher_node 
+  src/joint_state_publisher_node.cpp
 )
 
 target_link_libraries(joint_state_publisher_node
-  ${PROJECT_NAME}
   ${catkin_LIBRARIES}
 )
 
-install(TARGETS ${PROJECT_NAME} ${PROJECT_NAME}_node enhanced_${PROJECT_NAME}_node joint_state_publisher_node
-  ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+# 安装目标
+install(TARGETS arm_gui_node joint_state_publisher_node
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

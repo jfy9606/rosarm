@@ -64,7 +64,6 @@ private slots:
     // 相机视图控制槽函数
     void onLeftViewClicked();
     void onRightViewClicked();
-    void onDepthViewClicked();
     
     // 其他控制槽函数
     void onHomeButtonClicked();
@@ -83,7 +82,6 @@ private:
     void jointStateCallback(const sensor_msgs::JointState::ConstPtr& msg);
     void leftImageCallback(const sensor_msgs::Image::ConstPtr& msg);
     void rightImageCallback(const sensor_msgs::Image::ConstPtr& msg);
-    void depthImageCallback(const sensor_msgs::Image::ConstPtr& msg);
     
     // 控制函数
     void sendJointCommand();
@@ -114,7 +112,6 @@ private:
     ros::Subscriber joint_state_sub_;
     ros::Subscriber left_image_sub_;
     ros::Subscriber right_image_sub_;
-    ros::Subscriber depth_image_sub_;
     
     // 服务客户端
     ros::ServiceClient joint_control_client_;
@@ -127,12 +124,11 @@ private:
     geometry_msgs::Pose current_end_pose_;
     bool vacuum_on_;
     int vacuum_power_;
-    int current_view_mode_;  // 0=左, 1=右, 2=深度
+    int current_view_mode_;  // 0=左, 1=右
     
     // 图像存储
     cv::Mat left_image_;
     cv::Mat right_image_;
-    cv::Mat depth_image_;
     QImage current_display_image_;
     
     // 定时器

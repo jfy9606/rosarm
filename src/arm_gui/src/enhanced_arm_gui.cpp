@@ -6,6 +6,7 @@
 #include <QDateTime>
 #include <QPixmap>
 #include <QDebug>
+#include <QMessageBox> // Added for QMessageBox
 
 EnhancedArmGUI::EnhancedArmGUI(ros::NodeHandle& nh, QWidget* parent)
     : QMainWindow(parent),
@@ -97,7 +98,6 @@ void EnhancedArmGUI::initializeROS()
         joint_state_sub_ = nh_.subscribe("/joint_states", 1, &EnhancedArmGUI::jointStateCallback, this);
         left_image_sub_ = nh_.subscribe("/left_camera/image_raw", 1, &EnhancedArmGUI::leftImageCallback, this);
         right_image_sub_ = nh_.subscribe("/right_camera/image_raw", 1, &EnhancedArmGUI::rightImageCallback, this);
-        depth_image_sub_ = nh_.subscribe("/stereo_camera/depth/image_raw", 1, &EnhancedArmGUI::depthImageCallback, this);
         
         is_connected_ = true;
         logMessage("ROS连接成功");
@@ -137,7 +137,6 @@ void EnhancedArmGUI::setupConnections()
     // 相机视图控制连接
     connect(ui->leftViewButton, &QPushButton::clicked, this, &EnhancedArmGUI::onLeftViewClicked);
     connect(ui->rightViewButton, &QPushButton::clicked, this, &EnhancedArmGUI::onRightViewClicked);
-    connect(ui->depthViewButton, &QPushButton::clicked, this, &EnhancedArmGUI::onDepthViewClicked);
     
     // 其他控制连接
     connect(ui->homeButton, &QPushButton::clicked, this, &EnhancedArmGUI::onHomeButtonClicked);
@@ -299,12 +298,6 @@ void EnhancedArmGUI::onRightViewClicked()
     logMessage("切换到右视图");
 }
 
-void EnhancedArmGUI::onDepthViewClicked()
-{
-    setViewMode(2);
-    logMessage("切换到深度视图");
-}
-
 void EnhancedArmGUI::onHomeButtonClicked()
 {
     sendHomeCommand();
@@ -427,50 +420,6 @@ void EnhancedArmGUI::rightImageCallback(const sensor_msgs::Image::ConstPtr& msg)
     }
 }
 
-void EnhancedArmGUI::depthImageCallback(const sensor_msgs::Image::ConstPtr& msg)
-{
-    try {
-        // 尝试使用不同的编码格式
-        cv_bridge::CvImagePtr cv_ptr;
-        try {
-            cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
-        }
-        catch (cv_bridge::Exception& e) {
-            // 如果BGR8失败，尝试其他格式
-            try {
-                cv_ptr = cv_bridge::toCvCopy(msg, msg->encoding);
-                if (cv_ptr->image.channels() == 1) {
-                    // 如果是单通道图像，转换为BGR
-                    cv::cvtColor(cv_ptr->image, cv_ptr->image, cv::COLOR_GRAY2BGR);
-                }
-                else if (cv_ptr->image.channels() == 4) {
-                    // 如果是RGBA图像，转换为BGR
-                    cv::cvtColor(cv_ptr->image, cv_ptr->image, cv::COLOR_BGRA2BGR);
-                }
-            }
-            catch (cv_bridge::Exception& e2) {
-                logMessage(QString("深度图像转换错误，尝试所有格式都失败: %1, %2").arg(e.what()).arg(e2.what()));
-                return;
-            }
-        }
-        
-        // 检查图像是否为空或损坏
-        if (cv_ptr->image.empty() || cv_ptr->image.rows <= 0 || cv_ptr->image.cols <= 0) {
-            logMessage("深度图像为空或损坏");
-            return;
-        }
-        
-        depth_image_ = cv_ptr->image;
-        
-        if (current_view_mode_ == 2) {
-            current_display_image_ = cvMatToQImage(depth_image_);
-        }
-    }
-    catch (std::exception& e) {
-        logMessage(QString("深度图像处理错误: %1").arg(e.what()));
-    }
-}
-
 void EnhancedArmGUI::sendJointCommand()
 {
     std::vector<double> joint_values = {
@@ -569,49 +518,51 @@ void EnhancedArmGUI::sendHomeCommand()
 
 void EnhancedArmGUI::setViewMode(int mode)
 {
-    if (mode < 0 || mode > 2) return;
+    // 只接受有效的视图模式
+    if (mode < 0 || mode > 1) {
+        logMessage(QString("无效的视图模式: %1").arg(mode));
+        return;
+    }
     
     current_view_mode_ = mode;
     
-    // 使用服务调用
-    if (set_view_mode_client_.exists()) {
-        stereo_vision::SetViewMode srv;
-        srv.request.view_mode = mode;
-        
-        if (set_view_mode_client_.call(srv)) {
-            if (srv.response.success) {
-                // 成功设置
-            } else {
-                logMessage(QString("设置视图模式失败: %1").arg(srv.response.message.c_str()));
-            }
-        } else {
-            logMessage("调用设置视图模式服务失败");
+    // 更新视图
+    if (current_view_mode_ == 0) {
+        // 左视图模式
+        if (!left_image_.empty()) {
+            current_display_image_ = cvMatToQImage(left_image_);
         }
-    } else {
-        // 使用话题发布
-        std_msgs::Header header;
-        header.stamp = ros::Time::now();
-        header.frame_id = QString::number(mode).toStdString();
-        view_mode_pub_.publish(header);
+    } else if (current_view_mode_ == 1) {
+        // 右视图模式
+        if (!right_image_.empty()) {
+            current_display_image_ = cvMatToQImage(right_image_);
+        }
     }
     
-    // 更新显示图像
-    switch (mode) {
-        case 0:
-            if (!left_image_.empty()) {
-                current_display_image_ = cvMatToQImage(left_image_);
-            }
-            break;
-        case 1:
-            if (!right_image_.empty()) {
-                current_display_image_ = cvMatToQImage(right_image_);
-            }
-            break;
-        case 2:
-            if (!depth_image_.empty()) {
-                current_display_image_ = cvMatToQImage(depth_image_);
-            }
-            break;
+    // 更新视图按钮样式
+    if (ui->leftViewButton && ui->rightViewButton) {
+        if (current_view_mode_ == 0) {
+            ui->leftViewButton->setStyleSheet("QPushButton { background-color: #4CAF50; color: white; }");
+            ui->rightViewButton->setStyleSheet("");
+        } else if (current_view_mode_ == 1) {
+            ui->leftViewButton->setStyleSheet("");
+            ui->rightViewButton->setStyleSheet("QPushButton { background-color: #4CAF50; color: white; }");
+        }
+    }
+    
+    // 发送视图模式切换命令
+    if (set_view_mode_client_.exists()) {
+        stereo_vision::SetViewMode srv;
+        srv.request.view_mode = current_view_mode_;
+        if (!set_view_mode_client_.call(srv)) {
+            logMessage("切换视图模式失败");
+        }
+    } else {
+        // 使用视图模式话题发布
+        std_msgs::Header header;
+        header.stamp = ros::Time::now();
+        header.frame_id = QString::number(current_view_mode_).toStdString();
+        view_mode_pub_.publish(header);
     }
 }
 

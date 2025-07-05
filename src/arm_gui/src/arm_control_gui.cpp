@@ -18,6 +18,15 @@
 #include <QHBoxLayout>
 #include <QTextEdit>
 #include <unistd.h> // 用于access函数
+#include <QDir>
+#include <QScrollBar>
+#include <QStandardItemModel>
+#include <QSplitter>
+#include <QTime>
+#include <QColorDialog>
+#include <QShortcut>
+#include <QInputDialog>
+#include <QSettings>
 
 ArmControlGUI::ArmControlGUI(ros::NodeHandle& nh, QWidget* parent)
     : QMainWindow(parent), ui(new Ui::ArmControlMainWindow), nh_(nh),
@@ -251,12 +260,6 @@ void ArmControlGUI::createMissingUIElements()
             rightViewButton->setToolTip("显示右相机视图");
             connect(rightViewButton, &QPushButton::clicked, this, &ArmControlGUI::onRightViewButtonClicked);
             controlLayout->addWidget(rightViewButton);
-        }
-        
-        // 隐藏深度视图按钮 - 深度功能已移除
-        QPushButton* depthViewButton = findChild<QPushButton*>("depthViewButton");
-        if (depthViewButton) {
-            depthViewButton->hide(); // 隐藏按钮
         }
         
         // 查找cameraLayout并添加控制面板
@@ -1126,16 +1129,6 @@ void ArmControlGUI::initializeGUI()
         ROS_WARN("rightViewButton not found in UI");
     }
     
-    // 隐藏或禁用深度视图按钮 - 深度功能已移除
-    QPushButton* depthViewButton = findChild<QPushButton*>("depthViewButton");
-    if (depthViewButton) {
-        depthViewButton->hide(); // 隐藏按钮
-        // 保持连接以显示提示信息
-        connect(depthViewButton, &QPushButton::clicked, this, &ArmControlGUI::onDepthViewButtonClicked);
-    } else {
-        ROS_WARN("depthViewButton not found in UI");
-    }
-    
     // 初始化图像
     createPlaceholderImage();
     
@@ -1848,8 +1841,7 @@ void ArmControlGUI::onLeftViewButtonClicked()
     // 更新按钮状态
     QList<QPushButton*> viewButtons = {
         findChild<QPushButton*>("leftViewButton"),
-        findChild<QPushButton*>("rightViewButton"),
-        findChild<QPushButton*>("depthViewButton")
+        findChild<QPushButton*>("rightViewButton")
     };
     
     for (auto btn : viewButtons) {
@@ -1888,8 +1880,7 @@ void ArmControlGUI::onRightViewButtonClicked()
     // 更新按钮状态
     QList<QPushButton*> viewButtons = {
         findChild<QPushButton*>("leftViewButton"),
-        findChild<QPushButton*>("rightViewButton"),
-        findChild<QPushButton*>("depthViewButton")
+        findChild<QPushButton*>("rightViewButton")
     };
     
     for (auto btn : viewButtons) {
@@ -1917,11 +1908,6 @@ void ArmControlGUI::onRightViewButtonClicked()
 void ArmControlGUI::on_rightViewButton_clicked()
 {
     onRightViewButtonClicked();
-}
-
-void ArmControlGUI::on_depthViewButton_clicked()
-{
-    onDepthViewButtonClicked();
 }
 
 // 添加日志消息
