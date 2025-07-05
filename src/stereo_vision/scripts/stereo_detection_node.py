@@ -22,45 +22,12 @@ if script_dir not in sys.path:
 try:
     from camera_config import (left_camera_matrix, left_distortion,
                               right_camera_matrix, right_distortion, R, T, Q, 
-                              left_map1, left_map2, right_map1, right_map2, size)
+                              left_map1, left_map2, right_map1, right_map2, size,
+                              R1, R2, P1, P2)
     rospy.loginfo("Successfully imported camera parameters from camera_config")
 except Exception as e:
     rospy.logerr(f"Error importing from camera_config: {e}")
     exit(1)
-
-# 如果基础导入失败，尝试动态加载相机配置
-if 'left_camera_matrix' not in locals():
-    rospy.logwarn("Basic import failed, trying dynamic import")
-    
-    # 尝试直接加载camera_config.py
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    
-    config_path = os.path.join(script_dir, "camera_config.py")
-    rospy.loginfo(f"Trying to load camera_config.py from: {config_path}")
-    
-    try:
-        spec = importlib.util.spec_from_file_location("camera_config", config_path)
-        camera_config = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(camera_config)
-        
-        # 从模块中获取所需的变量
-        left_camera_matrix = camera_config.left_camera_matrix
-        left_distortion = camera_config.left_distortion
-        right_camera_matrix = camera_config.right_camera_matrix
-        right_distortion = camera_config.right_distortion
-        R = camera_config.R
-        T = camera_config.T
-        Q = camera_config.Q
-        left_map1 = camera_config.left_map1
-        left_map2 = camera_config.left_map2
-        right_map1 = camera_config.right_map1
-        right_map2 = camera_config.right_map2
-        size = camera_config.size
-        
-        rospy.loginfo("Successfully loaded camera parameters dynamically")
-    except Exception as e:
-        rospy.logerr(f"Failed to load camera_config.py: {e}")
-        exit(1)
 
 import warnings
 
@@ -106,7 +73,7 @@ class StereoDetectionNode:
             # 检查模型文件是否存在
             if os.path.exists(model_path):
                 rospy.loginfo(f"正在加载本地YOLO模型: {model_path}")
-            self.model = YOLO(model_path)
+                self.model = YOLO(model_path)
                 rospy.loginfo(f"Successfully loaded YOLO model: {model_path}")
             elif auto_download:
                 # 如果模型不存在但启用了自动下载，尝试自动下载
@@ -251,15 +218,15 @@ class StereoDetectionNode:
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")  # 忽略警告
-        self.left_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+                self.left_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
                 
                 # 检查图像是否有效
                 if self.left_image is None or self.left_image.size == 0:
                     rospy.logwarn("收到无效的左相机图像")
                     return
                     
-        if self.right_image is not None:
-            self.process_stereo_pair(self.left_image, self.right_image)
+                if self.right_image is not None:
+                    self.process_stereo_pair(self.left_image, self.right_image)
         except Exception as e:
             rospy.logerr(f"处理左相机图像时出错: {str(e)}")
     
@@ -267,15 +234,15 @@ class StereoDetectionNode:
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")  # 忽略警告
-        self.right_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+                self.right_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
                 
                 # 检查图像是否有效
                 if self.right_image is None or self.right_image.size == 0:
                     rospy.logwarn("收到无效的右相机图像")
                     return
                     
-        if self.left_image is not None:
-            self.process_stereo_pair(self.left_image, self.right_image)
+                if self.left_image is not None:
+                    self.process_stereo_pair(self.left_image, self.right_image)
         except Exception as e:
             rospy.logerr(f"处理右相机图像时出错: {str(e)}")
     
@@ -283,22 +250,22 @@ class StereoDetectionNode:
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")  # 忽略警告
-        # Convert combined image to OpenCV format
-        frame = self.bridge.imgmsg_to_cv2(msg, "bgr8")
-        
+                # Convert combined image to OpenCV format
+                frame = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+                
                 # 检查图像是否有效
                 if frame is None or frame.size == 0:
                     rospy.logwarn("收到无效的相机图像")
                     return
                 
-        # Split the image into left and right
-        height, width = frame.shape[:2]
-        mid = width // 2
-        left_image = frame[:, :mid]
-        right_image = frame[:, mid:]
-        
-        # Process the stereo pair
-        self.process_stereo_pair(left_image, right_image)
+                # Split the image into left and right
+                height, width = frame.shape[:2]
+                mid = width // 2
+                left_image = frame[:, :mid]
+                right_image = frame[:, mid:]
+                
+                # Process the stereo pair
+                self.process_stereo_pair(left_image, right_image)
         except Exception as e:
             rospy.logerr(f"处理相机图像时出错: {str(e)}")
     
@@ -330,17 +297,17 @@ class StereoDetectionNode:
             # 计算视差图（用于测量距离，但不显示）
             points_3d = None
             try:
-        # Convert to grayscale for stereo matching
-        imgL_gray = cv2.cvtColor(left_img, cv2.COLOR_BGR2GRAY)
-        imgR_gray = cv2.cvtColor(right_img, cv2.COLOR_BGR2GRAY)
-        
-        # Rectify images
-        img1_rectified = cv2.remap(imgL_gray, left_map1, left_map2, cv2.INTER_LINEAR)
-        img2_rectified = cv2.remap(imgR_gray, right_map1, right_map2, cv2.INTER_LINEAR)
-        
-        # Compute disparity
-        disparity = self.stereo.compute(img1_rectified, img2_rectified)
-        
+                # Convert to grayscale for stereo matching
+                imgL_gray = cv2.cvtColor(left_img, cv2.COLOR_BGR2GRAY)
+                imgR_gray = cv2.cvtColor(right_img, cv2.COLOR_BGR2GRAY)
+                
+                # Rectify images
+                img1_rectified = cv2.remap(imgL_gray, left_map1, left_map2, cv2.INTER_LINEAR)
+                img2_rectified = cv2.remap(imgR_gray, right_map1, right_map2, cv2.INTER_LINEAR)
+                
+                # Compute disparity
+                disparity = self.stereo.compute(img1_rectified, img2_rectified)
+                
                 # 使用WLS滤波器优化视差图（如果可用）
                 disp_filtered = disparity
                 if HAVE_XIMGPROC and self.right_matcher and self.wls_filter:
@@ -352,8 +319,8 @@ class StereoDetectionNode:
                             disp_filtered = filtered_disp
                     except Exception as e:
                         rospy.logwarn(f"WLS滤波器处理失败: {str(e)}")
-        
-        # Reproject to 3D
+                
+                # Reproject to 3D
                 points_3d = cv2.reprojectImageTo3D(disp_filtered, Q, handleMissingValues=True) * 16
             except Exception as e:
                 rospy.logerr(f"计算深度图时出错: {str(e)}")
@@ -381,11 +348,11 @@ class StereoDetectionNode:
                     annotated_right = right_img.copy()
                     
                     # 标注检测到的所有物体
-        for box in results[0].boxes:
+                    for box in results[0].boxes:
                         # 获取框坐标
-            x1, y1, x2, y2 = map(int, box.xyxy[0])
-            center_x, center_y = (x1 + x2) // 2, (y1 + y2) // 2
-            
+                        x1, y1, x2, y2 = map(int, box.xyxy[0])
+                        center_x, center_y = (x1 + x2) // 2, (y1 + y2) // 2
+                        
                         # 检查中心点是否在有效范围内
                         if (center_y < 0 or center_y >= points_3d.shape[0] or
                             center_x < 0 or center_x >= points_3d.shape[1]):
@@ -393,14 +360,14 @@ class StereoDetectionNode:
                         
                         # 获取深度和3D位置
                         depth = points_3d[center_y][center_x][2] / 1000.0  # 转换为米
-            
-            if depth > 0:
+                        
+                        if depth > 0:
                             # 计算3D位置
                             x_3d = points_3d[center_y][center_x][0] / 10.0  # 转换为厘米
-                y_3d = points_3d[center_y][center_x][1] / 10.0
-                z_3d = points_3d[center_y][center_x][2] / 10.0
-                distance = np.sqrt(x_3d**2 + y_3d**2 + z_3d**2)
-                
+                            y_3d = points_3d[center_y][center_x][1] / 10.0
+                            z_3d = points_3d[center_y][center_x][2] / 10.0
+                            distance = np.sqrt(x_3d**2 + y_3d**2 + z_3d**2)
+                            
                             # 获取类别信息
                             class_id = int(box.cls[0])
                             class_name = results[0].names[class_id]
@@ -442,22 +409,22 @@ class StereoDetectionNode:
                                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
                             
                             # 创建检测消息
-                detect_msg = ObjectDetection()
-                detect_msg.header = Header()
-                detect_msg.header.stamp = rospy.Time.now()
-                detect_msg.header.frame_id = "camera_link"
+                            detect_msg = ObjectDetection()
+                            detect_msg.header = Header()
+                            detect_msg.header.stamp = rospy.Time.now()
+                            detect_msg.header.frame_id = "camera_link"
                             detect_msg.class_name = class_name
                             detect_msg.confidence = conf
-                detect_msg.x_min = float(x1)
-                detect_msg.y_min = float(y1)
-                detect_msg.x_max = float(x2)
-                detect_msg.y_max = float(y2)
-                detect_msg.x_3d = float(x_3d)
-                detect_msg.y_3d = float(y_3d)
-                detect_msg.z_3d = float(z_3d)
-                detect_msg.distance = float(distance)
-                self.detection_pub.publish(detect_msg)
-                
+                            detect_msg.x_min = float(x1)
+                            detect_msg.y_min = float(y1)
+                            detect_msg.x_max = float(x2)
+                            detect_msg.y_max = float(y2)
+                            detect_msg.x_3d = float(x_3d)
+                            detect_msg.y_3d = float(y_3d)
+                            detect_msg.z_3d = float(z_3d)
+                            detect_msg.distance = float(distance)
+                            self.detection_pub.publish(detect_msg)
+                            
                             # 创建TF帧
                             tf_id = f"object_{class_name}_{class_id}"
                             self.publish_tf(tf_id, x_3d/100.0, y_3d/100.0, z_3d/100.0)
@@ -516,8 +483,8 @@ class StereoDetectionNode:
             try:
                 if annotated_left is not None:
                     result_msg = self.bridge.cv2_to_imgmsg(annotated_left, "bgr8")
-        self.result_image_pub.publish(result_msg)
-        
+                    self.result_image_pub.publish(result_msg)
+                
                 self.pose_array_pub.publish(pose_array)
                 self.gui_poses_pub.publish(pose_array)
             except Exception as e:
@@ -542,4 +509,4 @@ if __name__ == '__main__':
         node = StereoDetectionNode()
         rospy.spin()
     except rospy.ROSInterruptException:
-        pass 
+        pass

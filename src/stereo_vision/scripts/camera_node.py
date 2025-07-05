@@ -1,83 +1,61 @@
 #!/usr/bin/env python3
+
 import rospy
 import cv2
 import numpy as np
 import os
 from sensor_msgs.msg import Image
-from cv_bridge import CvBridge, CvBridgeError
 import warnings
+from cv_bridge import CvBridge
 
 class CameraNode:
-    """摄像头节点，用于获取摄像头图像并发布到ROS话题"""
+    """双目摄像头节点，可以处理双目摄像头或分割单个图像为左右两部分"""
     
     def __init__(self):
-        """初始化摄像头节点"""
-        rospy.init_node('camera_node')
+        """初始化相机节点"""
+        rospy.init_node('camera_node', anonymous=True)
         
         # 获取参数
-        self.device = rospy.get_param('~device', '/dev/video0')
-        self.width = rospy.get_param('~width', 1280)
-        self.height = rospy.get_param('~height', 480)
-        self.fps = rospy.get_param('~fps', 30)
-        self.retry_count = rospy.get_param('~retry_count', 5)
-        self.retry_delay = rospy.get_param('~retry_delay', 2.0)
-        self.pixel_format = rospy.get_param('~pixel_format', 'mjpeg')  # 默认使用MJPEG格式
+        self.device_id = rospy.get_param('~device_id', 0)  # 摄像头设备ID
+        self.width = rospy.get_param('~width', 1280)  # 图像宽度
+        self.height = rospy.get_param('~height', 480)  # 图像高度
+        self.fps = rospy.get_param('~fps', 30)  # 帧率
+        self.publish_rate = rospy.get_param('~publish_rate', 30.0)  # 发布频率
+        self.pixel_format = rospy.get_param('~pixel_format', 'MJPEG')  # 像素格式
+        self.retry_count = rospy.get_param('~retry_count', 5)  # 摄像头初始化尝试次数
+        self.retry_delay = rospy.get_param('~retry_delay', 2.0)  # 尝试间隔
+        self.max_errors = rospy.get_param('~max_errors', 50)  # 最大连续错误次数，超过后重新初始化
+        
+        # 初始化摄像头连接状态和错误计数
+        self.use_test_image = False
         self.error_count = 0
-        self.max_errors = 10  # 最大连续错误次数，超过则重新初始化摄像头
         
-        rospy.loginfo(f"摄像头配置: 设备={self.device}, 分辨率={self.width}x{self.height}, FPS={self.fps}, 像素格式={self.pixel_format}")
-        
-        # 创建图像发布器
-        self.image_pub = rospy.Publisher('/camera/image_raw', Image, queue_size=10)
-        self.right_image_pub = rospy.Publisher('/camera/right/image_raw', Image, queue_size=10)
-        
-        # 创建OpenCV桥接器
+        # 创建图像转换桥
         self.bridge = CvBridge()
+        
+        # 创建图像发布者
+        self.image_pub = rospy.Publisher('left_camera/image_raw', Image, queue_size=1)
+        self.right_image_pub = rospy.Publisher('right_camera/image_raw', Image, queue_size=1)
         
         # 初始化摄像头
         self.init_camera()
         
-        # 设置定时器
-        self.timer = rospy.Timer(rospy.Duration(1.0/self.fps), self.timer_callback)
+        # 创建定时器，定期发布图像
+        self.timer = rospy.Timer(rospy.Duration(1.0 / self.publish_rate), self.timer_callback)
         
-        rospy.loginfo(f"摄像头节点已初始化，设备: {self.device}")
+        # 注册节点关闭回调
+        rospy.on_shutdown(self.shutdown)
+        
+        rospy.loginfo("摄像头节点已初始化，准备发布图像")
     
     def init_camera(self):
-        """初始化摄像头设备"""
-        self.use_test_image = False
+        """初始化摄像头连接"""
         attempts = 0
         
-        while attempts < self.retry_count and not rospy.is_shutdown():
+        while attempts < self.retry_count:
             try:
-                # 尝试不同的方式打开摄像头
-                # 首先尝试使用设备路径
-                if os.path.exists(self.device):
-                    self.cap = cv2.VideoCapture(self.device)
-                    rospy.loginfo(f"尝试打开摄像头设备: {self.device}")
-                else:
-                    # 尝试其他可能的视频设备
-                    devices = ["/dev/video0", "/dev/video2", "/dev/video4"]
-                    for dev in devices:
-                        if os.path.exists(dev) and dev != self.device:
-                            rospy.loginfo(f"原始设备不可用，尝试备选设备: {dev}")
-                            self.cap = cv2.VideoCapture(dev)
-                            if self.cap.isOpened():
-                                self.device = dev  # 更新设备路径
-                                break
-                    
-                    # 如果仍然未能打开设备，尝试使用索引
-                    if not hasattr(self, 'cap') or not self.cap.isOpened():
-                        try:
-                            for idx in range(0, 10, 2):  # 尝试不同的索引（通常双目相机有两个索引）
-                                rospy.loginfo(f"尝试打开摄像头索引: {idx}")
-                                self.cap = cv2.VideoCapture(idx)
-                                if self.cap.isOpened():
-                                    break
-                        except (ValueError, IndexError) as e:
-                            rospy.logwarn(f"无法解析索引: {str(e)}")
-                        # 如果无法解析索引，尝试使用默认设备
-                        self.cap = cv2.VideoCapture(0)
-                        rospy.loginfo("尝试打开默认摄像头 (索引 0)")
+                # 尝试打开摄像头
+                self.cap = cv2.VideoCapture(self.device_id)
                 
                 if not self.cap.isOpened():
                     attempts += 1
@@ -124,7 +102,7 @@ class CameraNode:
                     try:
                         with warnings.catch_warnings():
                             warnings.simplefilter("ignore")  # 忽略警告
-                ret, frame = self.cap.read()
+                            ret, frame = self.cap.read()
                             if ret:
                                 success = True
                                 break
@@ -199,7 +177,7 @@ class CameraNode:
             try:
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")  # 忽略警告
-                ret, frame = self.cap.read()
+                    ret, frame = self.cap.read()
                 
                 if not ret:
                     self.error_count += 1
