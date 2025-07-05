@@ -6,7 +6,7 @@ import numpy as np
 import math
 import time
 from geometry_msgs.msg import PoseArray, Pose, Point
-from std_msgs.msg import String, Bool, Float64
+from std_msgs.msg import String, Bool, Float64, Int32
 from sensor_msgs.msg import JointState, Image
 from servo_wrist.msg import SerControl
 import cv_bridge
@@ -64,7 +64,7 @@ class VisualServoController:
         # 设置发布者
         self.joint_command_pub = rospy.Publisher('/arm1/joint_command', JointState, queue_size=1)
         self.vacuum_command_pub = rospy.Publisher('/vacuum/command', Bool, queue_size=1)
-        self.vacuum_power_pub = rospy.Publisher('/vacuum/power', Float64, queue_size=1)
+        self.vacuum_power_pub = rospy.Publisher('/vacuum/power', Int32, queue_size=1)
         self.status_pub = rospy.Publisher('/visual_servo/status', String, queue_size=1)
         
         # 设置定时器，用于视觉伺服控制
@@ -213,7 +213,7 @@ class VisualServoController:
         # 如果提供了功率值，更新功率
         if power is not None:
             self.vacuum_power = max(0, min(100, power))  # 限制在0-100范围内
-            self.vacuum_power_pub.publish(Float64(self.vacuum_power / 100.0))
+            self.vacuum_power_pub.publish(Int32(self.vacuum_power))
         
         # 发布真空吸盘命令
         self.vacuum_command_pub.publish(Bool(on_state))
