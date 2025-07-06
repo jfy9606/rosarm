@@ -21,9 +21,9 @@ class CameraNode:
         """Initialize the camera node"""
         rospy.init_node('camera_node', anonymous=True)
         
-        # Initialize parameters
+        # Initialize parameters for stereo camera (1280x480 combined view)
         self.camera_index = rospy.get_param('~camera_index', 0)
-        self.width = rospy.get_param('~width', 640)
+        self.width = rospy.get_param('~width', 1280)
         self.height = rospy.get_param('~height', 480)
         self.fps = rospy.get_param('~fps', 30)
         self.frame_id = rospy.get_param('~frame_id', 'camera')
@@ -52,6 +52,12 @@ class CameraNode:
         self.image_pub = rospy.Publisher('/camera/image_raw', Image, queue_size=10)
         self.camera_info_pub = rospy.Publisher('/camera/camera_info', CameraInfo, queue_size=10)
         self.mode_pub = rospy.Publisher('/camera/mode', Int32, queue_size=10, latch=True)
+        
+        # Add separate publishers for left and right cameras
+        self.left_image_pub = rospy.Publisher('/stereo_camera/left/image_raw', Image, queue_size=10)
+        self.right_image_pub = rospy.Publisher('/stereo_camera/right/image_raw', Image, queue_size=10)
+        self.left_camera_info_pub = rospy.Publisher('/stereo_camera/left/camera_info', CameraInfo, queue_size=10)
+        self.right_camera_info_pub = rospy.Publisher('/stereo_camera/right/camera_info', CameraInfo, queue_size=10)
         
         # Subscribe to mode topic
         self.mode_sub = rospy.Subscriber('/camera/mode', Int32, self.mode_callback)
@@ -107,14 +113,31 @@ class CameraNode:
     def start_camera(self):
         """Start camera and publishing timer"""
         # Open camera
-        success = self.camera.open_camera()
-        
-        if success:
-            # Start timer for publishing images
-            self.timer = rospy.Timer(rospy.Duration(1.0 / self.publish_rate), self.timer_callback)
-            rospy.loginfo(f"Camera started with publish rate {self.publish_rate} Hz")
-        
-        return success
+        try:
+            # Open camera using VideoCapture
+            self.camera.camera = cv2.VideoCapture(self.camera_index)
+            
+            # Set MJPEG format
+            self.camera.camera.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M','J','P','G'))
+            self.camera.camera.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+            self.camera.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+            self.camera.camera.set(cv2.CAP_PROP_FPS, self.fps)
+            
+            # Check if camera is open
+            self.camera.camera_open = self.camera.camera.isOpened()
+            
+            if self.camera.camera_open:
+                rospy.loginfo(f"Stereo camera opened successfully with MJPEG format: {self.width}x{self.height}")
+                # Start timer for publishing images
+                self.timer = rospy.Timer(rospy.Duration(1.0 / self.publish_rate), self.timer_callback)
+                rospy.loginfo(f"Camera started with publish rate {self.publish_rate} Hz")
+                return True
+            else:
+                rospy.logerr(f"Failed to open camera {self.camera_index}")
+                return False
+        except Exception as e:
+            rospy.logerr(f"Error opening camera: {str(e)}")
+            return False
     
     def stop_camera(self):
         """Stop camera and publishing timer"""
@@ -135,26 +158,51 @@ class CameraNode:
         
         try:
             # Capture frame
-            frame, timestamp = self.camera.capture_frame()
+            ret, frame = self.camera.camera.read()
             
-            if frame is not None:
-                # Convert OpenCV image to ROS image message
-                if len(frame.shape) == 3:
-                    # Color image
-                    image_msg = self.bridge.cv2_to_imgmsg(frame, "bgr8")
-                else:
-                    # Grayscale image
-                    image_msg = self.bridge.cv2_to_imgmsg(frame, "mono8")
+            if ret:
+                timestamp = rospy.Time.now()
                 
-                # Set header
-                image_msg.header.stamp = timestamp
-                image_msg.header.frame_id = self.frame_id
+                # Split the stereo frame into left and right images
+                image_width = self.width // 2
+                left_image = frame[:, :image_width]
+                right_image = frame[:, image_width:]
+                
+                # Convert OpenCV images to ROS image messages
+                left_msg = self.bridge.cv2_to_imgmsg(left_image, "bgr8")
+                right_msg = self.bridge.cv2_to_imgmsg(right_image, "bgr8")
+                
+                # Set headers
+                left_msg.header.stamp = timestamp
+                left_msg.header.frame_id = self.frame_id + "_left"
+                right_msg.header.stamp = timestamp
+                right_msg.header.frame_id = self.frame_id + "_right"
+                
+                # Update camera info timestamps
+                left_camera_info = self.create_camera_info_msg()
+                left_camera_info.header.stamp = timestamp
+                left_camera_info.header.frame_id = self.frame_id + "_left"
+                left_camera_info.width = image_width
+                
+                right_camera_info = self.create_camera_info_msg()
+                right_camera_info.header.stamp = timestamp
+                right_camera_info.header.frame_id = self.frame_id + "_right"
+                right_camera_info.width = image_width
+                
+                # Publish images and camera info
+                self.left_image_pub.publish(left_msg)
+                self.right_image_pub.publish(right_msg)
+                self.left_camera_info_pub.publish(left_camera_info)
+                self.right_camera_info_pub.publish(right_camera_info)
+                
+                # Also publish original combined image
+                combined_msg = self.bridge.cv2_to_imgmsg(frame, "bgr8")
+                combined_msg.header.stamp = timestamp
+                combined_msg.header.frame_id = self.frame_id
+                self.image_pub.publish(combined_msg)
                 
                 # Update camera info timestamp
                 self.camera_info_msg.header.stamp = timestamp
-                
-                # Publish image and camera info
-                self.image_pub.publish(image_msg)
                 self.camera_info_pub.publish(self.camera_info_msg)
         
         except CvBridgeError as e:

@@ -6,7 +6,7 @@ import numpy as np
 from geometry_msgs.msg import Pose, Point, Quaternion
 from std_msgs.msg import Bool
 from std_srvs.srv import SetBool, SetBoolResponse
-from arm_trajectory.srv import PlanPath, PlanPathResponse
+from arm_trajectory.srv import PlanTrajectory, PlanTrajectoryResponse
 
 # 使用完整的导入路径
 import sys, os
@@ -41,7 +41,7 @@ class PathPlannerNode:
         )
         
         # Create service
-        self.plan_service = rospy.Service('/path_planner/plan', PlanPath, self.plan_path_callback)
+        self.plan_service = rospy.Service('/path_planner/plan', PlanTrajectory, self.plan_path_callback)
         
         # Subscribe to obstacle topic
         self.obstacles_sub = rospy.Subscriber('/path_planner/obstacles', MarkerArray, self.obstacles_callback)
@@ -160,7 +160,7 @@ class PathPlannerNode:
             self.path_planner.set_start_pose(req.start_joint_state.pose)
             self.start_pose = req.start_joint_state.pose
         elif self.start_pose is None:
-            return PlanPathResponse(False, "No start pose available")
+            return PlanTrajectoryResponse(False, "No start pose available", None)
         
         self.path_planner.set_target_pose(req.target_pose)
         self.target_pose = req.target_pose
@@ -169,9 +169,9 @@ class PathPlannerNode:
         path, success = self.plan_path()
         
         if success and path:
-            return PlanPathResponse(True, f"Path planning successful with {len(path)} waypoints")
+            return PlanTrajectoryResponse(True, f"Path planning successful with {len(path)} waypoints", None)
         else:
-            return PlanPathResponse(False, "Path planning failed")
+            return PlanTrajectoryResponse(False, "Path planning failed", None)
     
     def publish_path(self, path):
         """
