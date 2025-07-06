@@ -74,7 +74,7 @@ class StereoDetectionNode:
             if os.path.exists(model_path):
                 rospy.loginfo(f"正在加载本地YOLO模型: {model_path}")
                 self.model = YOLO(model_path)
-                rospy.loginfo(f"Successfully loaded YOLO model: {model_path}")
+                rospy.loginfo(f"成功加载YOLO模型: {model_path}")
             elif auto_download:
                 # 如果模型不存在但启用了自动下载，尝试自动下载
                 rospy.loginfo(f"模型文件不存在: {model_path}，尝试自动下载")

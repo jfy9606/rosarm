@@ -179,29 +179,29 @@ class CameraNode:
                     warnings.simplefilter("ignore")  # 忽略警告
                     ret, frame = self.cap.read()
                 
-                if not ret:
-                    self.error_count += 1
-                    # 减少日志输出频率，只在错误计数是5的倍数时输出
-                    if self.error_count % 5 == 0:
-                        rospy.logwarn(f"无法获取图像，错误计数: {self.error_count}/{self.max_errors}")
-                    
-                    if self.error_count >= self.max_errors:
-                        rospy.logwarn("错误次数过多，尝试重新初始化摄像头")
-                        self.init_camera()
-                    
-                    frame = self.create_test_image()
-                    # 分割测试图像为左右两部分
-                    height, width = frame.shape[:2]
-                    mid = width // 2
-                    left_frame = frame[:, :mid]
-                    right_frame = frame[:, mid:]
-                else:
-                    self.error_count = 0  # 成功读取，重置错误计数
-                    # 分割图像为左右两部分
-                    height, width = frame.shape[:2]
-                    mid = width // 2
-                    left_frame = frame[:, :mid]
-                    right_frame = frame[:, mid:]
+                    if not ret:
+                        self.error_count += 1
+                        # 减少日志输出频率，只在错误计数是5的倍数时输出
+                        if self.error_count % 5 == 0:
+                            rospy.logwarn(f"无法获取图像，错误计数: {self.error_count}/{self.max_errors}")
+                        
+                        if self.error_count >= self.max_errors:
+                            rospy.logwarn("错误次数过多，尝试重新初始化摄像头")
+                            self.init_camera()
+                        
+                        frame = self.create_test_image()
+                        # 分割测试图像为左右两部分
+                        height, width = frame.shape[:2]
+                        mid = width // 2
+                        left_frame = frame[:, :mid]
+                        right_frame = frame[:, mid:]
+                    else:
+                        self.error_count = 0  # 成功读取，重置错误计数
+                        # 分割图像为左右两部分
+                        height, width = frame.shape[:2]
+                        mid = width // 2
+                        left_frame = frame[:, :mid]
+                        right_frame = frame[:, mid:]
             except Exception as e:
                 self.error_count += 1
                 # 减少日志输出频率，只在错误计数是5的倍数时输出
