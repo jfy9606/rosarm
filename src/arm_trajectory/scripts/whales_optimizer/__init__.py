@@ -9,9 +9,9 @@ sys.path.append(current_dir)
 
 # 从whales_optimizer.py导入所需类和函数
 try:
-    from whales_optimizer import WhaleOptimizer, forward_kinematics_dh
-    rospy.loginfo("成功从whales_optimizer.py导入WhaleOptimizer和forward_kinematics_dh")
+    from whales_optimizer import WhalesOptimizer, forward_kinematics_dh
+    rospy.loginfo("成功从whales_optimizer.py导入WhalesOptimizer和forward_kinematics_dh")
 except ImportError as e:
     rospy.logerr(f"从whales_optimizer.py导入失败: {e}")
-    WhaleOptimizer = None
+    WhalesOptimizer = None
     forward_kinematics_dh = None 

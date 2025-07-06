@@ -15,7 +15,6 @@
   <group if="$(arg with_stereo_vision)">
     <include file="$(find vision)/launch/vision.launch">
       <arg name="stereo_cam_device" value="$(arg camera_device)" />
-      <arg name="show_preview" value="false" />
     </include>
   </group>
   

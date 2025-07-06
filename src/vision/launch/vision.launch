@@ -32,7 +32,7 @@
   <node name="camera_relay_merged" pkg="topic_tools" type="relay" args="/camera_node/left_camera/image_raw /stereo_camera/image_raw" />
 
   <!-- 启动YOLO检测器节点 -->
-  <node pkg="vision" type="yolo_detector.py" name="yolo_detector_node" output="screen">
+  <node pkg="vision" type="detector_node.py" name="yolo_detector_node" output="screen">
     <param name="model_path" value="$(arg yolo_model_path)"/>
     <param name="conf_threshold" value="0.25"/>
     <param name="detection_enabled" value="$(arg enable_detection)"/>
@@ -41,7 +41,7 @@
   </node>
 
   <!-- 启动立体视觉检测节点进行深度计算 -->
-  <node pkg="vision" type="stereo_detection_node.py" name="stereo_detection_node" output="screen">
+  <node pkg="vision" type="stereo_node.py" name="stereo_detection_node" output="screen">
     <param name="yolo_model_path" value="$(arg yolo_model_path)"/>
     <param name="use_split_feed" value="false"/>
     <param name="left_image_topic" value="/camera_node/left_camera/image_raw"/>
@@ -75,7 +75,7 @@
   
   <!-- 启动真空吸盘控制节点 -->
   <group if="$(arg vacuum_enabled)">
-    <node name="vacuum_controller" pkg="servo_wrist" type="vacuum_node" args="$(arg motor_port)" output="screen" respawn="true" respawn_delay="2">
+    <node name="vacuum_controller_node" pkg="servo_wrist" type="vacuum_node" args="$(arg motor_port)" output="screen" respawn="true" respawn_delay="2">
       <param name="baudrate" value="115200" />
       <param name="max_power" value="100" />
       <param name="default_power" value="80" />
@@ -95,12 +95,12 @@
   
   <!-- 启动路径规划节点 -->
   <group if="$(arg with_path_planner)">
-    <node pkg="arm_trajectory" type="path_planner_node.py" name="path_planner_node" output="screen">
+    <node pkg="arm_trajectory" type="path_planner_node.py" name="path_planner_vision_node" output="screen">
       <param name="arm_config" value="$(find arm_trajectory)/config/arm_params.yaml" />
       <param name="use_whale_optimizer" value="true" />
     </node>
   </group>
-  
+
   <!-- 启动轨迹规划节点 -->
   <group if="$(arg with_trajectory_planner)">
     <node pkg="arm_trajectory" type="kinematics_node.py" name="arm_trajectory_bridge_gui" output="screen">

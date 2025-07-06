@@ -53,7 +53,7 @@ def forward_kinematics_dh(joint_values, dh_params=None):
     
     return T
 
-class WhaleOptimizer:
+class WhalesOptimizer:
     """
     鲸鱼优化算法 (Whale Optimization Algorithm, WOA)
     用于机械臂轨迹规划的校准实现
