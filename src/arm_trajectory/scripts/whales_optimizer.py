@@ -1,8 +1,19 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 import numpy as np
 import random
 import math
 import rospy
+import locale
+
+# 设置正确的字符编码环境
+try:
+    locale.setlocale(locale.LC_ALL, '')
+    encoding = locale.getpreferredencoding()
+    rospy.loginfo(f"当前编码: {encoding}")
+except Exception as e:
+    rospy.logwarn(f"无法设置本地化环境: {str(e)}")
+    encoding = 'utf-8'
 
 def compute_dh_transform(theta, d, a, alpha):
     """计算单个关节的DH变换矩阵"""

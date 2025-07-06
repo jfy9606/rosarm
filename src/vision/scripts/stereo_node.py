@@ -90,6 +90,25 @@ class StereoNode:
         # Publish initial view mode
         self.publish_view_mode()
         
+        # 测试是否可以访问摄像头
+        try:
+            camera_idx = int(os.path.basename(self.left_image_topic).split('_')[-1]) if 'video' in self.left_image_topic else 0
+            rospy.loginfo(f"Camera node initialized with index {camera_idx}")
+            cap = cv2.VideoCapture(camera_idx)
+            if not cap.isOpened():
+                rospy.logerr(f"Failed to open camera {camera_idx}")
+                # 使用模拟数据
+                # 创建一个空白图像作为替代
+                width, height = 640, 480
+                self.dummy_image = np.ones((height, width, 3), dtype=np.uint8) * 128
+                cv2.putText(self.dummy_image, "Camera not available", (100, height//2), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            else:
+                rospy.loginfo(f"Successfully opened camera {camera_idx}")
+            cap.release()
+        except Exception as e:
+            rospy.logerr(f"Error initializing camera: {str(e)}")
+        
         rospy.loginfo(f"Stereo node initialized")
     
     def publish_view_mode(self):
@@ -195,8 +214,24 @@ class StereoNode:
             
         except CvBridgeError as e:
             rospy.logerr(f"CV Bridge error: {str(e)}")
+            # 如果存在dummy_image，使用它替代
+            if hasattr(self, 'dummy_image'):
+                try:
+                    output_msg = self.bridge.cv2_to_imgmsg(self.dummy_image, "bgr8")
+                    output_msg.header = left_msg.header if left_msg else rospy.Header()
+                    self.stereo_pub.publish(output_msg)
+                except Exception as inner_e:
+                    rospy.logerr(f"Error publishing dummy image: {str(inner_e)}")
         except Exception as e:
             rospy.logerr(f"Error processing stereo images: {str(e)}")
+            # 如果存在dummy_image，使用它替代
+            if hasattr(self, 'dummy_image'):
+                try:
+                    output_msg = self.bridge.cv2_to_imgmsg(self.dummy_image, "bgr8")
+                    output_msg.header = left_msg.header if left_msg else rospy.Header()
+                    self.stereo_pub.publish(output_msg)
+                except Exception as inner_e:
+                    rospy.logerr(f"Error publishing dummy image: {str(inner_e)}")
     
     def detections_callback(self, msg):
         """Handle detection poses message"""

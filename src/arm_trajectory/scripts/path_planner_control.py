@@ -207,17 +207,23 @@ class PathPlannerControl:
             initial_solution[i*7 + 3:i*7 + 7] = quat
         
         # Set optimizer parameters
-        self.optimizer.set_parameters(
-            num_agents=30,
-            max_iterations=100,
-            lower_bounds=lower_bounds,
-            upper_bounds=upper_bounds,
-            objective_function=objective_function
+        self.optimizer = WhalesOptimizer(
+            num_whales=30,
+            dim=self.num_waypoints * 7,
+            max_iter=100,
+            lb=lower_bounds,
+            ub=upper_bounds
         )
+        
+        # 设置目标矩阵
+        target_matrix = np.eye(4)
+        target_matrix[:3, 3] = target_pos
+        self.optimizer.target_T = target_matrix
         
         # Run optimization
         try:
-            best_solution, best_cost = self.optimizer.optimize(initial_solution)
+            best_position, best_fitness, _ = self.optimizer.optimize(target_matrix, initial_solution)
+            best_solution = best_position
             
             # Check if solution is valid
             if best_solution is None:

@@ -7,6 +7,18 @@ import rospy
 import time
 from enum import Enum
 
+# 添加中文支持
+import locale
+
+# 设置正确的字符编码环境
+try:
+    locale.setlocale(locale.LC_ALL, '')
+    encoding = locale.getpreferredencoding()
+    rospy.loginfo(f"当前编码: {encoding}")
+except Exception as e:
+    rospy.logwarn(f"无法设置本地化环境: {str(e)}")
+    encoding = 'utf-8'
+
 class ViewMode(Enum):
     """Enum for different stereo view modes"""
     LEFT = 0
