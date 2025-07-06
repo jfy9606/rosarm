@@ -7,7 +7,7 @@ import math
 from geometry_msgs.msg import Pose, Point, Quaternion
 
 # Import optimization algorithm
-from whales_optimizer import WhaleOptimizer
+from whales_optimizer import WhalesOptimizer
 
 class PathPlannerControl:
     """
@@ -37,7 +37,7 @@ class PathPlannerControl:
         self.obstacles = []
         
         # Initialize optimizer
-        self.optimizer = WhaleOptimizer()
+        self.optimizer = WhalesOptimizer()
         
         # Initialize start and target poses
         self.start_pose = None
