@@ -10,7 +10,7 @@ from cv_bridge import CvBridge, CvBridgeError
 from std_srvs.srv import SetBool, SetBoolResponse
 
 # 使用包导入
-from vision import CameraControl, CameraMode
+from camera_control import CameraControl, CameraMode
 
 class CameraNode:
     """

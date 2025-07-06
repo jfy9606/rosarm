@@ -12,7 +12,7 @@ from cv_bridge import CvBridge, CvBridgeError
 from vision.srv import SetViewMode, SetViewModeResponse
 
 # Import stereo control
-from vision import StereoControl, StereoViewMode as ViewMode
+from stereo_control import StereoControl, ViewMode as StereoViewMode
 
 class StereoNode:
     """
@@ -190,7 +190,7 @@ class StereoNode:
     
     def detections_callback(self, msg):
         """Handle detection poses message"""
-        if not self.calibration_received or self.stereo_control.view_mode != ViewMode.DEPTH:
+        if not self.calibration_received or self.stereo_control.view_mode != StereoViewMode.DEPTH:
             # Skip if calibration not received or not in depth mode
             return
         

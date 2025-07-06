@@ -22,7 +22,7 @@ except ImportError:
     rospy.logwarn("无法导入ultralytics，将使用模拟检测")
 
 # 导入detector_control
-from vision import DetectorControl
+from detector_control import DetectorControl
 
 class DetectorNode:
     """
