@@ -1,3 +1,4 @@
+<?xml version="1.0"?>
 <launch>
     <!-- 参数设置 -->
     <arg name="servo_port" default="/dev/ttyUSB0" doc="舵机控制串口（波特率1000000）" />
@@ -6,54 +7,30 @@
     <arg name="yolo_model_path" default="" doc="自定义YOLOv8模型路径" />
     <arg name="yolo_confidence" default="0.5" doc="YOLO检测置信度阈值" />
     <arg name="use_depth" default="true" doc="是否启用深度图计算" />
+    <arg name="start_rviz" default="false" doc="是否启动RViz可视化" />
     
-    <!-- 设置日志级别 -->
-    <env name="ROSCONSOLE_CONFIG_FILE" 
-         value="$(find arm_trajectory)/config/rosconsole.conf"/>
+    <!-- 启动独立的视觉系统 -->
+    <include file="$(find vision)/launch/vision.launch">
+        <arg name="stereo_cam_device" value="/dev/video$(arg camera_index)" />
+        <arg name="yolo_model_path" value="$(arg yolo_model_path)" />
+        <arg name="enable_detection" value="$(arg yolo_enabled)" />
+        <arg name="start_rviz" value="false" /> <!-- 避免启动多个RViz -->
+    </include>
     
-    <!-- 启动舵机控制节点 -->
-    <node name="servo" pkg="servo_wrist" type="wrist_ctrl" args="$(arg servo_port)" output="screen">
-        <param name="baudrate" value="1000000" />
+    <!-- 启动独立的机械臂控制系统 -->
+    <include file="$(find arm_trajectory)/launch/arm_control.launch">
+        <arg name="servo_port" value="$(arg servo_port)" />
+        <arg name="start_rviz" value="false" /> <!-- 避免启动多个RViz -->
+    </include>
+    
+    <!-- 启动视觉伺服桥接节点 - 用于将视觉信息转换为机械臂控制命令 -->
+    <node name="visual_servo_bridge" pkg="arm_trajectory" type="visual_servo_bridge.py" output="screen">
+        <param name="detection_topic" value="/detections/poses" />
+        <param name="target_pose_topic" value="/trajectory/target_pose" />
     </node>
     
-    <!-- 启动关节状态发布节点 -->
-    <node name="joint_publisher" pkg="arm_gui" type="joint_state_publisher_node" output="screen">
-        <param name="publish_rate" value="50" />
-    </node>
-    
-    <!-- 启动YOLO目标检测节点 -->
-    <node name="yolo_detector_visual_servo" pkg="arm_trajectory" type="yolo_detector.py" output="screen" if="$(arg yolo_enabled)">
-        <param name="model_path" value="$(arg yolo_model_path)" />
-        <param name="confidence" value="$(arg yolo_confidence)" />
-    </node>
-    
-    <!-- 启动视觉伺服控制器 -->
-    <node name="visual_servo_controller" pkg="arm_trajectory" type="visual_servo_controller.py" output="screen" />
-    
-    <!-- 启动轨迹桥接节点 -->
-    <node name="trajectory_bridge" pkg="arm_trajectory" type="trajectory_bridge_node.py" output="screen" />
-    
-    <!-- 启动路径规划节点 -->
-    <node name="path_planner" pkg="arm_trajectory" type="path_planner.py" output="screen" />
-    
-    <!-- 启动立体相机节点 -->
-    <node name="stereo_camera_node" pkg="arm_trajectory" type="stereo_camera_node.py" output="screen">
-        <param name="camera_index" value="$(arg camera_index)" />
-        <param name="frame_rate" value="30" />
-        <param name="use_depth" value="$(arg use_depth)" />
-        <param name="stereo_method" value="anaglyph" />
-    </node>
-    
-    <!-- 相机图像中继节点 -->
-    <node name="camera_relay_left" pkg="topic_tools" type="relay" 
-          args="/stereo_camera/left/image_raw /camera/image_raw" />
-    
-    <node name="camera_relay_merged" pkg="topic_tools" type="relay"
-          args="/stereo_camera/image_merged /stereo_camera/image_merged" />
-    
-    <!-- 启动GUI控制界面 -->
-    <node name="arm_gui_node" pkg="arm_gui" type="arm_gui_node" output="screen" />
-    
-    <!-- 显示资源使用信息 -->
-    <node name="usage_info" pkg="arm_trajectory" type="resource_monitor.py" output="screen" />
+    <!-- 可选启动RViz -->
+    <group if="$(arg start_rviz)">
+        <node name="rviz" pkg="rviz" type="rviz" args="-d $(find arm_trajectory)/rviz/visual_servo.rviz" />
+    </group>
 </launch> 

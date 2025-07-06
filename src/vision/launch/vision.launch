@@ -8,28 +8,24 @@
   <arg name="frame_rate" default="30" />
   <arg name="enable_detection" default="true" />
   <arg name="initial_view_mode" default="0" /> <!-- 0=left, 1=right -->
-  <arg name="with_trajectory_planner" default="true" />
-  <arg name="with_arm_controller" default="true" />
-  <arg name="with_path_planner" default="true" />
   <arg name="start_rviz" default="false" doc="是否启动RViz可视化" />
-  <arg name="servo_port" default="/dev/ttyUSB0" doc="舵机控制串口（波特率1000000）" />
-  <arg name="motor_port" default="/dev/ttyUSB1" doc="电机控制串口（波特率115200）" />
-  <arg name="vacuum_enabled" default="true" doc="是否启用真空吸盘功能" />
 
   <!-- 设置参数服务器 -->
   <param name="/use_sim_time" value="false"/>
 
   <!-- 启动立体相机节点 -->
   <node pkg="vision" type="camera_node.py" name="camera_node" output="screen">
-    <param name="device_id" value="$(arg stereo_cam_device)" />
+    <param name="device" value="$(arg stereo_cam_device)" />
     <param name="width" value="$(arg image_width)" />
     <param name="height" value="$(arg image_height)" />
     <param name="fps" value="$(arg frame_rate)" />
-    <param name="publish_rate" value="30.0" />
+    <param name="pixel_format" value="mjpeg" />
   </node>
   
   <!-- 创建必要的话题转发 -->
-  <node name="camera_relay_merged" pkg="topic_tools" type="relay" args="/camera_node/left_camera/image_raw /stereo_camera/image_raw" />
+  <node name="camera_relay_left" pkg="topic_tools" type="relay" args="/camera/image_raw /left_camera/image_raw" />
+  <node name="camera_relay_right" pkg="topic_tools" type="relay" args="/camera/right/image_raw /right_camera/image_raw" />
+  <node name="camera_relay_merged" pkg="topic_tools" type="relay" args="/camera/image_raw /stereo_camera/image_raw" />
 
   <!-- 启动YOLO检测器节点 -->
   <node pkg="vision" type="detector_node.py" name="yolo_detector_node" output="screen">
@@ -44,21 +40,21 @@
   <node pkg="vision" type="stereo_node.py" name="stereo_detection_node" output="screen">
     <param name="yolo_model_path" value="$(arg yolo_model_path)"/>
     <param name="use_split_feed" value="false"/>
-    <param name="left_image_topic" value="/camera_node/left_camera/image_raw"/>
-    <param name="right_image_topic" value="/camera_node/right_camera/image_raw"/>
+    <param name="left_image_topic" value="/left_camera/image_raw"/>
+    <param name="right_image_topic" value="/right_camera/image_raw"/>
     <param name="auto_download" value="true"/>
   </node>
   
   <!-- 启动视图模式切换器 -->
-  <node pkg="vision" type="view_node.py" name="view_node" output="screen">
+  <node pkg="vision" type="view_node.py" name="view_mode_switcher" output="screen">
     <param name="initial_view_mode" value="$(arg initial_view_mode)" />
-    <param name="left_image_topic" value="/camera_node/left_camera/image_raw"/>
-    <param name="right_image_topic" value="/camera_node/right_camera/image_raw"/>
+    <param name="left_image_topic" value="/left_camera/image_raw"/>
+    <param name="right_image_topic" value="/right_camera/image_raw"/>
   </node>
   
   <!-- 确保视图模式话题能被正确接收 -->
   <node name="view_mode_relay" pkg="topic_tools" type="relay" 
-        args="/vision/view_mode /vision/view_mode_relay" />
+        args="/stereo_vision/view_mode /stereo_vision/view_mode_relay" />
   <node name="detection_relay" pkg="topic_tools" type="relay" 
         args="/detection_image /detections/image" />
   <node name="poses_relay" pkg="topic_tools" type="relay" 
@@ -67,60 +63,9 @@
   <!-- TF静态发布器，用于相机到世界坐标系的转换 -->
   <node pkg="tf2_ros" type="static_transform_publisher" name="camera_link_broadcaster"
         args="0.4 0 0.8 0 0.35 0 world camera_link" />
-  
-  <!-- 启动舵机控制节点 -->
-  <node name="servo" pkg="servo_wrist" type="wrist_node" args="$(arg servo_port)" output="screen" respawn="true" respawn_delay="2">
-    <param name="baudrate" value="1000000" />
-  </node>
-  
-  <!-- 启动真空吸盘控制节点 -->
-  <group if="$(arg vacuum_enabled)">
-    <node name="vacuum_controller_node" pkg="servo_wrist" type="vacuum_node" args="$(arg motor_port)" output="screen" respawn="true" respawn_delay="2">
-      <param name="baudrate" value="115200" />
-      <param name="max_power" value="100" />
-      <param name="default_power" value="80" />
-    </node>
-  </group>
-  
-  <!-- 启动关节状态发布节点 -->
-  <node name="joint_publisher" pkg="arm_gui" type="joint_state_publisher_node" output="screen" respawn="true">
-    <param name="publish_rate" value="20" />
-    <param name="use_sim_time" value="false" />
-  </node>
-  
-  <!-- 启动视觉伺服控制器 -->
-  <group if="$(arg with_arm_controller)">
-    <node name="visual_servo_controller" pkg="arm_trajectory" type="visual_servo_node.py" output="screen" />
-  </group>
-  
-  <!-- 启动路径规划节点 -->
-  <group if="$(arg with_path_planner)">
-    <node pkg="arm_trajectory" type="path_planner_node.py" name="path_planner_vision_node" output="screen">
-      <param name="arm_config" value="$(find arm_trajectory)/config/arm_params.yaml" />
-      <param name="use_whale_optimizer" value="true" />
-    </node>
-  </group>
-
-  <!-- 启动轨迹规划节点 -->
-  <group if="$(arg with_trajectory_planner)">
-    <node pkg="arm_trajectory" type="kinematics_node.py" name="arm_trajectory_bridge_gui" output="screen">
-      <param name="use_whale_optimizer" value="true" />
-    </node>
-  </group>
-
-  <!-- 启动GUI界面 -->
-  <node pkg="arm_gui" type="arm_gui_node" name="arm_gui_node" output="screen" respawn="true">
-    <!-- GUI参数 -->
-    <param name="update_rate" value="20" />
-    <param name="use_stereo_camera" value="true" />
-    <param name="vacuum_enabled" value="$(arg vacuum_enabled)" />
-  </node>
 
   <!-- 可选启动RViz -->
   <group if="$(arg start_rviz)">
-    <node name="rviz" pkg="rviz" type="rviz" args="-d $(find vision)/rviz/stereo_arm_control.rviz" />
+    <node name="rviz" pkg="rviz" type="rviz" args="-d $(find vision)/rviz/stereo_vision.rviz" />
   </group>
-
-  <!-- 加载机械臂描述参数 -->
-  <rosparam command="load" file="$(find arm_trajectory)/config/arm_params.yaml" />
 </launch> 

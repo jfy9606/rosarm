@@ -10,8 +10,8 @@ This module exports all relevant classes for the arm trajectory package
 from .kinematics_control import KinematicsControl
 from .path_planner_control import PathPlannerControl
 from .whales_optimizer import WhalesOptimizer, forward_kinematics_dh
-from .visual_servo_control import VisualServoControl
 from .trajectory_control import TrajectoryControl
+from .visual_servo_bridge import VisualServoBridge
 
 # 版本信息
 __version__ = '1.0.0'
@@ -22,6 +22,6 @@ __all__ = [
     'PathPlannerControl',
     'WhalesOptimizer',
     'forward_kinematics_dh',
-    'VisualServoControl',
-    'TrajectoryControl'
+    'TrajectoryControl',
+    'VisualServoBridge'
 ] 

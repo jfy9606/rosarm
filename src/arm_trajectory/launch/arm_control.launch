@@ -1,0 +1,57 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- 参数设置 -->
+  <arg name="servo_port" default="/dev/ttyUSB0" doc="舵机控制串口（波特率1000000）" />
+  <arg name="motor_port" default="/dev/ttyUSB1" doc="电机控制串口（波特率115200）" />
+  <arg name="vacuum_enabled" default="true" doc="是否启用真空吸盘功能" />
+  <arg name="start_rviz" default="false" doc="是否启动RViz可视化" />
+  
+  <!-- 设置日志级别 -->
+  <env name="ROSCONSOLE_CONFIG_FILE" 
+       value="$(find arm_trajectory)/config/rosconsole.conf"/>
+  
+  <!-- 启动舵机控制节点 -->
+  <node name="servo" pkg="servo_wrist" type="wrist_ctrl" args="$(arg servo_port)" output="screen">
+    <param name="baudrate" value="1000000" />
+  </node>
+  
+  <!-- 启动真空吸盘控制节点 -->
+  <group if="$(arg vacuum_enabled)">
+    <node name="vacuum_controller" pkg="servo_wrist" type="vacuum_node" args="$(arg motor_port)" output="screen" respawn="true" respawn_delay="2">
+      <param name="baudrate" value="115200" />
+      <param name="max_power" value="100" />
+      <param name="default_power" value="80" />
+    </node>
+  </group>
+  
+  <!-- 启动关节状态发布节点 -->
+  <node name="joint_publisher" pkg="arm_gui" type="joint_state_publisher_node" output="screen">
+    <param name="publish_rate" value="50" />
+  </node>
+  
+  <!-- 启动路径规划节点 -->
+  <node name="path_planner_node" pkg="arm_trajectory" type="path_planner_node.py" output="screen">
+    <param name="planning_time" value="5.0" />
+    <param name="num_waypoints" value="10" />
+    <param name="collision_threshold" value="0.05" />
+  </node>
+  
+  <!-- 启动轨迹规划节点 -->
+  <node name="trajectory_node" pkg="arm_trajectory" type="trajectory_node.py" output="screen">
+    <param name="planning_enabled" value="true" />
+    <param name="execution_enabled" value="true" />
+  </node>
+  
+  <!-- 启动运动学节点 -->
+  <node name="kinematics_node" pkg="arm_trajectory" type="kinematics_node.py" output="screen">
+    <param name="dh_params_file" value="$(find arm_trajectory)/config/dh_params.yaml" />
+  </node>
+  
+  <!-- 可选启动RViz -->
+  <group if="$(arg start_rviz)">
+    <node name="rviz" pkg="rviz" type="rviz" args="-d $(find arm_trajectory)/rviz/path_planning.rviz" />
+  </group>
+  
+  <!-- 加载机械臂描述参数 -->
+  <rosparam command="load" file="$(find arm_trajectory)/config/arm_params.yaml" />
+</launch> 

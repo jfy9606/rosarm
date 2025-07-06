@@ -1,68 +1,51 @@
 <?xml version="1.0"?>
 <launch>
-  <!-- Arguments -->
-  <arg name="use_stereo_camera" default="true" />
-  <arg name="with_stereo_vision" default="true" />
-  <arg name="with_trajectory_planner" default="true" />
-  <arg name="with_arm_controller" default="true" />
-  <arg name="camera_device" default="/dev/video0" doc="Camera device"/>
-  <arg name="start_rviz" default="false" doc="Start RViz visualization" />
+  <!-- 参数设置 -->
   <arg name="servo_port" default="/dev/ttyUSB0" doc="舵机控制串口（波特率1000000）" />
   <arg name="motor_port" default="/dev/ttyUSB1" doc="电机控制串口（波特率115200）" />
-  <arg name="vacuum_enabled" default="true" doc="是否启用真空吸盘功能" />
+  <arg name="camera_index" default="0" doc="摄像头索引" />
+  <arg name="yolo_enabled" default="true" doc="是否启用YOLO目标检测" />
+  <arg name="yolo_model_path" default="" doc="自定义YOLOv11模型路径" />
+  <arg name="bridge_enabled" default="false" doc="是否启用视觉伺服桥接" />
+  <arg name="start_rviz" default="false" doc="是否启动RViz可视化" />
+  <arg name="gui_enabled" default="true" doc="是否启动GUI界面" />
   
-  <!-- Start Stereo Vision Components -->
-  <group if="$(arg with_stereo_vision)">
-    <include file="$(find vision)/launch/vision.launch">
-      <arg name="stereo_cam_device" value="$(arg camera_device)" />
-    </include>
-  </group>
+  <!-- 启动独立的视觉系统 -->
+  <include file="$(find vision)/launch/vision.launch">
+    <arg name="stereo_cam_device" value="/dev/video$(arg camera_index)" />
+    <arg name="yolo_model_path" value="$(arg yolo_model_path)" />
+    <arg name="enable_detection" value="$(arg yolo_enabled)" />
+    <arg name="start_rviz" value="false" /> <!-- 避免启动多个RViz -->
+  </include>
   
-  <!-- Start Arm Controller (servo_wrist) -->
-  <group if="$(arg with_arm_controller)">
-    <!-- 使用单独的节点替代服务组合节点 -->
-    <node pkg="servo_wrist" type="wrist_node" name="wrist_controller" output="screen">
-      <param name="port" value="$(arg servo_port)" />
-      <param name="baudrate" value="1000000" />
-    </node>
-    
-    <!-- 启动真空吸盘控制节点 -->
-    <group if="$(arg vacuum_enabled)">
-      <node pkg="servo_wrist" type="vacuum_node" name="vacuum_controller" output="screen">
-        <param name="port" value="$(arg motor_port)" />
-        <param name="baudrate" value="115200" />
-        <param name="max_power" value="100" />
-        <param name="default_power" value="80" />
-      </node>
-    </group>
-  </group>
+  <!-- 启动独立的机械臂控制系统 -->
+  <include file="$(find arm_trajectory)/launch/arm_control.launch">
+    <arg name="servo_port" value="$(arg servo_port)" />
+    <arg name="motor_port" value="$(arg motor_port)" />
+    <arg name="start_rviz" value="false" /> <!-- 避免启动多个RViz -->
+  </include>
   
-  <!-- Start Joint State Publisher for TF -->
-  <node pkg="arm_gui" type="joint_state_publisher_node" name="joint_state_publisher" output="screen" />
-  
-  <!-- Start Trajectory Planning -->
-  <group if="$(arg with_trajectory_planner)">
-    <node pkg="arm_trajectory" type="arm_trajectory_node" name="kinematics_service" output="screen" />
-    
-    <node pkg="arm_trajectory" type="path_planner_node.py" name="path_planner_node" output="screen">
-      <param name="arm_config" value="$(find arm_trajectory)/config/arm_params.yaml" />
-    </node>
-    
-    <node pkg="arm_trajectory" type="kinematics_node.py" name="arm_trajectory_bridge_gui" output="screen" />
-  </group>
-  
-  <!-- Start GUI Interface -->
-  <node pkg="arm_gui" type="arm_gui_node" name="arm_gui_node" output="screen">
-    <param name="update_rate" value="20" />
-    <param name="use_stereo_camera" value="true" />
-    <param name="vacuum_enabled" value="$(arg vacuum_enabled)" />
+  <!-- 启动视觉伺服桥接节点 -->
+  <node name="visual_servo_bridge" pkg="arm_trajectory" type="visual_servo_bridge.py" output="screen">
+    <param name="detection_topic" value="/detections/poses" />
+    <param name="target_pose_topic" value="/trajectory/target_pose" />
+    <param name="enabled" value="$(arg bridge_enabled)" />
   </node>
-
-  <!-- Start RViz (optional) -->
-  <group if="$(arg start_rviz)">
-    <node name="rviz" pkg="rviz" type="rviz" args="-d $(find arm_gui)/rviz/arm_vision.rviz" />
+  
+  <!-- 启动GUI界面 -->
+  <group if="$(arg gui_enabled)">
+    <node name="arm_gui_node" pkg="arm_gui" type="arm_gui_node" output="screen" respawn="true">
+      <!-- GUI参数 -->
+      <param name="update_rate" value="20" />
+      <param name="use_stereo_camera" value="true" />
+    </node>
   </group>
-
-  <!-- Load Arm Parameters -->
-  <rosparam command="load" file="$(find arm_trajectory)/config/arm_params.yaml" />
+  
+  <!-- 可选启动RViz -->
+  <group if="$(arg start_rviz)">
+    <node name="rviz" pkg="rviz" type="rviz" args="-d $(find arm_bringup)/rviz/arm_system.rviz" />
+  </group>
+  
+  <!-- 显示资源使用信息 -->
+  <node name="resource_monitor" pkg="arm_bringup" type="resource_monitor.py" output="screen" />
 </launch> 
