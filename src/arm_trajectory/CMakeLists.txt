@@ -95,8 +95,7 @@ include_directories(
 
 ## Declare a C++ library
 add_library(${PROJECT_NAME}
-  src/kinematics_service.cpp
-  src/kinematics_utils.cpp
+  src/kinematics_control.cpp
 )
 
 ## Add cmake target dependencies of the library
@@ -134,9 +133,14 @@ target_link_libraries(${PROJECT_NAME}
 ## Mark executable scripts (Python etc.) for installation
 ## in contrast to setup.py, you can choose the destination
 catkin_install_python(PROGRAMS
-  scripts/trajectory_bridge_node.py
-  scripts/path_planner.py
-  scripts/visual_servo_controller.py
+  scripts/trajectory_node.py
+  scripts/trajectory_control.py
+  scripts/path_planner_node.py
+  scripts/path_planner_control.py
+  scripts/visual_servo_node.py
+  scripts/visual_servo_control.py
+  scripts/kinematics_node.py
+  scripts/kinematics_control.py
   scripts/whales_optimizer.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 ) 
@@ -173,6 +177,11 @@ install(DIRECTORY launch/ config/ rviz/
 ## Add gtest based cpp test target and link libraries
 # catkin_add_gtest(${PROJECT_NAME}-test test/test_arm_trajectory.cpp)
 # if(TARGET ${PROJECT_NAME}-test)
+#   target_link_libraries(${PROJECT_NAME}-test ${PROJECT_NAME})
+# endif()
+
+## Add folders to be run by python nosetests
+# catkin_add_nosetests(test) 
 #   target_link_libraries(${PROJECT_NAME}-test ${PROJECT_NAME})
 # endif()
 

@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.0.2)
 project(servo_wrist)
 
-## Compile as C++11, supported in ROS Kinetic and newer
-add_compile_options(-std=c++11)
+## Compile as C++14, supported in ROS Kinetic and newer
+add_compile_options(-std=c++14)
 
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
@@ -25,7 +25,7 @@ add_message_files(
 add_service_files(
   FILES
   JointControl.srv
-  VacuumControl.srv
+  VacuumCmd.srv
   HomePosition.srv
 )
 
@@ -60,7 +60,9 @@ include_directories(
 
 ## Declare a C++ library
 add_library(${PROJECT_NAME}
-  src/arm_controller.cpp
+  src/arm_control.cpp
+  src/vacuum_control.cpp
+  src/wrist_control.cpp
 )
 
 # 添加SCServo库
@@ -70,23 +72,28 @@ add_subdirectory(src/SCServo_Linux)
 add_dependencies(${PROJECT_NAME} ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 ## Declare a C++ executable
-add_executable(${PROJECT_NAME}_node src/servo_wrist_node.cpp)
-add_executable(wrist_ctrl src/wrist_ctrl.cpp)
-add_executable(vacuum_controller src/vacuum_controller.cpp)
+add_executable(${PROJECT_NAME}_node 
+  src/wrist_node_main.cpp 
+  src/arm_node.cpp
+)
+
+add_executable(wrist_node src/wrist_node.cpp)
+add_executable(vacuum_node src/vacuum_node.cpp)
 
 ## Specify libraries to link a library or executable target against
 target_link_libraries(${PROJECT_NAME}_node
   ${PROJECT_NAME}
   ${catkin_LIBRARIES}
+  SCServo
 )
 
-target_link_libraries(wrist_ctrl
+target_link_libraries(wrist_node
   ${PROJECT_NAME}
   ${catkin_LIBRARIES}
   SCServo
 )
 
-target_link_libraries(vacuum_controller
+target_link_libraries(vacuum_node
   ${PROJECT_NAME}
   ${catkin_LIBRARIES}
 )
@@ -96,7 +103,7 @@ target_link_libraries(vacuum_controller
 #############
 
 ## Mark executables for installation
-install(TARGETS ${PROJECT_NAME}_node wrist_ctrl vacuum_controller
+install(TARGETS ${PROJECT_NAME}_node wrist_node vacuum_node
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

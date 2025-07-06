@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- 只启动立体视觉检测节点 -->
+  <node pkg="vision" type="stereo_detection_node.py" name="stereo_detection_node" output="screen">
+    <param name="yolo_model_path" value="yolo11n.pt"/>
+    <param name="use_split_feed" value="false"/>
+    <param name="left_image_topic" value="/camera_node/left_camera/image_raw"/>
+    <param name="right_image_topic" value="/camera_node/right_camera/image_raw"/>
+    <param name="auto_download" value="true"/>
+  </node>
+</launch> 
