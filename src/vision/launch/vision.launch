@@ -69,13 +69,13 @@
         args="0.4 0 0.8 0 0.35 0 world camera_link" />
   
   <!-- 启动舵机控制节点 -->
-  <node name="servo" pkg="servo_wrist" type="wrist_ctrl" args="$(arg servo_port)" output="screen" respawn="true" respawn_delay="2">
+  <node name="servo" pkg="servo_wrist" type="wrist_node" args="$(arg servo_port)" output="screen" respawn="true" respawn_delay="2">
     <param name="baudrate" value="1000000" />
   </node>
   
   <!-- 启动真空吸盘控制节点 -->
   <group if="$(arg vacuum_enabled)">
-    <node name="vacuum_controller" pkg="servo_wrist" type="vacuum_controller" args="$(arg motor_port)" output="screen" respawn="true" respawn_delay="2">
+    <node name="vacuum_controller" pkg="servo_wrist" type="vacuum_node" args="$(arg motor_port)" output="screen" respawn="true" respawn_delay="2">
       <param name="baudrate" value="115200" />
       <param name="max_power" value="100" />
       <param name="default_power" value="80" />
@@ -90,12 +90,12 @@
   
   <!-- 启动视觉伺服控制器 -->
   <group if="$(arg with_arm_controller)">
-    <node name="visual_servo_controller" pkg="arm_trajectory" type="visual_servo_controller.py" output="screen" />
+    <node name="visual_servo_controller" pkg="arm_trajectory" type="visual_servo_node.py" output="screen" />
   </group>
   
   <!-- 启动路径规划节点 -->
   <group if="$(arg with_path_planner)">
-    <node pkg="arm_trajectory" type="path_planner.py" name="path_planner_node" output="screen">
+    <node pkg="arm_trajectory" type="path_planner_node.py" name="path_planner_node" output="screen">
       <param name="arm_config" value="$(find arm_trajectory)/config/arm_params.yaml" />
       <param name="use_whale_optimizer" value="true" />
     </node>
@@ -103,7 +103,7 @@
   
   <!-- 启动轨迹规划节点 -->
   <group if="$(arg with_trajectory_planner)">
-    <node pkg="arm_trajectory" type="trajectory_bridge_node.py" name="arm_trajectory_bridge_gui" output="screen">
+    <node pkg="arm_trajectory" type="kinematics_node.py" name="arm_trajectory_bridge_gui" output="screen">
       <param name="use_whale_optimizer" value="true" />
     </node>
   </group>

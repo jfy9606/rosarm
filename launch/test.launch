@@ -1,9 +1,0 @@
-<?xml version="1.0"?>
-<launch>
-  <!-- 仅包含GUI节点，用于测试界面 -->
-  
-  <!-- GUI节点 -->
-  <node name="arm_gui" pkg="arm_gui" type="arm_gui_node" output="screen">
-    <!-- GUI参数 -->
-  </node>
-</launch> 

@@ -45,11 +45,11 @@
   <group if="$(arg with_trajectory_planner)">
     <node pkg="arm_trajectory" type="arm_trajectory_node" name="kinematics_service" output="screen" />
     
-    <node pkg="arm_trajectory" type="path_planner.py" name="path_planner_node" output="screen">
+    <node pkg="arm_trajectory" type="path_planner_node.py" name="path_planner_node" output="screen">
       <param name="arm_config" value="$(find arm_trajectory)/config/arm_params.yaml" />
     </node>
     
-    <node pkg="arm_trajectory" type="trajectory_bridge_node.py" name="arm_trajectory_bridge_gui" output="screen" />
+    <node pkg="arm_trajectory" type="kinematics_node.py" name="arm_trajectory_bridge_gui" output="screen" />
   </group>
   
   <!-- Start GUI Interface -->
