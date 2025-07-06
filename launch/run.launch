@@ -99,7 +99,7 @@
     <!-- 可以指定DH参数文件 -->
     <!-- <param name="dh_params_file" value="$(find arm_trajectory)/config/dh_params.txt" /> -->
   </node>
-  
+
   <!-- 视觉伺服节点 -->
   <node name="visual_servo_controller" pkg="arm_trajectory" type="visual_servo_node.py" output="screen">
     <param name="image_topic" value="/stereo_camera/left/image_raw" />

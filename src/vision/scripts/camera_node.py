@@ -4,12 +4,18 @@
 import rospy
 import cv2
 import numpy as np
+import os
+import sys
 from sensor_msgs.msg import Image, CameraInfo
 from std_msgs.msg import Int32
 from cv_bridge import CvBridge, CvBridgeError
 from std_srvs.srv import SetBool, SetBoolResponse
 
-# 使用包导入
+# Add current directory to path to find modules
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+
 from camera_control import CameraControl, CameraMode
 
 class CameraNode:

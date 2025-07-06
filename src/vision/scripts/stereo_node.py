@@ -4,12 +4,22 @@
 import rospy
 import cv2
 import numpy as np
+import os
+import sys
+import time
 import message_filters
 from sensor_msgs.msg import Image, CameraInfo
 from geometry_msgs.msg import Pose, PoseArray
 from std_msgs.msg import Int32
 from cv_bridge import CvBridge, CvBridgeError
 from vision.srv import SetViewMode, SetViewModeResponse
+from std_srvs.srv import SetBool, SetBoolResponse
+from geometry_msgs.msg import Point, PointStamped
+
+# Add current directory to path to find modules
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
 
 # Import stereo control
 from stereo_control import StereoControl, ViewMode as StereoViewMode

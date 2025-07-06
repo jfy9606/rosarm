@@ -60,12 +60,12 @@ try:
     forward_kinematics_dh = whale_namespace.get("forward_kinematics_dh")
     
     if not WhaleOptimizer or not forward_kinematics_dh:
-        raise ImportError("WhaleOptimizer或forward_kinematics_dh在whales_optimizer.py中不存在")
+        raise ImportError("WhaleOptimizer or forward_kinematics_dh do not exist in whales_optimizer.py")
     
-    rospy.loginfo("成功从whales_optimizer.py导入WhaleOptimizer")
+    rospy.loginfo("Successfully imported WhaleOptimizer from whales_optimizer.py")
 except Exception as e:
-    rospy.logerr(f"导入WhaleOptimizer失败: {e}")
-    raise ImportError(f"无法导入WhaleOptimizer: {e}")
+    rospy.logerr(f"Failed to import WhaleOptimizer: {e}")
+    raise ImportError(f"Cannot import WhaleOptimizer: {e}")
 
 class ArmTrajectoryBridge:
     """Bridge node for connecting stereo vision with trajectory planning"""

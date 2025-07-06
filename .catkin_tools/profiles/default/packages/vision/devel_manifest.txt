@@ -7,17 +7,12 @@ vision
 /home/jfy/arm/rosarm/devel/.private/vision/include/vision/Detection.h /home/jfy/arm/rosarm/devel/include/vision/Detection.h
 /home/jfy/arm/rosarm/devel/.private/vision/include/vision/SetViewMode.h /home/jfy/arm/rosarm/devel/include/vision/SetViewMode.h
 /home/jfy/arm/rosarm/devel/.private/vision/include/vision/SetViewModeRequest.h /home/jfy/arm/rosarm/devel/include/vision/SetViewModeRequest.h
-/home/jfy/arm/rosarm/devel/.private/vision/lib/libvision_camera_control.so /home/jfy/arm/rosarm/devel/lib/libvision_camera_control.so
-/home/jfy/arm/rosarm/devel/.private/vision/lib/libvision_view_control.so /home/jfy/arm/rosarm/devel/lib/libvision_view_control.so
-/home/jfy/arm/rosarm/devel/.private/vision/lib/libvision_camera_config.so /home/jfy/arm/rosarm/devel/lib/libvision_camera_config.so
 /home/jfy/arm/rosarm/devel/.private/vision/lib/vision/detector_node.py /home/jfy/arm/rosarm/devel/lib/vision/detector_node.py
-/home/jfy/arm/rosarm/devel/.private/vision/lib/vision/camera_node /home/jfy/arm/rosarm/devel/lib/vision/camera_node
 /home/jfy/arm/rosarm/devel/.private/vision/lib/vision/view_control.py /home/jfy/arm/rosarm/devel/lib/vision/view_control.py
 /home/jfy/arm/rosarm/devel/.private/vision/lib/vision/camera_node.py /home/jfy/arm/rosarm/devel/lib/vision/camera_node.py
 /home/jfy/arm/rosarm/devel/.private/vision/lib/vision/view_node.py /home/jfy/arm/rosarm/devel/lib/vision/view_node.py
 /home/jfy/arm/rosarm/devel/.private/vision/lib/vision/camera_control.py /home/jfy/arm/rosarm/devel/lib/vision/camera_control.py
 /home/jfy/arm/rosarm/devel/.private/vision/lib/vision/detector_control.py /home/jfy/arm/rosarm/devel/lib/vision/detector_control.py
-/home/jfy/arm/rosarm/devel/.private/vision/lib/vision/view_node /home/jfy/arm/rosarm/devel/lib/vision/view_node
 /home/jfy/arm/rosarm/devel/.private/vision/lib/vision/stereo_control.py /home/jfy/arm/rosarm/devel/lib/vision/stereo_control.py
 /home/jfy/arm/rosarm/devel/.private/vision/lib/vision/stereo_node.py /home/jfy/arm/rosarm/devel/lib/vision/stereo_node.py
 /home/jfy/arm/rosarm/devel/.private/vision/lib/python3/dist-packages/vision/__init__.py /home/jfy/arm/rosarm/devel/lib/python3/dist-packages/vision/__init__.py

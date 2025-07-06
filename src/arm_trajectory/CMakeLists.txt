@@ -138,7 +138,7 @@ catkin_install_python(PROGRAMS
   scripts/visual_servo_node.py
   scripts/kinematics_node.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-)
+) 
 
 ## Mark executables for installation
 install(TARGETS ${PROJECT_NAME}_node

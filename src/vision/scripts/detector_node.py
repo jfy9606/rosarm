@@ -7,19 +7,25 @@ import os
 import sys
 import time
 import numpy as np
-from sensor_msgs.msg import Image
-from geometry_msgs.msg import Pose, PoseArray
-from std_msgs.msg import Bool, Int32
+from sensor_msgs.msg import Image, CameraInfo
+from geometry_msgs.msg import Pose, PoseArray, PointStamped
+from std_msgs.msg import Bool, Int32, String
 from cv_bridge import CvBridge, CvBridgeError
 from std_srvs.srv import SetBool, SetBoolResponse
 
-# 尝试导入ultralytics
+# Add current directory to path to find modules
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+
+# Try to import ultralytics
 try:
+    import torch
     from ultralytics import YOLO
-    YOLO_AVAILABLE = True
+    ULTRALYTICS_AVAILABLE = True
 except ImportError:
-    YOLO_AVAILABLE = False
-    rospy.logwarn("无法导入ultralytics，将使用模拟检测")
+    rospy.logwarn("Ultralytics not available, using CV2 DNN module instead")
+    ULTRALYTICS_AVAILABLE = False
 
 # 导入detector_control
 from detector_control import DetectorControl

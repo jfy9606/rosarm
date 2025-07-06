@@ -293,7 +293,7 @@ class CameraControl:
             
         except Exception as e:
             rospy.logerr(f"Error drawing info: {str(e)}")
-            return frame
+            return frame 
 
 # Add this at the end of the file to properly export the classes
 __all__ = ['CameraControl', 'CameraMode'] 
