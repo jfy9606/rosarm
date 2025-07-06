@@ -13,6 +13,13 @@ WristControl::WristControl() {
     for (size_t i = 0; i < servo_configs_.size(); ++i) {
         current_angles_[i] = servo_configs_[i].default_angle;
     }
+    
+    // 从ArmControl合并的初始化代码
+    // 初始化关节名称
+    joint_names_ = {"joint1", "joint2", "joint3", "joint4", "joint5", "joint6"};
+    
+    // 初始化关节位置
+    current_joint_positions_.resize(joint_names_.size(), 0.0);
 }
 
 WristControl::~WristControl() {
@@ -225,6 +232,36 @@ double WristControl::clampAngle(int index, double angle_rad) const {
     
     const ServoConfig& config = servo_configs_[index];
     return std::max(config.min_angle, std::min(config.max_angle, angle_rad));
+}
+
+// 从ArmControl合并的方法实现
+
+void WristControl::setJointPositions(const std::vector<double>& positions) {
+    // 检查位置数量是否匹配
+    if (positions.size() != joint_names_.size()) {
+        return;
+    }
+    
+    // 更新当前关节位置
+    current_joint_positions_ = positions;
+}
+
+std::vector<double> WristControl::getJointPositions() const {
+    return current_joint_positions_;
+}
+
+void WristControl::updateJointState(const std::vector<double>& joint_positions) {
+    // 检查位置数量是否匹配
+    if (joint_positions.size() != current_joint_positions_.size()) {
+        return;
+    }
+    
+    // 更新当前关节位置
+    current_joint_positions_ = joint_positions;
+}
+
+const std::vector<std::string>& WristControl::getJointNames() const {
+    return joint_names_;
 }
 
 } // namespace servo_wrist 

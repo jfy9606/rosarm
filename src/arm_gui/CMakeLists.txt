@@ -29,6 +29,7 @@ find_package(catkin REQUIRED COMPONENTS
   cv_bridge
   image_transport
   servo_wrist
+  arm_trajectory
 )
 
 # 查找Qt5
@@ -48,6 +49,7 @@ catkin_package(
     cv_bridge
     image_transport
     servo_wrist
+    arm_trajectory
   DEPENDS Qt5Core Qt5Gui Qt5Widgets Qt5OpenGL OPENGL
 )
 
@@ -63,19 +65,33 @@ include_directories(
   ${OPENGL_INCLUDE_DIRS}
 )
 
-# GUI可执行文件
-add_executable(arm_gui_node 
-  src/arm_gui_node.cpp
+# 设置源文件
+set(MAIN_WINDOW_SOURCES
+  src/main_window.cpp
 )
 
-# 链接库
-target_link_libraries(arm_gui_node
+set(MAIN_SOURCES
+  src/main.cpp
+)
+
+# Qt moc处理
+qt5_wrap_cpp(MAIN_WINDOW_MOC_SOURCES include/arm_gui/main_window.h)
+
+# GUI可执行文件 - 分开编译main_window和main.cpp
+add_library(main_window_lib ${MAIN_WINDOW_SOURCES} ${MAIN_WINDOW_MOC_SOURCES})
+target_link_libraries(main_window_lib
   ${catkin_LIBRARIES}
   Qt5::Core
   Qt5::Gui
   Qt5::Widgets
   Qt5::OpenGL
   ${OPENGL_LIBRARIES}
+)
+
+# 主可执行文件
+add_executable(main_window ${MAIN_SOURCES})
+target_link_libraries(main_window
+  main_window_lib
 )
 
 # 关节状态发布节点
@@ -88,8 +104,9 @@ target_link_libraries(joint_state_publisher_node
 )
 
 # 安装目标
-install(TARGETS arm_gui_node joint_state_publisher_node
+install(TARGETS main_window main_window_lib joint_state_publisher_node
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
 )
 
 install(DIRECTORY include/${PROJECT_NAME}/

@@ -135,7 +135,6 @@ target_link_libraries(${PROJECT_NAME}
 catkin_install_python(PROGRAMS
   scripts/trajectory_node.py
   scripts/path_planner_node.py
-  scripts/visual_servo_node.py
   scripts/kinematics_node.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 ) 

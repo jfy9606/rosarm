@@ -56,10 +56,8 @@ namespace Ui {
 }
 
 namespace arm_trajectory {
-    class KinematicsUtils;
+    class KinematicsControl;
 }
-
-class Scene3DRenderer;
 
 // 检测到的物体结构
 struct DetectedObject {
@@ -90,6 +88,8 @@ private slots:
     void updateUI();
     void updateGUIJointValues();
     void updateCameraView();
+    void updateEndEffectorPose();
+    void updateVacuumStatus();
     
     // 关节控制槽函数
     void onJoint1SliderChanged(int value);
@@ -274,11 +274,8 @@ private:
     std::vector<DetectedObject> detected_objects_;
     ros::Time last_detection_time_;
     
-    // 3D场景渲染器
-    Scene3DRenderer* scene_3d_renderer_;
-    
     // 运动学工具
-    arm_trajectory::KinematicsUtils* kinematics_utils_;
+    arm_trajectory::KinematicsControl* kinematics_utils_;
 };
 
 #endif // MAIN_WINDOW_H 

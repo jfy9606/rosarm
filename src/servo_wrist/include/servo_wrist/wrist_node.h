@@ -3,14 +3,20 @@
 
 #include <ros/ros.h>
 #include <std_msgs/String.h>
+#include <std_msgs/Float64MultiArray.h>
+#include <sensor_msgs/JointState.h>
 #include <servo_wrist/SerControl.h>
 #include <servo_wrist/wrist_control.h>
 #include <string>
+
+// 使用servo_wrist包中的MotorOrder消息
+#include <servo_wrist/MotorOrder.h>
 
 namespace servo_wrist {
 
 /**
  * @brief 手腕控制器节点类，处理ROS通信并使用WristControl进行核心功能
+ * 已整合原ArmNode功能
  */
 class WristNode {
 public:
@@ -33,17 +39,48 @@ public:
     void servoCallback(const servo_wrist::SerControl::ConstPtr& msg);
     
     /**
+     * @brief MotorOrder兼容回调函数，处理liancheng_socket风格的消息
+     * @param msg 电机控制消息
+     */
+    void motorOrderCallback(const servo_wrist::MotorOrder::ConstPtr& msg);
+    
+    /**
      * @brief 初始化伺服电机控制器
      * @return 初始化是否成功
      */
     bool initServo();
+    
+    // 从ArmNode合并的方法
+    
+    /**
+     * @brief 设置关节位置
+     * @param positions 关节位置数组
+     */
+    void setJointPositions(const std::vector<double>& positions);
+    
+    /**
+     * @brief 获取当前关节位置
+     * @return 关节位置数组
+     */
+    std::vector<double> getJointPositions() const;
+    
+    /**
+     * @brief 更新关节状态回调函数
+     * @param msg 关节状态消息
+     */
+    void updateJointState(const sensor_msgs::JointState::ConstPtr& msg);
 
 private:
     ros::NodeHandle nh_;
     ros::Subscriber servo_sub_;
+    ros::Subscriber motor_order_sub_;  // 添加兼容liancheng_socket的订阅者
     std::string port_;
     int baudrate_;
     bool initialized_;
+    
+    // 从ArmNode合并的成员
+    ros::Publisher joint_pub_;
+    ros::Subscriber joint_state_sub_;
     
     // 伺服电机通信类
     void* sms_sts_ptr_;  // SMS_STS类指针（使用void*避免在头文件中包含SCServo.h）

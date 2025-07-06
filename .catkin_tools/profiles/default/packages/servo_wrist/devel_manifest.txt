@@ -1,5 +1,6 @@
 servo_wrist
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/include/servo_wrist/JointControlRequest.h /home/jfy/arm/rosarm/devel/include/servo_wrist/JointControlRequest.h
+/home/jfy/arm/rosarm/devel/.private/servo_wrist/include/servo_wrist/MotorOrder.h /home/jfy/arm/rosarm/devel/include/servo_wrist/MotorOrder.h
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/include/servo_wrist/HomePositionRequest.h /home/jfy/arm/rosarm/devel/include/servo_wrist/HomePositionRequest.h
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/include/servo_wrist/JointControl.h /home/jfy/arm/rosarm/devel/include/servo_wrist/JointControl.h
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/include/servo_wrist/JointControlResponse.h /home/jfy/arm/rosarm/devel/include/servo_wrist/JointControlResponse.h
@@ -15,6 +16,7 @@ servo_wrist
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/lib/servo_wrist/wrist_node /home/jfy/arm/rosarm/devel/lib/servo_wrist/wrist_node
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/lib/servo_wrist/vacuum_node /home/jfy/arm/rosarm/devel/lib/servo_wrist/vacuum_node
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/lib/python3/dist-packages/servo_wrist/__init__.py /home/jfy/arm/rosarm/devel/lib/python3/dist-packages/servo_wrist/__init__.py
+/home/jfy/arm/rosarm/devel/.private/servo_wrist/lib/python3/dist-packages/servo_wrist/msg/_MotorOrder.py /home/jfy/arm/rosarm/devel/lib/python3/dist-packages/servo_wrist/msg/_MotorOrder.py
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/lib/python3/dist-packages/servo_wrist/msg/__init__.py /home/jfy/arm/rosarm/devel/lib/python3/dist-packages/servo_wrist/msg/__init__.py
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/lib/python3/dist-packages/servo_wrist/msg/_SerControl.py /home/jfy/arm/rosarm/devel/lib/python3/dist-packages/servo_wrist/msg/_SerControl.py
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/lib/python3/dist-packages/servo_wrist/srv/_HomePosition.py /home/jfy/arm/rosarm/devel/lib/python3/dist-packages/servo_wrist/srv/_HomePosition.py
@@ -29,18 +31,22 @@ servo_wrist
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/share/gennodejs/ros/servo_wrist/_index.js /home/jfy/arm/rosarm/devel/share/gennodejs/ros/servo_wrist/_index.js
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/share/gennodejs/ros/servo_wrist/msg/_index.js /home/jfy/arm/rosarm/devel/share/gennodejs/ros/servo_wrist/msg/_index.js
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/share/gennodejs/ros/servo_wrist/msg/SerControl.js /home/jfy/arm/rosarm/devel/share/gennodejs/ros/servo_wrist/msg/SerControl.js
+/home/jfy/arm/rosarm/devel/.private/servo_wrist/share/gennodejs/ros/servo_wrist/msg/MotorOrder.js /home/jfy/arm/rosarm/devel/share/gennodejs/ros/servo_wrist/msg/MotorOrder.js
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/share/gennodejs/ros/servo_wrist/srv/_index.js /home/jfy/arm/rosarm/devel/share/gennodejs/ros/servo_wrist/srv/_index.js
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/share/gennodejs/ros/servo_wrist/srv/VacuumCmd.js /home/jfy/arm/rosarm/devel/share/gennodejs/ros/servo_wrist/srv/VacuumCmd.js
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/share/gennodejs/ros/servo_wrist/srv/HomePosition.js /home/jfy/arm/rosarm/devel/share/gennodejs/ros/servo_wrist/srv/HomePosition.js
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/share/gennodejs/ros/servo_wrist/srv/JointControl.js /home/jfy/arm/rosarm/devel/share/gennodejs/ros/servo_wrist/srv/JointControl.js
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/share/roseus/ros/servo_wrist/manifest.l /home/jfy/arm/rosarm/devel/share/roseus/ros/servo_wrist/manifest.l
+/home/jfy/arm/rosarm/devel/.private/servo_wrist/share/roseus/ros/servo_wrist/msg/MotorOrder.l /home/jfy/arm/rosarm/devel/share/roseus/ros/servo_wrist/msg/MotorOrder.l
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/share/roseus/ros/servo_wrist/msg/SerControl.l /home/jfy/arm/rosarm/devel/share/roseus/ros/servo_wrist/msg/SerControl.l
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/share/roseus/ros/servo_wrist/srv/HomePosition.l /home/jfy/arm/rosarm/devel/share/roseus/ros/servo_wrist/srv/HomePosition.l
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/share/roseus/ros/servo_wrist/srv/VacuumCmd.l /home/jfy/arm/rosarm/devel/share/roseus/ros/servo_wrist/srv/VacuumCmd.l
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/share/roseus/ros/servo_wrist/srv/JointControl.l /home/jfy/arm/rosarm/devel/share/roseus/ros/servo_wrist/srv/JointControl.l
+/home/jfy/arm/rosarm/devel/.private/servo_wrist/share/common-lisp/ros/servo_wrist/msg/MotorOrder.lisp /home/jfy/arm/rosarm/devel/share/common-lisp/ros/servo_wrist/msg/MotorOrder.lisp
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/share/common-lisp/ros/servo_wrist/msg/_package.lisp /home/jfy/arm/rosarm/devel/share/common-lisp/ros/servo_wrist/msg/_package.lisp
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/share/common-lisp/ros/servo_wrist/msg/servo_wrist-msg.asd /home/jfy/arm/rosarm/devel/share/common-lisp/ros/servo_wrist/msg/servo_wrist-msg.asd
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/share/common-lisp/ros/servo_wrist/msg/SerControl.lisp /home/jfy/arm/rosarm/devel/share/common-lisp/ros/servo_wrist/msg/SerControl.lisp
+/home/jfy/arm/rosarm/devel/.private/servo_wrist/share/common-lisp/ros/servo_wrist/msg/_package_MotorOrder.lisp /home/jfy/arm/rosarm/devel/share/common-lisp/ros/servo_wrist/msg/_package_MotorOrder.lisp
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/share/common-lisp/ros/servo_wrist/msg/_package_SerControl.lisp /home/jfy/arm/rosarm/devel/share/common-lisp/ros/servo_wrist/msg/_package_SerControl.lisp
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/share/common-lisp/ros/servo_wrist/srv/JointControl.lisp /home/jfy/arm/rosarm/devel/share/common-lisp/ros/servo_wrist/srv/JointControl.lisp
 /home/jfy/arm/rosarm/devel/.private/servo_wrist/share/common-lisp/ros/servo_wrist/srv/_package.lisp /home/jfy/arm/rosarm/devel/share/common-lisp/ros/servo_wrist/srv/_package.lisp

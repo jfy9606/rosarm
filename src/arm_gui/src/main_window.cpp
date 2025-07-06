@@ -3,9 +3,14 @@
 #include <QFileDialog>
 #include <QDebug>
 #include <QCloseEvent>
+#include <QCheckBox>
+#include <QTableWidget>
+#include <QComboBox>
+#include <QHeaderView>
 #include <cmath>
 #include <cv_bridge/cv_bridge.h>
 #include <opencv2/imgproc/imgproc.hpp>
+#include "arm_trajectory/kinematics_control.h"
 
 // 前向声明UI命名空间
 namespace Ui {
@@ -18,7 +23,7 @@ MainWindow::MainWindow(ros::NodeHandle& nh, QWidget* parent)
     yolo_enabled_(false), camera_view_mode_(0), is_camera_available_(false),
     stereo_camera_error_count_(0), available_camera_index_(-1),
     ignore_slider_events_(false), ignore_spin_events_(false), ui_processing_(false),
-    scene_3d_renderer_(nullptr), updateTimer(new QTimer(this))
+    updateTimer(new QTimer(this))
 {
     // 设置窗口标题和大小
     setWindowTitle("机械臂控制系统");
@@ -46,7 +51,7 @@ MainWindow::MainWindow(ros::NodeHandle& nh, QWidget* parent)
     setupJointLimits();
     
     // 初始化运动学工具
-    kinematics_utils_ = new arm_trajectory::KinematicsUtils(nh_);
+    kinematics_utils_ = new arm_trajectory::KinematicsControl();
     
     // 创建主标签页控件
     QTabWidget* mainTabWidget = new QTabWidget(this);
@@ -103,9 +108,6 @@ MainWindow::MainWindow(ros::NodeHandle& nh, QWidget* parent)
 
 MainWindow::~MainWindow()
 {
-    if (scene_3d_renderer_) {
-        delete scene_3d_renderer_;
-    }
     if (kinematics_utils_) {
         delete kinematics_utils_;
     }
@@ -462,70 +464,58 @@ QWidget* MainWindow::createCameraViewPanel()
 
 QWidget* MainWindow::createObjectDetectionPanel()
 {
-    QGroupBox* detectionGroup = new QGroupBox("物体检测");
-    QVBoxLayout* layout = new QVBoxLayout(detectionGroup);
+    QWidget* panel = new QWidget();
+    QVBoxLayout* layout = new QVBoxLayout(panel);
     
-    // 添加检测控制
     QCheckBox* enableDetectionCheck = new QCheckBox("启用物体检测");
     layout->addWidget(enableDetectionCheck);
     
-    // 添加检测结果表格
+    // 创建检测表格
     QTableWidget* detectionTable = new QTableWidget(0, 3);
-    detectionTable->setHorizontalHeaderLabels({"物体类型", "置信度", "距离(cm)"});
+    detectionTable->setHorizontalHeaderLabels(QStringList() << "物体" << "置信度" << "距离(cm)");
+    detectionTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    detectionTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    detectionTable->horizontalHeader()->setStretchLastSection(true);
     layout->addWidget(detectionTable);
     
-    return detectionGroup;
+    return panel;
 }
 
 QWidget* MainWindow::createDepthVisualizationPanel()
 {
-    QGroupBox* depthGroup = new QGroupBox("深度可视化");
-    QVBoxLayout* layout = new QVBoxLayout(depthGroup);
+    QWidget* panel = new QWidget();
+    QVBoxLayout* layout = new QVBoxLayout(panel);
     
-    // 添加深度显示控制
-    QPushButton* showDepthBtn = new QPushButton("显示深度视图");
-    layout->addWidget(showDepthBtn);
-    
-    // 添加深度设置
     QCheckBox* showDistanceCheck = new QCheckBox("显示距离信息");
     showDistanceCheck->setChecked(true);
     layout->addWidget(showDistanceCheck);
     
-    return depthGroup;
+    return panel;
 }
 
 QWidget* MainWindow::createVisualServoBridgePanel()
 {
-    QGroupBox* bridgeGroup = new QGroupBox("视觉伺服桥接");
-    QVBoxLayout* layout = new QVBoxLayout(bridgeGroup);
+    QWidget* panel = new QWidget();
+    QVBoxLayout* layout = new QVBoxLayout(panel);
     
-    // 添加桥接控制
     QCheckBox* enableBridgeCheck = new QCheckBox("启用视觉伺服桥接");
     layout->addWidget(enableBridgeCheck);
     
-    // 添加桥接模式选择
+    // 桥接模式选择
     QComboBox* bridgeModeCombo = new QComboBox();
-    bridgeModeCombo->addItem("位置伺服");
-    bridgeModeCombo->addItem("视觉跟踪");
+    bridgeModeCombo->addItem("位置跟踪模式");
+    bridgeModeCombo->addItem("抓取模式");
+    bridgeModeCombo->addItem("放置模式");
     layout->addWidget(bridgeModeCombo);
     
-    // 添加目标选择
-    QLabel* targetLabel = new QLabel("选择目标物体:");
-    layout->addWidget(targetLabel);
-    
+    // 目标对象选择
     QComboBox* targetObjectCombo = new QComboBox();
+    targetObjectCombo->addItem("最近对象");
+    targetObjectCombo->addItem("指定物体 1");
+    targetObjectCombo->addItem("指定物体 2");
     layout->addWidget(targetObjectCombo);
     
-    // 添加启动按钮
-    QPushButton* startBridgeBtn = new QPushButton("启动桥接");
-    layout->addWidget(startBridgeBtn);
-    
-    // 添加状态显示
-    QTextEdit* bridgeStatusText = new QTextEdit();
-    bridgeStatusText->setReadOnly(true);
-    layout->addWidget(bridgeStatusText);
-    
-    return bridgeGroup;
+    return panel;
 }
 
 // 更新UI
@@ -540,65 +530,45 @@ void MainWindow::updateUI()
 
 void MainWindow::updateEndEffectorPose()
 {
-    if (current_joint_values_.empty() || current_joint_values_.size() < 6) {
+    if (!kinematics_utils_ || current_joint_values_.empty()) {
         return;
     }
-    
+
     try {
-        // 使用正向运动学计算当前末端位姿
-        geometry_msgs::Pose current_pose = forwardKinematics(current_joint_values_);
+        // 使用前向运动学计算末端位置
+        current_end_pose_ = forwardKinematics(current_joint_values_);
         
-        // 更新当前末端位置
-        current_end_position_ = QVector3D(
-            current_pose.position.x * 100.0f,  // 转换为厘米
-            current_pose.position.y * 100.0f, 
-            current_pose.position.z * 100.0f
-        );
-        
-        // 更新当前末端方向
-        current_end_orientation_ = QQuaternion(
-            current_pose.orientation.w,
-            current_pose.orientation.x,
-            current_pose.orientation.y,
-            current_pose.orientation.z
-        );
-        
-        // 更新当前末端位姿
-        current_end_pose_ = current_pose;
-        
-        // 更新UI显示
+        // 更新显示
         if (endEffectorStatusLabel) {
-            // 使用Qt的数字占位符格式，而不是printf风格的占位符
-            QString posText = QString("末端位置: X=%1, Y=%2, Z=%3 cm")
-                .arg(current_end_position_.x(), 0, 'f', 2)
-                .arg(current_end_position_.y(), 0, 'f', 2)
-                .arg(current_end_position_.z(), 0, 'f', 2);
-            endEffectorStatusLabel->setText(posText);
+            QString positionText = QString("位置: X:%.2f Y:%.2f Z:%.2f cm").arg(
+                current_end_pose_.position.x * 100,  // 转换为厘米
+                current_end_pose_.position.y * 100,
+                current_end_pose_.position.z * 100
+            );
+            endEffectorStatusLabel->setText(positionText);
         }
-        
-        // 更新坐标输入框的值，但不触发事件
-        posXSpin->blockSignals(true);
-        posYSpin->blockSignals(true);
-        posZSpin->blockSignals(true);
-        
-        posXSpin->setValue(current_end_position_.x());
-        posYSpin->setValue(current_end_position_.y());
-        posZSpin->setValue(current_end_position_.z());
-        
-        posXSpin->blockSignals(false);
-        posYSpin->blockSignals(false);
-        posZSpin->blockSignals(false);
-        
     } catch (const std::exception& e) {
-        ROS_ERROR("更新末端位姿失败: %s", e.what());
+        // 错误处理
+        if (endEffectorStatusLabel) {
+            endEffectorStatusLabel->setText("末端位置计算错误");
+        }
+        ROS_ERROR("末端位置计算错误: %s", e.what());
     }
 }
 
 void MainWindow::updateVacuumStatus()
 {
-    // 更新吸附按钮状态
-    vacuumOnButton->setEnabled(!vacuum_on_);
-    vacuumOffButton->setEnabled(vacuum_on_);
+    // 更新真空吸盘状态指示
+    if (vacuum_on_) {
+        vacuumOnButton->setStyleSheet("QPushButton { background-color: green; }");
+        vacuumOffButton->setStyleSheet("");
+    } else {
+        vacuumOnButton->setStyleSheet("");
+        vacuumOffButton->setStyleSheet("QPushButton { background-color: red; }");
+    }
+    
+    // 更新吸盘功率滑块
+    vacuumPowerSlider->setValue(vacuum_power_);
 }
 
 void MainWindow::updateGUIJointValues()
@@ -1117,20 +1087,14 @@ void MainWindow::logMessage(const QString& message)
 // 运动学计算函数
 double MainWindow::degToRad(double deg)
 {
-    if (!kinematics_utils_) {
-        // Fallback if kinematics_utils_ is not initialized
-        return deg * M_PI / 180.0;
-    }
-    return kinematics_utils_->degToRad(deg);
+    // 直接实现角度到弧度的转换
+    return deg * M_PI / 180.0;
 }
 
 double MainWindow::radToDeg(double rad)
 {
-    if (!kinematics_utils_) {
-        // Fallback if kinematics_utils_ is not initialized
-        return rad * 180.0 / M_PI;
-    }
-    return kinematics_utils_->radToDeg(rad);
+    // 直接实现弧度到角度的转换
+    return rad * 180.0 / M_PI;
 }
 
 geometry_msgs::Pose MainWindow::forwardKinematics(const std::vector<double>& joint_values)
@@ -1194,12 +1158,8 @@ bool MainWindow::checkJointLimits(const std::vector<double>& joint_values)
 
 void MainWindow::setupJointLimits()
 {
-    // 使用KinematicsUtils设置关节限制
     if (kinematics_utils_) {
-        kinematics_utils_->setupJointLimits();
-        ROS_INFO("关节限制已设置");
-    } else {
-        ROS_ERROR("Kinematics utilities not initialized, cannot set up joint limits");
+        kinematics_utils_->setupJointLimits("");
     }
 }
 
@@ -2273,4 +2233,45 @@ void MainWindow::objectDetectionCallback(const sensor_msgs::Image::ConstPtr& img
     } catch (...) {
         ROS_ERROR("处理检测结果时发生未知异常");
     }
+}
+
+void MainWindow::updateCameraView()
+{
+    if (!cameraView) {
+        return;
+    }
+    
+    // 根据相机模式选择要显示的图像
+    QImage displayImage;
+    
+    if (!is_camera_available_) {
+        // 如果相机不可用，显示占位图像
+        createPlaceholderImage("相机连接中...");
+        displayImage = current_camera_image_;
+    } else {
+        // 根据相机视图模式显示不同的图像
+        switch(camera_view_mode_) {
+        case 0:  // 左相机
+            displayImage = left_camera_image_;
+            break;
+        case 1:  // 右相机
+            displayImage = right_camera_image_;
+            break;
+        default:  // 默认混合视图
+            displayImage = current_camera_image_;
+            break;
+        }
+    }
+    
+    // 在图像上绘制检测框
+    if (yolo_enabled_ && show_detection_boxes_ && !detected_objects_.empty()) {
+        drawDetectionBoxes(displayImage, detected_objects_);
+    }
+    
+    // 显示图像
+    cameraView->setPixmap(QPixmap::fromImage(displayImage.scaled(
+        cameraView->width(), 
+        cameraView->height(),
+        Qt::KeepAspectRatio
+    )));
 }

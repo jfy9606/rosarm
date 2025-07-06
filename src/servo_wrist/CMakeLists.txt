@@ -19,6 +19,7 @@ find_package(catkin REQUIRED COMPONENTS
 add_message_files(
   FILES
   SerControl.msg
+  MotorOrder.msg
 )
 
 ## Generate services in the 'srv' folder
@@ -60,9 +61,8 @@ include_directories(
 
 ## Declare a C++ library
 add_library(${PROJECT_NAME}
-  src/arm_control.cpp
-  src/vacuum_control.cpp
   src/wrist_control.cpp
+  src/vacuum_control.cpp
 )
 
 # 添加SCServo库
@@ -73,8 +73,7 @@ add_dependencies(${PROJECT_NAME} ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EX
 
 ## Declare a C++ executable
 add_executable(${PROJECT_NAME}_node 
-  src/wrist_node_main.cpp 
-  src/arm_node.cpp
+  src/vacuum_node.cpp
 )
 
 add_executable(wrist_node src/wrist_node.cpp)

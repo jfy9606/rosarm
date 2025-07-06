@@ -26,6 +26,7 @@ struct ServoConfig {
 
 /**
  * @brief 手腕控制类，包含手腕运动控制的核心逻辑，与ROS无关
+ * 整合了原来的WristControl和ArmControl功能
  */
 class WristControl {
 public:
@@ -106,9 +107,39 @@ public:
      */
     bool goHome();
 
+    // 从ArmControl合并的方法
+
+    /**
+     * @brief 设置关节位置
+     * @param positions 关节位置数组
+     */
+    void setJointPositions(const std::vector<double>& positions);
+    
+    /**
+     * @brief 获取当前关节位置
+     * @return 关节位置数组
+     */
+    std::vector<double> getJointPositions() const;
+    
+    /**
+     * @brief 更新关节状态
+     * @param joint_positions 新的关节位置
+     */
+    void updateJointState(const std::vector<double>& joint_positions);
+    
+    /**
+     * @brief 获取关节名称
+     * @return 关节名称数组
+     */
+    const std::vector<std::string>& getJointNames() const;
+
 private:
     std::vector<ServoConfig> servo_configs_;   // 伺服电机配置
     std::vector<double> current_angles_;       // 当前伺服电机角度
+    
+    // 从ArmControl合并的属性
+    std::vector<double> current_joint_positions_;  // 当前关节位置
+    std::vector<std::string> joint_names_;         // 关节名称
     
     /**
      * @brief 限制角度在有效范围内
