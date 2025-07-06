@@ -9,11 +9,8 @@ from std_msgs.msg import Float64MultiArray
 from arm_trajectory.srv import ForwardKinematics, ForwardKinematicsResponse
 from arm_trajectory.srv import InverseKinematics, InverseKinematicsResponse
 
-# 使用绝对导入路径
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from kinematics_control import KinematicsControl
+# 直接从当前文件导入
+from .kinematics_control import KinematicsControl
 
 class KinematicsNode:
     """

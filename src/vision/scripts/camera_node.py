@@ -9,7 +9,9 @@ from std_msgs.msg import Int32
 from cv_bridge import CvBridge, CvBridgeError
 from std_srvs.srv import SetBool, SetBoolResponse
 
-# Import camera control
+# 使用完整的导入路径
+import sys, os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from camera_control import CameraControl, CameraMode
 
 class CameraNode:

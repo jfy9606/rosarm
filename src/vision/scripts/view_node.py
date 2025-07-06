@@ -8,9 +8,11 @@ from sensor_msgs.msg import Image
 from geometry_msgs.msg import PoseArray
 from std_msgs.msg import Int32
 from cv_bridge import CvBridge, CvBridgeError
-from vision.srv import SetViewMode, SetViewModeResponse
+from std_srvs.srv import SetBool, SetBoolResponse
 
-# Import view control
+# 使用完整的导入路径
+import sys, os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from view_control import ViewControl, ViewMode
 
 class ViewNode:
@@ -35,7 +37,7 @@ class ViewNode:
         self.view_control.set_view_mode(self.initial_view_mode)
         
         # Create service
-        self.set_view_mode_service = rospy.Service('/view/set_view_mode', SetViewMode, self.set_view_mode_callback)
+        self.set_view_mode_service = rospy.Service('/view/set_view_mode', SetBool, self.set_view_mode_callback)
         
         # Subscribe to image topic
         self.image_sub = rospy.Subscriber(self.image_topic, Image, self.image_callback)
@@ -82,15 +84,15 @@ class ViewNode:
         """Handle set view mode service request"""
         try:
             # Set view mode
-            self.view_control.set_view_mode(req.mode)
+            self.view_control.set_view_mode(req.data)
             
             # Publish updated view mode
             self.publish_view_mode()
             
-            return SetViewModeResponse(True, f"View mode set to {self.view_control.view_mode.name}")
+            return SetBoolResponse(True, f"View mode set to {self.view_control.view_mode.name}")
         except Exception as e:
             rospy.logerr(f"Error setting view mode: {str(e)}")
-            return SetViewModeResponse(False, f"Error setting view mode: {str(e)}")
+            return SetBoolResponse(False, f"Error setting view mode: {str(e)}")
     
     def mode_callback(self, msg):
         """Handle view mode message"""

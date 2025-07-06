@@ -21,6 +21,7 @@ arm_trajectory
 /home/jfy/arm/rosarm/devel/.private/arm_trajectory/lib/arm_trajectory/kinematics_control.py /home/jfy/arm/rosarm/devel/lib/arm_trajectory/kinematics_control.py
 /home/jfy/arm/rosarm/devel/.private/arm_trajectory/lib/arm_trajectory/trajectory_control.py /home/jfy/arm/rosarm/devel/lib/arm_trajectory/trajectory_control.py
 /home/jfy/arm/rosarm/devel/.private/arm_trajectory/lib/arm_trajectory/arm_trajectory_node /home/jfy/arm/rosarm/devel/lib/arm_trajectory/arm_trajectory_node
+/home/jfy/arm/rosarm/devel/.private/arm_trajectory/lib/arm_trajectory/whales_optimizer/__init__.py /home/jfy/arm/rosarm/devel/lib/arm_trajectory/whales_optimizer/__init__.py
 /home/jfy/arm/rosarm/devel/.private/arm_trajectory/lib/python3/dist-packages/arm_trajectory/__init__.py /home/jfy/arm/rosarm/devel/lib/python3/dist-packages/arm_trajectory/__init__.py
 /home/jfy/arm/rosarm/devel/.private/arm_trajectory/lib/python3/dist-packages/arm_trajectory/msg/_TrajectoryPoint.py /home/jfy/arm/rosarm/devel/lib/python3/dist-packages/arm_trajectory/msg/_TrajectoryPoint.py
 /home/jfy/arm/rosarm/devel/.private/arm_trajectory/lib/python3/dist-packages/arm_trajectory/msg/__init__.py /home/jfy/arm/rosarm/devel/lib/python3/dist-packages/arm_trajectory/msg/__init__.py

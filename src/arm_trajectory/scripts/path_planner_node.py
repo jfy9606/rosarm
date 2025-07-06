@@ -3,11 +3,14 @@
 
 import rospy
 import numpy as np
-from geometry_msgs.msg import Pose, PoseArray
-from visualization_msgs.msg import Marker, MarkerArray
+from geometry_msgs.msg import Pose, Point, Quaternion
 from std_msgs.msg import Bool
-from arm_trajectory.srv import PlanTrajectory, PlanTrajectoryResponse
+from std_srvs.srv import SetBool, SetBoolResponse
+from arm_trajectory.srv import PlanPath, PlanPathResponse
 
+# 使用完整的导入路径
+import sys, os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from path_planner_control import PathPlannerControl
 
 class PathPlannerNode:
@@ -38,7 +41,7 @@ class PathPlannerNode:
         )
         
         # Create service
-        self.plan_service = rospy.Service('/path_planner/plan', PlanTrajectory, self.plan_trajectory_callback)
+        self.plan_service = rospy.Service('/path_planner/plan', PlanPath, self.plan_path_callback)
         
         # Subscribe to obstacle topic
         self.obstacles_sub = rospy.Subscriber('/path_planner/obstacles', MarkerArray, self.obstacles_callback)
@@ -144,8 +147,8 @@ class PathPlannerNode:
             
             return None, False
     
-    def plan_trajectory_callback(self, req):
-        """Handle plan trajectory service request"""
+    def plan_path_callback(self, req):
+        """Handle plan path service request"""
         # Set planning parameters
         self.path_planner.set_planning_parameters(
             planning_time=req.planning_time if req.planning_time > 0 else self.planning_time,
@@ -157,7 +160,7 @@ class PathPlannerNode:
             self.path_planner.set_start_pose(req.start_joint_state.pose)
             self.start_pose = req.start_joint_state.pose
         elif self.start_pose is None:
-            return PlanTrajectoryResponse(False, "No start pose available")
+            return PlanPathResponse(False, "No start pose available")
         
         self.path_planner.set_target_pose(req.target_pose)
         self.target_pose = req.target_pose
@@ -166,9 +169,9 @@ class PathPlannerNode:
         path, success = self.plan_path()
         
         if success and path:
-            return PlanTrajectoryResponse(True, f"Path planning successful with {len(path)} waypoints")
+            return PlanPathResponse(True, f"Path planning successful with {len(path)} waypoints")
         else:
-            return PlanTrajectoryResponse(False, "Path planning failed")
+            return PlanPathResponse(False, "Path planning failed")
     
     def publish_path(self, path):
         """
