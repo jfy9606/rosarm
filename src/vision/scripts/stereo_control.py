@@ -335,3 +335,6 @@ class StereoControl:
             output_image = left_rect
         
         return output_image, filtered_disparity if filtered_disparity is not None else disparity 
+
+# Add this at the end of the file to properly export the classes
+__all__ = ['StereoControl', 'ViewMode'] 

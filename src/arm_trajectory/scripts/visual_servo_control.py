@@ -336,4 +336,7 @@ class VisualServoControl:
             [2*x*z - 2*y*w, 2*y*z + 2*x*w, 1 - 2*x**2 - 2*y**2]
         ])
         
-        return R 
+        return R
+
+# Add this at the end of the file to properly export the class
+__all__ = ['VisualServoControl'] 

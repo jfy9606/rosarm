@@ -366,3 +366,6 @@ class ViewControl:
                 image = self.draw_info(image, info)
         
         return image 
+
+# Add this at the end of the file to properly export the classes
+__all__ = ['ViewControl', 'ViewMode'] 

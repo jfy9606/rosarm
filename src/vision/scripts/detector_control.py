@@ -329,3 +329,6 @@ class DetectorControl:
             )
         
         return annotated_image
+
+# Add this at the end of the file to properly export the class
+__all__ = ['DetectorControl']
