@@ -305,7 +305,7 @@ detect_ports() {
         echo -e "${GREEN}将使用 ${DETECTED_SERVO_PORT} 作为舵机控制串口，${DETECTED_MOTOR_PORT} 作为电机控制串口${NC}"
         
         # 更新launch文件中的串口配置
-        LAUNCH_FILE="$WORKSPACE_DIR/src/stereo_vision/launch/stereo_vision.launch"
+        LAUNCH_FILE="$WORKSPACE_DIR/src/vision/launch/stereo_vision.launch"
         if [ -f "${LAUNCH_FILE}" ]; then
             # 备份原始文件
             cp "${LAUNCH_FILE}" "${LAUNCH_FILE}.bak" 2>/dev/null
@@ -483,8 +483,8 @@ launch_full_system() {
     echo -e "${CYAN}初始视图模式: $INITIAL_VIEW_MODE${NC}"
     echo -e "${CYAN}真空吸盘功能: $([ "$VACUUM_ENABLED" = true ] && echo "启用" || echo "禁用")${NC}"
     
-    # 构建启动命令
-    LAUNCH_CMD="roslaunch stereo_vision stereo_vision.launch enable_detection:=$YOLO_ENABLED"
+    # 构建启动命令 - 修改为使用vision包的stereo_vision.launch
+    LAUNCH_CMD="roslaunch vision stereo_vision.launch enable_detection:=$YOLO_ENABLED"
     
     # 添加额外参数
     if [ -n "$YOLO_MODEL" ]; then
@@ -509,7 +509,7 @@ show_menu() {
         echo -e "${BLUE}=====================================${NC}"
         echo -e "${GREEN}机械臂视觉控制系统启动菜单${NC}"
         echo -e "${BLUE}=====================================${NC}"
-        echo -e "${YELLOW}1. 启动视觉控制系统${NC}"
+        echo -e "${YELLOW}1. 启动机械臂视觉控制系统${NC}"
         echo -e "${YELLOW}2. 检测串口设备${NC}"
         echo -e "${YELLOW}3. 配置参数${NC}"
         echo -e "${YELLOW}4. 修复系统权限${NC}"

@@ -7,24 +7,35 @@
   <arg name="with_arm_controller" default="true" />
   <arg name="camera_device" default="/dev/video0" doc="Camera device"/>
   <arg name="start_rviz" default="false" doc="Start RViz visualization" />
+  <arg name="servo_port" default="/dev/ttyUSB0" doc="舵机控制串口（波特率1000000）" />
+  <arg name="motor_port" default="/dev/ttyUSB1" doc="电机控制串口（波特率115200）" />
+  <arg name="vacuum_enabled" default="true" doc="是否启用真空吸盘功能" />
   
   <!-- Start Stereo Vision Components -->
   <group if="$(arg with_stereo_vision)">
-    <include file="$(find stereo_vision)/launch/stereo_cameras.launch">
+    <include file="$(find vision)/launch/vision.launch">
+      <arg name="stereo_cam_device" value="$(arg camera_device)" />
       <arg name="show_preview" value="false" />
     </include>
-    
-    <node pkg="stereo_vision" type="stereo_vision_node" name="stereo_vision_processor" output="screen">
-      <param name="enabled" value="true" />
-    </node>
   </group>
   
   <!-- Start Arm Controller (servo_wrist) -->
   <group if="$(arg with_arm_controller)">
-    <node pkg="servo_wrist" type="servo_wrist_node" name="arm_controller" output="screen">
-      <param name="port" value="/dev/ttyUSB0" />
+    <!-- 使用单独的节点替代服务组合节点 -->
+    <node pkg="servo_wrist" type="wrist_node" name="wrist_controller" output="screen">
+      <param name="port" value="$(arg servo_port)" />
       <param name="baudrate" value="1000000" />
     </node>
+    
+    <!-- 启动真空吸盘控制节点 -->
+    <group if="$(arg vacuum_enabled)">
+      <node pkg="servo_wrist" type="vacuum_node" name="vacuum_controller" output="screen">
+        <param name="port" value="$(arg motor_port)" />
+        <param name="baudrate" value="115200" />
+        <param name="max_power" value="100" />
+        <param name="default_power" value="80" />
+      </node>
+    </group>
   </group>
   
   <!-- Start Joint State Publisher for TF -->
@@ -44,6 +55,8 @@
   <!-- Start GUI Interface -->
   <node pkg="arm_gui" type="arm_gui_node" name="arm_gui_node" output="screen">
     <param name="update_rate" value="20" />
+    <param name="use_stereo_camera" value="true" />
+    <param name="vacuum_enabled" value="$(arg vacuum_enabled)" />
   </node>
 
   <!-- Start RViz (optional) -->
