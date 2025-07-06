@@ -20,7 +20,7 @@
   <param name="/use_sim_time" value="false"/>
 
   <!-- 启动立体相机节点 -->
-  <node pkg="vision" type="camera_node" name="camera_node" output="screen">
+  <node pkg="vision" type="camera_node.py" name="camera_node" output="screen">
     <param name="device_id" value="$(arg stereo_cam_device)" />
     <param name="width" value="$(arg image_width)" />
     <param name="height" value="$(arg image_height)" />
@@ -50,7 +50,7 @@
   </node>
   
   <!-- 启动视图模式切换器 -->
-  <node pkg="vision" type="view_node" name="view_node" output="screen">
+  <node pkg="vision" type="view_node.py" name="view_node" output="screen">
     <param name="initial_view_mode" value="$(arg initial_view_mode)" />
     <param name="left_image_topic" value="/camera_node/left_camera/image_raw"/>
     <param name="right_image_topic" value="/camera_node/right_camera/image_raw"/>

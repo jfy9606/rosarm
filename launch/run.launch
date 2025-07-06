@@ -1,13 +1,14 @@
 <?xml version="1.0"?>
 <launch>
   <!-- 参数设置 -->
-  <arg name="enable_yolo" default="false" doc="是否启用YOLO目标检测" />
+  <arg name="enable_yolo" default="true" doc="是否启用YOLO目标检测" />
   <arg name="camera_device" default="/dev/video0" doc="摄像头设备路径" />
   <arg name="resolution_width" default="1280" doc="摄像头分辨率宽度" />
   <arg name="resolution_height" default="480" doc="摄像头分辨率高度" />
   <arg name="fps" default="30" doc="摄像头帧率" />
   <arg name="serial_port" default="/dev/ttyUSB0" doc="电机控制串口" />
   <arg name="servo_port" default="/dev/ttyUSB1" doc="舵机控制串口" />
+  <arg name="initial_view" default="left" doc="初始视图 (left 或 right)" />
 
   <!-- 核心功能节点 -->
   
@@ -27,17 +28,46 @@
   </node>
   
   <!-- 摄像头节点 -->
-  <node name="camera" pkg="stereo_vision" type="camera_node.py" output="screen" respawn="true">
-    <param name="device" value="$(arg camera_device)" />
+  <node name="camera_node" pkg="vision" type="camera_node.py" output="screen" respawn="true">
+    <param name="camera_index" value="0" />
     <param name="width" value="$(arg resolution_width)" />
     <param name="height" value="$(arg resolution_height)" />
     <param name="fps" value="$(arg fps)" />
-    <param name="pixel_format" value="mjpeg" />
+    <param name="frame_id" value="camera" />
+    <param name="camera_mode" value="0" />  <!-- RGB模式 -->
+    <param name="camera_enabled" value="true" />
+  </node>
+
+  <!-- 立体视觉节点 -->
+  <node name="stereo_node" pkg="vision" type="stereo_node.py" output="screen" respawn="true">
+    <param name="left_image_topic" value="/stereo_camera/left/image_raw" />
+    <param name="right_image_topic" value="/stereo_camera/right/image_raw" />
+    <param name="left_camera_info_topic" value="/stereo_camera/left/camera_info" />
+    <param name="right_camera_info_topic" value="/stereo_camera/right/camera_info" />
+    <param name="view_mode" value="0" />  <!-- LEFT视图模式 -->
+  </node>
+
+  <!-- 视图显示节点 -->
+  <node name="view_node" pkg="vision" type="view_node.py" output="screen" respawn="true">
+    <param name="left_image_topic" value="/stereo_camera/left/image_raw" />
+    <param name="right_image_topic" value="/stereo_camera/right/image_raw" />
+    <param name="image_topic" value="/camera/image_raw" />
+    <param name="detection_topic" value="/detections/poses" />
+    <param name="detection_3d_topic" value="/detections/poses_3d" />
+    <param name="disparity_topic" value="/stereo/disparity" />
+    <param name="view_mode" value="0" />  <!-- NORMAL显示模式 -->
+    <param name="current_view" value="$(arg initial_view)" />
   </node>
 
   <!-- 添加TF坐标转换 -->
   <node pkg="tf2_ros" type="static_transform_publisher" name="camera_link_broadcaster"
         args="0 0 0.5 0 0 0 world camera_link" />
+  
+  <!-- 左右相机链接 -->
+  <node pkg="tf2_ros" type="static_transform_publisher" name="camera_left_broadcaster"
+        args="0 0.03 0 0 0 0 camera_link camera_left" />
+  <node pkg="tf2_ros" type="static_transform_publisher" name="camera_right_broadcaster"
+        args="0 -0.03 0 0 0 0 camera_link camera_right" />
   
   <!-- GUI节点 -->
   <node name="arm_gui" pkg="arm_gui" type="arm_gui_node" output="screen">
@@ -45,17 +75,39 @@
   </node>
 
   <!-- YOLO目标检测节点 -->
-  <node if="$(arg enable_yolo)" name="yolo_detector" pkg="stereo_vision" type="yolo_detector.py" output="screen" respawn="true">
-    <param name="model_path" value="$(find stereo_vision)/models/yolov5s.pt" />
-    <param name="confidence" value="0.5" />
-    <param name="input_topic" value="/camera/image_raw" />
-    <param name="output_topic" value="/camera/detections" />
-    <param name="visualization_topic" value="/detection_image" />
+  <node if="$(arg enable_yolo)" name="yolo_detector_node" pkg="vision" type="detector_node.py" output="screen" respawn="true">
+    <param name="model_path" value="yolo11n.pt" />
+    <param name="conf_threshold" value="0.25" />
+    <param name="left_image_topic" value="/stereo_camera/left/image_raw" />
+    <param name="right_image_topic" value="/stereo_camera/right/image_raw" />
+    <param name="combined_image_topic" value="/camera/image_raw" />
+    <param name="detection_enabled" value="true" />
+    <param name="auto_download" value="true" />
+    <param name="current_view" value="$(arg initial_view)" />
   </node>
 
-  <!-- 路径规划节点 - 依赖于YOLO -->
-  <node if="$(arg enable_yolo)" name="path_planner" pkg="arm_trajectory" type="trajectory_bridge_node.py" output="screen">
-    <param name="use_3d" value="false" />
-    <param name="detection_topic" value="/camera/detections" />
+  <!-- 路径规划与逆运动学节点 -->
+  <node name="path_planner_node" pkg="arm_trajectory" type="path_planner_node.py" output="screen">
+    <param name="planning_time" value="5.0" />
+    <param name="num_waypoints" value="10" />
+    <param name="collision_threshold" value="0.05" />
+    <param name="planning_frame" value="base_link" />
+  </node>
+  
+  <!-- 运动学节点 -->
+  <node name="arm_trajectory_bridge_gui" pkg="arm_trajectory" type="kinematics_node.py" output="screen">
+    <!-- 可以指定DH参数文件 -->
+    <!-- <param name="dh_params_file" value="$(find arm_trajectory)/config/dh_params.txt" /> -->
+  </node>
+  
+  <!-- 视觉伺服节点 -->
+  <node name="visual_servo_controller" pkg="arm_trajectory" type="visual_servo_node.py" output="screen">
+    <param name="image_topic" value="/stereo_camera/left/image_raw" />
+    <param name="camera_info_topic" value="/stereo_camera/left/camera_info" />
+    <param name="feature_detection_method" value="aruco" />
+    <param name="control_rate" value="10" />
+    <param name="servo_enabled" value="false" />
+    <param name="gain" value="0.5" />
+    <param name="max_velocity" value="0.2" />
   </node>
 </launch>
