@@ -23,6 +23,9 @@ find_package(catkin REQUIRED COMPONENTS
 find_package(OpenCV REQUIRED)
 find_package(Eigen3 REQUIRED)
 
+# Set up Python modules
+catkin_python_setup()
+
 ## Generate messages in the 'msg' folder
 add_message_files(
   FILES
@@ -116,13 +119,9 @@ target_link_libraries(view_node
 ## Mark executable scripts (Python etc.) for installation
 catkin_install_python(PROGRAMS
   scripts/detector_node.py
-  scripts/detector_control.py
   scripts/stereo_node.py
-  scripts/stereo_control.py
   scripts/camera_node.py
-  scripts/camera_control.py
   scripts/view_node.py
-  scripts/view_control.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

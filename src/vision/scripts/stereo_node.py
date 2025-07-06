@@ -12,7 +12,7 @@ from cv_bridge import CvBridge, CvBridgeError
 from vision.srv import SetViewMode, SetViewModeResponse
 
 # Import stereo control
-from stereo_control import StereoControl, ViewMode
+from vision import StereoControl, StereoViewMode as ViewMode
 
 class StereoNode:
     """
