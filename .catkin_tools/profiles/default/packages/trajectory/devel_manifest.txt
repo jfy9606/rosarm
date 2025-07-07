@@ -22,10 +22,15 @@ trajectory
 /home/jfy/rosarm/devel/.private/trajectory/lib/pkgconfig/trajectory.pc /home/jfy/rosarm/devel/lib/pkgconfig/trajectory.pc
 /home/jfy/rosarm/devel/.private/trajectory/lib/trajectory/visual_servo_bridge.py /home/jfy/rosarm/devel/lib/trajectory/visual_servo_bridge.py
 /home/jfy/rosarm/devel/.private/trajectory/lib/trajectory/trajectory_node.py /home/jfy/rosarm/devel/lib/trajectory/trajectory_node.py
+/home/jfy/rosarm/devel/.private/trajectory/lib/trajectory/whales_optimizer.py /home/jfy/rosarm/devel/lib/trajectory/whales_optimizer.py
+/home/jfy/rosarm/devel/.private/trajectory/lib/trajectory/path_planner_control.py /home/jfy/rosarm/devel/lib/trajectory/path_planner_control.py
+/home/jfy/rosarm/devel/.private/trajectory/lib/trajectory/__init__.py /home/jfy/rosarm/devel/lib/trajectory/__init__.py
 /home/jfy/rosarm/devel/.private/trajectory/lib/trajectory/path_planner_node.py /home/jfy/rosarm/devel/lib/trajectory/path_planner_node.py
 /home/jfy/rosarm/devel/.private/trajectory/lib/trajectory/kinematics_node.py /home/jfy/rosarm/devel/lib/trajectory/kinematics_node.py
 /home/jfy/rosarm/devel/.private/trajectory/lib/trajectory/trajectory_node /home/jfy/rosarm/devel/lib/trajectory/trajectory_node
 /home/jfy/rosarm/devel/.private/trajectory/lib/trajectory/visual_servo_node.py /home/jfy/rosarm/devel/lib/trajectory/visual_servo_node.py
+/home/jfy/rosarm/devel/.private/trajectory/lib/trajectory/kinematics_control.py /home/jfy/rosarm/devel/lib/trajectory/kinematics_control.py
+/home/jfy/rosarm/devel/.private/trajectory/lib/trajectory/trajectory_control.py /home/jfy/rosarm/devel/lib/trajectory/trajectory_control.py
 /home/jfy/rosarm/devel/.private/trajectory/share/gennodejs/ros/trajectory/_index.js /home/jfy/rosarm/devel/share/gennodejs/ros/trajectory/_index.js
 /home/jfy/rosarm/devel/.private/trajectory/share/gennodejs/ros/trajectory/msg/_index.js /home/jfy/rosarm/devel/share/gennodejs/ros/trajectory/msg/_index.js
 /home/jfy/rosarm/devel/.private/trajectory/share/gennodejs/ros/trajectory/msg/TrajectoryPath.js /home/jfy/rosarm/devel/share/gennodejs/ros/trajectory/msg/TrajectoryPath.js

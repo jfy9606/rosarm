@@ -136,21 +136,21 @@ detect_ports() {
         echo -e "${GREEN}检测到多个串口设备:${NC}"
         echo -e "${CYAN}电机控制串口: ${DETECTED_MOTOR_PORT}${NC}"
         echo -e "${CYAN}舵机控制串口: ${DETECTED_SERVO_PORT}${NC}"
-        
+    
         # 提供手动选择选项
         echo -e "\n${YELLOW}是否要手动选择串口? (y/n)${NC}"
         read -r choice
         
         if [ "$choice" = "y" ] || [ "$choice" = "Y" ]; then
-            # 显示编号的串口列表
-            local i=1
-            local ports_array=()
-            for port in ${ALL_PORTS}; do
-                ports_array[$i]=$port
-                echo -e "${CYAN}$i) ${port}${NC}"
-                i=$((i+1))
-            done
-            
+        # 显示编号的串口列表
+        local i=1
+        local ports_array=()
+        for port in ${ALL_PORTS}; do
+            ports_array[$i]=$port
+            echo -e "${CYAN}$i) ${port}${NC}"
+            i=$((i+1))
+        done
+        
             # 电机端口选择
             echo -ne "${GREEN}请选择电机控制串口 (1-$((i-1))): ${NC}"
             read -r port_choice
@@ -159,8 +159,8 @@ detect_ports() {
             if [[ "$port_choice" =~ ^[0-9]+$ ]] && [ "$port_choice" -ge 1 ] && [ "$port_choice" -lt "$i" ]; then
                 DETECTED_MOTOR_PORT="${ports_array[$port_choice]}"
                 echo -e "${GREEN}已选择 ${DETECTED_MOTOR_PORT} 作为电机控制串口${NC}"
-            fi
-            
+        fi
+        
             # 舵机端口选择
             echo -ne "${GREEN}请选择舵机控制串口 (1-$((i-1))): ${NC}"
             read -r port_choice
@@ -250,28 +250,28 @@ check_ros_env() {
     echo -e "${GREEN}检查ROS环境${NC}"
     echo -e "${BLUE}=====================================${NC}"
     
-    if [ -z "$ROS_DISTRO" ]; then
-        echo -e "${RED}未检测到ROS环境，正在尝试加载...${NC}"
-        if [ -f "/opt/ros/noetic/setup.bash" ]; then
-            source /opt/ros/noetic/setup.bash
+if [ -z "$ROS_DISTRO" ]; then
+    echo -e "${RED}未检测到ROS环境，正在尝试加载...${NC}"
+    if [ -f "/opt/ros/noetic/setup.bash" ]; then
+        source /opt/ros/noetic/setup.bash
             echo -e "${GREEN}已加载ROS环境${NC}"
-        else
-            echo -e "${RED}无法找到ROS环境，请确保ROS已安装并手动加载环境${NC}"
-            echo -e "${YELLOW}示例: source /opt/ros/noetic/setup.bash${NC}"
+    else
+        echo -e "${RED}无法找到ROS环境，请确保ROS已安装并手动加载环境${NC}"
+        echo -e "${YELLOW}示例: source /opt/ros/noetic/setup.bash${NC}"
             return 1
-        fi
+    fi
     else
         echo -e "${GREEN}已检测到ROS环境: ${ROS_DISTRO}${NC}"
-    fi
-    
-    # 检查工作空间
-    if [ -f "$WORKSPACE_DIR/devel/setup.bash" ]; then
-        source "$WORKSPACE_DIR/devel/setup.bash"
-        echo -e "${GREEN}已加载工作空间环境${NC}"
-    else
-        echo -e "${YELLOW}警告: 未找到工作空间的setup.bash文件，将使用系统ROS环境${NC}"
-    fi
-    
+fi
+
+# 检查工作空间
+if [ -f "$WORKSPACE_DIR/devel/setup.bash" ]; then
+    source "$WORKSPACE_DIR/devel/setup.bash"
+    echo -e "${GREEN}已加载工作空间环境${NC}"
+else
+    echo -e "${YELLOW}警告: 未找到工作空间的setup.bash文件，将使用系统ROS环境${NC}"
+fi
+
     return 0
 }
 
@@ -333,4 +333,4 @@ show_menu() {
 
 # 主程序入口点
 check_ros_env || exit 1
-show_menu
+    show_menu

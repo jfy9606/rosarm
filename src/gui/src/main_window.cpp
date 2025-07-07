@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cv_bridge/cv_bridge.h>
 #include <opencv2/imgproc/imgproc.hpp>
+#include <ros/master.h>
 #include "trajectory/kinematics_control.h"
 #include <std_msgs/Float64MultiArray.h>
 
@@ -120,6 +121,14 @@ MainWindow::~MainWindow()
 void MainWindow::initializeROS()
 {
     try {
+        // 检查ROS是否正在运行并已连接
+        if (!ros::master::check()) {
+            ROS_ERROR("Cannot connect to ROS master. Is roscore running?");
+            QMessageBox::critical(this, "ROS连接错误", 
+                                 "无法连接到ROS主节点。请确保roscore正在运行。");
+            return;
+        }
+
         // 初始化发布者
         joint_command_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("/joint_command", 1);
         vacuum_cmd_pub_ = nh_.advertise<std_msgs::Bool>("/vacuum_command", 1);
@@ -137,6 +146,8 @@ void MainWindow::initializeROS()
     }
     catch (const std::exception& e) {
         ROS_ERROR("ROS initialization failed: %s", e.what());
+        QMessageBox::critical(this, "ROS初始化错误", 
+                             QString("ROS初始化失败: %1").arg(e.what()));
     }
 }
 
@@ -279,6 +290,14 @@ void MainWindow::connectSignalSlots()
     connect(leftViewButton, &QPushButton::clicked, this, &MainWindow::onLeftViewButtonClicked);
     connect(rightViewButton, &QPushButton::clicked, this, &MainWindow::onRightViewButtonClicked);
     
+    // 添加缺少的立体相机和深度视图按钮连接
+    if (stereoViewButton) {
+        connect(stereoViewButton, &QPushButton::clicked, this, &MainWindow::onStereoViewButtonClicked);
+    }
+    if (depthViewButton) {
+        connect(depthViewButton, &QPushButton::clicked, this, &MainWindow::onDepthViewButtonClicked);
+    }
+    
     // 连接位置控制
     connect(moveToPositionButton, &QPushButton::clicked, this, &MainWindow::onMoveToPositionClicked);
     connect(homeButton, &QPushButton::clicked, this, &MainWindow::onHomeButtonClicked);
@@ -286,32 +305,41 @@ void MainWindow::connectSignalSlots()
 
 void MainWindow::setupROSSubscriptions()
 {
-    // 关节状态订阅
-    joint_state_sub_ = nh_.subscribe("/joint_states", 10, 
-                                   &MainWindow::jointStateCallback, this);
-    
-    // 相机图像订阅
-    stereo_merged_sub_ = nh_.subscribe("/stereo_camera/merged_image", 1, 
-                                     &MainWindow::stereoMergedCallback, this);
-    depth_image_sub_ = nh_.subscribe("/stereo_camera/depth", 1, 
-                                   &MainWindow::depthImageCallback, this);
-    
-    // 同步订阅
-    detection_image_sync_sub_ = std::make_shared<message_filters::Subscriber<sensor_msgs::Image>>(
-        nh_, "/yolo_detector/detection_image", 1);
-    detection_poses_sync_sub_ = std::make_shared<message_filters::Subscriber<geometry_msgs::PoseArray>>(
-        nh_, "/yolo_detector/detection_poses", 1);
-    
-    // 设置同步策略
-    sync_ = std::make_shared<message_filters::Synchronizer<SyncPolicy>>(
-        SyncPolicy(10), *detection_image_sync_sub_, *detection_poses_sync_sub_);
-    
-    // 注册同步回调
-    sync_->registerCallback(boost::bind(&MainWindow::objectDetectionCallback, 
-                                     this, _1, _2));
-    
-    // 发布器
-    camera_view_mode_pub_ = nh_.advertise<std_msgs::Int32>("/stereo_camera/view_mode", 1, true);
+    try {
+        // 关节状态订阅
+        joint_state_sub_ = nh_.subscribe("/joint_states", 10, 
+                                       &MainWindow::jointStateCallback, this);
+        
+        // 相机图像订阅
+        stereo_merged_sub_ = nh_.subscribe("/stereo_camera/merged_image", 1, 
+                                         &MainWindow::stereoMergedCallback, this);
+        depth_image_sub_ = nh_.subscribe("/stereo_camera/depth", 1, 
+                                       &MainWindow::depthImageCallback, this);
+        
+        // 同步订阅
+        detection_image_sync_sub_ = std::make_shared<message_filters::Subscriber<sensor_msgs::Image>>(
+            nh_, "/yolo_detector/detection_image", 1);
+        detection_poses_sync_sub_ = std::make_shared<message_filters::Subscriber<geometry_msgs::PoseArray>>(
+            nh_, "/yolo_detector/detection_poses", 1);
+        
+        // 设置同步策略
+        sync_ = std::make_shared<message_filters::Synchronizer<SyncPolicy>>(
+            SyncPolicy(10), *detection_image_sync_sub_, *detection_poses_sync_sub_);
+        
+        // 注册同步回调
+        sync_->registerCallback(boost::bind(&MainWindow::objectDetectionCallback, 
+                                         this, _1, _2));
+        
+        // 发布器
+        camera_view_mode_pub_ = nh_.advertise<std_msgs::Int32>("/stereo_camera/view_mode", 1, true);
+        
+        ROS_INFO("ROS subscriptions setup complete");
+    } catch (const std::exception& e) {
+        ROS_ERROR("Failed to setup ROS subscriptions: %s", e.what());
+        // 显示错误对话框但不阻止程序继续运行
+        QMessageBox::warning(this, "ROS订阅警告", 
+                            QString("设置ROS订阅时出现问题: %1\n部分功能可能不可用.").arg(e.what()));
+    }
 }
 
 // UI面板创建方法
@@ -458,6 +486,13 @@ QWidget* MainWindow::createCameraViewPanel()
     QHBoxLayout* cameraBtnLayout = new QHBoxLayout();
     cameraBtnLayout->addWidget(leftViewButton);
     cameraBtnLayout->addWidget(rightViewButton);
+    
+    // 创建并添加缺少的立体视图和深度视图按钮
+    stereoViewButton = new QPushButton("立体视图");
+    depthViewButton = new QPushButton("深度视图");
+    cameraBtnLayout->addWidget(stereoViewButton);
+    cameraBtnLayout->addWidget(depthViewButton);
+    
     layout->addLayout(cameraBtnLayout);
     
     return cameraGroup;

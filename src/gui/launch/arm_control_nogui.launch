@@ -6,6 +6,7 @@
   <arg name="motor_baudrate" default="115200" doc="Motor serial baudrate" />
   <arg name="servo_baudrate" default="1000000" doc="Servo serial baudrate" />
   <arg name="use_camera" default="false" />
+  <arg name="use_gui" default="false" doc="Whether to launch the GUI component" />
 
   <!-- Launch motor control node -->
   <include file="$(find motor)/launch/motor_control.launch">
@@ -42,8 +43,12 @@
   <!-- Launch joint state publisher -->
   <node pkg="gui" type="joint_state_publisher_node" name="joint_state_publisher" output="screen" />
 
-  <!-- Launch GUI interface -->
-  <node pkg="gui" type="main_window" name="gui_node" output="screen" />
+  <!-- Launch GUI interface if enabled -->
+  <group if="$(arg use_gui)">
+    <node pkg="gui" type="main_window" name="gui_node" output="screen" respawn="false" required="false">
+      <env name="DISPLAY" value="$(optenv DISPLAY :0)" />
+    </node>
+  </group>
 
   <!-- Launch camera nodes if enabled -->
   <group if="$(arg use_camera)">
