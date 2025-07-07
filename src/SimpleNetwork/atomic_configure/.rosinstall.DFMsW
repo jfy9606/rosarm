@@ -1,0 +1,2 @@
+- setup-file:
+    local-name: /home/www/catkin_ws/src/SimpleNetwork/devel/setup.sh

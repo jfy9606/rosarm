@@ -1,0 +1,10 @@
+<launch>
+  <!-- Start the original nodes -->
+  <include file="$(env HOME)/rosarm_old/launch/run.launch" />
+  
+  <!-- Start our 3D position control node -->
+  <node name="arm_3d_control" pkg="arm_3d_control" type="arm_3d_control_node" output="screen">
+    <!-- Optional parameters can be set here if needed -->
+    <!-- <param name="link1_length" value="100.0" /> -->
+  </node>
+</launch> 

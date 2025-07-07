@@ -1,0 +1,19 @@
+<launch>
+
+<!--all motor node-->
+
+<node name = "talker" pkg = "liancheng_socket" type = "talk_test" output = "screen">
+</node>
+
+<node name = "serial" pkg = "liancheng_socket" type = "liancheng_serial" output = "screen">
+</node>
+
+<node name = "servo" pkg = "servo_wrist" type = "wrist_ctrl" args = "/dev/ttyUSB1" output = "screen">
+</node>
+
+<!-- 轨迹规划节点 -->
+<node name="trajectory_bridge" pkg="arm_trajectory" type="trajectory_bridge_node.py" output="screen">
+  <!-- 轨迹规划参数可在这里设置 -->
+</node>
+
+</launch>

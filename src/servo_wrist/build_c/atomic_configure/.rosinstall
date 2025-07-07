@@ -1,0 +1,2 @@
+- setup-file:
+    local-name: /home/luo/catkin_ws/src/servo_wrist/build_c/devel/setup.sh

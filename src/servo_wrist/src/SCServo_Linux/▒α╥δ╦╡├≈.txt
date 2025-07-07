@@ -1,0 +1,13 @@
+静态库libscservo.a生成:
+
+使用cmake.命令生成Makefilel
+使用make命令生成libscservo.a静态库文件
+
+测试:
+cd examples/SMS_STS/WritePos进入测试例子
+6
+使用cmake.命令生成Mdkefile
+使用make命令生成运行程序WritePos
+号运行:sudo ./writePos /dev/ttyusB8
+18注:/dev/ttyusB8根据设备实际串口指定
+11注:以上例子以SMS/STS舵机的writePos为例，需要根据舵机型号选择合适的测试例子

@@ -1,0 +1,6 @@
+arm_3d_control
+/home/jfy/rosarm_old/devel/.private/arm_3d_control/lib/arm_3d_control/position_sender /home/jfy/rosarm_old/devel/lib/arm_3d_control/position_sender
+/home/jfy/rosarm_old/devel/.private/arm_3d_control/lib/arm_3d_control/arm_3d_control_node /home/jfy/rosarm_old/devel/lib/arm_3d_control/arm_3d_control_node
+/home/jfy/rosarm_old/devel/.private/arm_3d_control/lib/pkgconfig/arm_3d_control.pc /home/jfy/rosarm_old/devel/lib/pkgconfig/arm_3d_control.pc
+/home/jfy/rosarm_old/devel/.private/arm_3d_control/share/arm_3d_control/cmake/arm_3d_controlConfig.cmake /home/jfy/rosarm_old/devel/share/arm_3d_control/cmake/arm_3d_controlConfig.cmake
+/home/jfy/rosarm_old/devel/.private/arm_3d_control/share/arm_3d_control/cmake/arm_3d_controlConfig-version.cmake /home/jfy/rosarm_old/devel/share/arm_3d_control/cmake/arm_3d_controlConfig-version.cmake

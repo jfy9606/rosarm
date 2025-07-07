@@ -1,0 +1,2 @@
+set(liancheng_socket_MESSAGE_FILES "/home/www/catkin_ws/src/SimpleNetwork/msg/MotorOrder.msg;/home/www/catkin_ws/src/SimpleNetwork/msg/SwitchOrder.msg;/home/www/catkin_ws/src/SimpleNetwork/msg/ReadOutput.msg")
+set(liancheng_socket_SERVICE_FILES "")

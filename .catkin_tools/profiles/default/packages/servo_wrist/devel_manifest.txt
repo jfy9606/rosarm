@@ -1,0 +1,21 @@
+servo_wrist
+/home/jfy/rosarm_old/devel/.private/servo_wrist/include/servo_wrist/SerControl.h /home/jfy/rosarm_old/devel/include/servo_wrist/SerControl.h
+/home/jfy/rosarm_old/devel/.private/servo_wrist/lib/servo_wrist/servo_115200_control /home/jfy/rosarm_old/devel/lib/servo_wrist/servo_115200_control
+/home/jfy/rosarm_old/devel/.private/servo_wrist/lib/servo_wrist/wrist_ctrl /home/jfy/rosarm_old/devel/lib/servo_wrist/wrist_ctrl
+/home/jfy/rosarm_old/devel/.private/servo_wrist/lib/python3/dist-packages/servo_wrist/__init__.py /home/jfy/rosarm_old/devel/lib/python3/dist-packages/servo_wrist/__init__.py
+/home/jfy/rosarm_old/devel/.private/servo_wrist/lib/python3/dist-packages/servo_wrist/msg/__init__.py /home/jfy/rosarm_old/devel/lib/python3/dist-packages/servo_wrist/msg/__init__.py
+/home/jfy/rosarm_old/devel/.private/servo_wrist/lib/python3/dist-packages/servo_wrist/msg/_SerControl.py /home/jfy/rosarm_old/devel/lib/python3/dist-packages/servo_wrist/msg/_SerControl.py
+/home/jfy/rosarm_old/devel/.private/servo_wrist/lib/pkgconfig/servo_wrist.pc /home/jfy/rosarm_old/devel/lib/pkgconfig/servo_wrist.pc
+/home/jfy/rosarm_old/devel/.private/servo_wrist/share/servo_wrist/cmake/servo_wrist-msg-paths.cmake /home/jfy/rosarm_old/devel/share/servo_wrist/cmake/servo_wrist-msg-paths.cmake
+/home/jfy/rosarm_old/devel/.private/servo_wrist/share/servo_wrist/cmake/servo_wristConfig.cmake /home/jfy/rosarm_old/devel/share/servo_wrist/cmake/servo_wristConfig.cmake
+/home/jfy/rosarm_old/devel/.private/servo_wrist/share/servo_wrist/cmake/servo_wristConfig-version.cmake /home/jfy/rosarm_old/devel/share/servo_wrist/cmake/servo_wristConfig-version.cmake
+/home/jfy/rosarm_old/devel/.private/servo_wrist/share/servo_wrist/cmake/servo_wrist-msg-extras.cmake /home/jfy/rosarm_old/devel/share/servo_wrist/cmake/servo_wrist-msg-extras.cmake
+/home/jfy/rosarm_old/devel/.private/servo_wrist/share/gennodejs/ros/servo_wrist/_index.js /home/jfy/rosarm_old/devel/share/gennodejs/ros/servo_wrist/_index.js
+/home/jfy/rosarm_old/devel/.private/servo_wrist/share/gennodejs/ros/servo_wrist/msg/_index.js /home/jfy/rosarm_old/devel/share/gennodejs/ros/servo_wrist/msg/_index.js
+/home/jfy/rosarm_old/devel/.private/servo_wrist/share/gennodejs/ros/servo_wrist/msg/SerControl.js /home/jfy/rosarm_old/devel/share/gennodejs/ros/servo_wrist/msg/SerControl.js
+/home/jfy/rosarm_old/devel/.private/servo_wrist/share/roseus/ros/servo_wrist/manifest.l /home/jfy/rosarm_old/devel/share/roseus/ros/servo_wrist/manifest.l
+/home/jfy/rosarm_old/devel/.private/servo_wrist/share/roseus/ros/servo_wrist/msg/SerControl.l /home/jfy/rosarm_old/devel/share/roseus/ros/servo_wrist/msg/SerControl.l
+/home/jfy/rosarm_old/devel/.private/servo_wrist/share/common-lisp/ros/servo_wrist/msg/_package.lisp /home/jfy/rosarm_old/devel/share/common-lisp/ros/servo_wrist/msg/_package.lisp
+/home/jfy/rosarm_old/devel/.private/servo_wrist/share/common-lisp/ros/servo_wrist/msg/servo_wrist-msg.asd /home/jfy/rosarm_old/devel/share/common-lisp/ros/servo_wrist/msg/servo_wrist-msg.asd
+/home/jfy/rosarm_old/devel/.private/servo_wrist/share/common-lisp/ros/servo_wrist/msg/SerControl.lisp /home/jfy/rosarm_old/devel/share/common-lisp/ros/servo_wrist/msg/SerControl.lisp
+/home/jfy/rosarm_old/devel/.private/servo_wrist/share/common-lisp/ros/servo_wrist/msg/_package_SerControl.lisp /home/jfy/rosarm_old/devel/share/common-lisp/ros/servo_wrist/msg/_package_SerControl.lisp
