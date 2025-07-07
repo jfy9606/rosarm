@@ -32,11 +32,12 @@ find_package(catkin REQUIRED COMPONENTS
   trajectory
 )
 
-# 查找Qt5
-find_package(Qt5 COMPONENTS Core Gui Widgets OpenGL REQUIRED)
+# 查找Qt5 - 添加所有使用的模块
+find_package(Qt5 COMPONENTS Core Gui Widgets OpenGL Network PrintSupport Concurrent REQUIRED)
 
 # 系统依赖
 find_package(OpenGL REQUIRED)
+find_package(OpenCV REQUIRED)
 
 # 声明catkin包
 catkin_package(
@@ -50,7 +51,16 @@ catkin_package(
     image_transport
     servo
     trajectory
-  DEPENDS Qt5Core Qt5Gui Qt5Widgets Qt5OpenGL OPENGL
+  DEPENDS 
+    Qt5Core 
+    Qt5Gui 
+    Qt5Widgets 
+    Qt5OpenGL 
+    Qt5Network
+    Qt5PrintSupport
+    Qt5Concurrent
+    OPENGL
+    OpenCV
 )
 
 # 包含头文件目录
@@ -61,9 +71,20 @@ include_directories(
   ${Qt5Gui_INCLUDE_DIRS}
   ${Qt5Widgets_INCLUDE_DIRS}
   ${Qt5OpenGL_INCLUDE_DIRS}
+  ${Qt5Network_INCLUDE_DIRS}
+  ${Qt5PrintSupport_INCLUDE_DIRS}
+  ${Qt5Concurrent_INCLUDE_DIRS}
   ${CMAKE_CURRENT_BINARY_DIR}
   ${OPENGL_INCLUDE_DIRS}
+  ${OpenCV_INCLUDE_DIRS}
 )
+
+# 添加UI文件
+file(GLOB UI_FILES 
+  ${CMAKE_CURRENT_SOURCE_DIR}/ui/*.ui
+)
+
+qt5_wrap_ui(UI_HEADERS ${UI_FILES})
 
 # 设置源文件
 set(MAIN_WINDOW_SOURCES
@@ -78,6 +99,7 @@ set(MAIN_SOURCES
 add_library(main_window_lib
   src/main_window.cpp
   include/main_window.h
+  ${UI_HEADERS}
 )
 
 target_link_libraries(main_window_lib
@@ -86,13 +108,21 @@ target_link_libraries(main_window_lib
   Qt5::Gui
   Qt5::Widgets
   Qt5::OpenGL
+  Qt5::Network
+  Qt5::PrintSupport
+  Qt5::Concurrent
   ${OPENGL_LIBRARIES}
+  ${OpenCV_LIBRARIES}
 )
 
 # 主可执行文件
 add_executable(main_window ${MAIN_SOURCES})
 target_link_libraries(main_window
   main_window_lib
+  ${catkin_LIBRARIES}
+  Qt5::Core
+  Qt5::Widgets
+  Qt5::Gui
 )
 
 # 关节状态发布节点
