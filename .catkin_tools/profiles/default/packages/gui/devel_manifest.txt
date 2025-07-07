@@ -1,7 +1,0 @@
-gui
-/home/jfy/rosarm/devel/.private/gui/lib/libmain_window_lib.so /home/jfy/rosarm/devel/lib/libmain_window_lib.so
-/home/jfy/rosarm/devel/.private/gui/lib/gui/joint_state_publisher_node /home/jfy/rosarm/devel/lib/gui/joint_state_publisher_node
-/home/jfy/rosarm/devel/.private/gui/lib/gui/main_window /home/jfy/rosarm/devel/lib/gui/main_window
-/home/jfy/rosarm/devel/.private/gui/lib/pkgconfig/gui.pc /home/jfy/rosarm/devel/lib/pkgconfig/gui.pc
-/home/jfy/rosarm/devel/.private/gui/share/gui/cmake/guiConfig-version.cmake /home/jfy/rosarm/devel/share/gui/cmake/guiConfig-version.cmake
-/home/jfy/rosarm/devel/.private/gui/share/gui/cmake/guiConfig.cmake /home/jfy/rosarm/devel/share/gui/cmake/guiConfig.cmake
