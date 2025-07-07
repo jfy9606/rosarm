@@ -1,4 +1,11 @@
-from .scservo import SCServo
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+"""
+机械臂控制类，集成 Feetech 舵机控制和 DC 电机控制
+"""
+
+from .feetech_servo_controller import FeetechServoController
 from .dcmotor import DCMotorController
 import time
 import math
@@ -6,20 +13,20 @@ import math
 
 class RobotArm:
     """
-    Main robot arm control class that integrates SCServo joints and DC motors
+    机械臂控制类，集成 Feetech 舵机控制和 DC 电机控制
     """
     
-    # Default joint IDs for servo motors
+    # 默认关节 ID
     DEFAULT_JOINT_IDS = {
-        'joint1': 1,  # Base rotation
-        'joint2': 2,  # Shoulder
-        'joint3': 3,  # Elbow
-        'joint4': 4,  # Wrist pitch
-        'joint5': 5,  # Wrist roll (not used in current setup)
-        'joint6': 6   # Gripper (not used in current setup)
+        'joint1': 1,  # 底座旋转
+        'joint2': 2,  # 肩部
+        'joint3': 3,  # 肘部
+        'joint4': 4,  # 腕部俯仰
+        'joint5': 5,  # 腕部旋转（当前设置中未使用）
+        'joint6': 6   # 夹爪（当前设置中未使用）
     }
     
-    # Joint limits in servo position units (0-4095)
+    # 关节限位（舵机位置单位：0-4095）
     DEFAULT_JOINT_LIMITS = {
         'joint1': (0, 4095),
         'joint2': (500, 3500),
@@ -29,80 +36,82 @@ class RobotArm:
         'joint6': (500, 3500)
     }
     
-    # DC motor limits
+    # DC 电机限位
     DEFAULT_PITCH_LIMITS = (-10000, 10000)
     DEFAULT_LINEAR_LIMITS = (0, 20000)
     
-    def __init__(self, servo_port=None, motor_port=None, joint_ids=None, joint_limits=None):
+    def __init__(self, servo_port=None, motor_port=None, joint_ids=None, joint_limits=None, protocol_end=0):
         """
-        Initialize the robot arm controller
+        初始化机械臂控制器
         
         Args:
-            servo_port: Serial port for servo control
-            motor_port: Serial port for DC motor control
-            joint_ids: Dictionary mapping joint names to servo IDs
-            joint_limits: Dictionary mapping joint names to (min, max) position limits
+            servo_port: 舵机控制串口
+            motor_port: DC 电机控制串口
+            joint_ids: 关节名称到舵机 ID 的映射字典
+            joint_limits: 关节名称到位置限位的映射字典
+            protocol_end: 舵机协议位结束（STS/SMS=0, SCS=1），默认为 0
         """
-        # Initialize servo controller
-        self.servo = SCServo(port=servo_port) if servo_port else SCServo()
+        # 初始化舵机控制器
+        self.servo = FeetechServoController(port=servo_port, protocol_end=protocol_end) if servo_port else FeetechServoController(protocol_end=protocol_end)
         
-        # Initialize DC motor controller
+        # 初始化 DC 电机控制器
         self.motor = DCMotorController(port=motor_port) if motor_port else DCMotorController()
         
-        # Set joint IDs and limits
+        # 设置关节 ID 和限位
         self.joint_ids = joint_ids if joint_ids else self.DEFAULT_JOINT_IDS
         self.joint_limits = joint_limits if joint_limits else self.DEFAULT_JOINT_LIMITS
         
-        # Set DC motor limits
+        # 设置 DC 电机限位
         self.pitch_limits = self.DEFAULT_PITCH_LIMITS
         self.linear_limits = self.DEFAULT_LINEAR_LIMITS
         
-        # Current joint positions
+        # 当前关节位置
         self.current_positions = {}
         
-        # Current DC motor positions
+        # 当前 DC 电机位置
         self.current_pitch = 0
         self.current_linear = 0
         
-        # Movement speeds
-        self.servo_speed = 0  # Time in ms (0 = max speed)
+        # 运动速度
+        self.servo_speed = 0  # 时间（毫秒，0 = 最大速度）
         self.pitch_speed = 100
         self.linear_speed = 100
     
-    def connect(self, servo_port, motor_port, servo_baudrate=1000000, motor_baudrate=115200):
+    def connect(self, servo_port, motor_port, servo_baudrate=1000000, motor_baudrate=115200, protocol_end=0):
         """
-        Connect to the servo and motor controllers
+        连接到舵机和电机控制器
         
         Args:
-            servo_port: Serial port for servo control
-            motor_port: Serial port for DC motor control
-            servo_baudrate: Baud rate for servo communication
-            motor_baudrate: Baud rate for motor communication
+            servo_port: 舵机控制串口
+            motor_port: DC 电机控制串口
+            servo_baudrate: 舵机通信波特率
+            motor_baudrate: 电机通信波特率
+            protocol_end: 舵机协议位结束（STS/SMS=0, SCS=1），默认为 0
             
         Returns:
-            True if both connections were successful, False otherwise
+            bool: 如果两个连接都成功则返回 True，否则返回 False
         """
-        servo_connected = self.servo.connect(servo_port, baudrate=servo_baudrate)
+        servo_connected = self.servo.connect(servo_port, baudrate=servo_baudrate, protocol_end=protocol_end)
         motor_connected = self.motor.connect(motor_port, baudrate=motor_baudrate)
         
         return servo_connected and motor_connected
     
     def disconnect(self):
         """
-        Disconnect from both controllers
+        断开与两个控制器的连接
         """
         self.servo.disconnect()
         self.motor.disconnect()
     
     def enable_torque(self, enable=True):
         """
-        Enable or disable torque for all servos
+        使能或禁用所有舵机的力矩
         
         Args:
-            enable: True to enable, False to disable
+            enable: True 表示使能，False 表示禁用
             
         Returns:
-            True if successful for all servos, False otherwise
+            bool: 如果所有舵机都成功则返回 True，否则返回 False
         """
         success = True
         for joint, servo_id in self.joint_ids.items():
@@ -113,14 +122,14 @@ class RobotArm:
     
     def _clamp_joint_position(self, joint, position):
         """
-        Clamp a joint position to within its limits
+        将关节位置限制在其限位范围内
         
         Args:
-            joint: Joint name
-            position: Target position
+            joint: 关节名称
+            position: 目标位置
             
         Returns:
-            Clamped position value
+            int: 限制后的位置值
         """
         if joint in self.joint_limits:
             min_pos, max_pos = self.joint_limits[joint]
@@ -129,14 +138,14 @@ class RobotArm:
     
     def _clamp_motor_position(self, motor_type, position):
         """
-        Clamp a DC motor position to within its limits
+        将 DC 电机位置限制在其限位范围内
         
         Args:
-            motor_type: 'pitch' or 'linear'
-            position: Target position
+            motor_type: 'pitch' 或 'linear'
+            position: 目标位置
             
         Returns:
-            Clamped position value
+            int: 限制后的位置值
         """
         if motor_type == 'pitch':
             min_pos, max_pos = self.pitch_limits
@@ -147,10 +156,10 @@ class RobotArm:
     
     def read_joint_positions(self):
         """
-        Read the current positions of all servos
+        读取所有舵机的当前位置
         
         Returns:
-            Dictionary of joint positions or None if error
+            dict: 关节位置字典，如果出错则返回 None
         """
         positions = {}
         for joint, servo_id in self.joint_ids.items():
@@ -165,10 +174,10 @@ class RobotArm:
     
     def read_motor_status(self):
         """
-        Read the status of both DC motors
+        读取两个 DC 电机的状态
         
         Returns:
-            Dictionary with motor status or None if error
+            dict: 电机状态字典，如果出错则返回 None
         """
         status = self.motor.get_status()
         if status:
@@ -179,19 +188,19 @@ class RobotArm:
     
     def set_joint_position(self, joint, position, blocking=False, timeout=5.0):
         """
-        Set the position of a specific joint
+        设置特定关节的位置
         
         Args:
-            joint: Joint name
-            position: Target position
-            blocking: If True, wait for movement to complete
-            timeout: Maximum time to wait if blocking
+            joint: 关节名称
+            position: 目标位置
+            blocking: 如果为 True，等待运动完成
+            timeout: 如果 blocking 为 True，最大等待时间（秒）
             
         Returns:
-            True if successful, False otherwise
+            bool: 如果成功则返回 True，否则返回 False
         """
         if joint not in self.joint_ids:
-            print(f"Unknown joint: {joint}")
+            print(f"未知关节: {joint}")
             return False
         
         servo_id = self.joint_ids[joint]
@@ -206,7 +215,7 @@ class RobotArm:
                 if current_pos is None:
                     return False
                 
-                # Check if position is close enough
+                # 检查位置是否足够接近
                 if abs(current_pos - position) < 10:
                     break
                 
@@ -219,33 +228,34 @@ class RobotArm:
     
     def set_joint_positions(self, positions, blocking=False, timeout=5.0):
         """
-        Set the positions of multiple joints
+        设置多个关节的位置
         
         Args:
-            positions: Dictionary of {joint: position}
-            blocking: If True, wait for all movements to complete
-            timeout: Maximum time to wait if blocking
+            positions: {joint: position} 格式的字典
+            blocking: 如果为 True，等待所有运动完成
+            timeout: 如果 blocking 为 True，最大等待时间（秒）
             
         Returns:
-            True if successful, False otherwise
+            bool: 如果成功则返回 True，否则返回 False
         """
-        # Convert joint names to servo IDs and clamp positions
+        # 将关节名称转换为舵机 ID，并限制位置
         servo_positions = {}
-        times = {}
+        times = {} if self.servo_speed > 0 else None
         
         for joint, position in positions.items():
             if joint in self.joint_ids:
                 servo_id = self.joint_ids[joint]
                 clamped_position = self._clamp_joint_position(joint, position)
                 servo_positions[servo_id] = clamped_position
-                times[servo_id] = self.servo_speed
+                if times is not None:
+                    times[servo_id] = self.servo_speed
             else:
-                print(f"Unknown joint: {joint}")
+                print(f"未知关节: {joint}")
         
         if not servo_positions:
             return False
         
-        # Use sync write to set positions simultaneously
+        # 使用同步写入同时设置位置
         success = self.servo.sync_write_position(servo_positions, times)
         
         if success and blocking:
@@ -261,7 +271,7 @@ class RobotArm:
                         if current_pos is None:
                             return False
                         
-                        # Check if position is close enough
+                        # 检查位置是否足够接近
                         if abs(current_pos - servo_positions[servo_id]) >= 10:
                             all_reached = False
                             break
@@ -280,15 +290,15 @@ class RobotArm:
     
     def set_pitch_position(self, position, blocking=False, timeout=5.0):
         """
-        Set the pitch DC motor position
+        设置 pitch DC 电机位置
         
         Args:
-            position: Target position
-            blocking: If True, wait for movement to complete
-            timeout: Maximum time to wait if blocking
+            position: 目标位置
+            blocking: 如果为 True，等待运动完成
+            timeout: 如果 blocking 为 True，最大等待时间（秒）
             
         Returns:
-            True if successful, False otherwise
+            bool: 如果成功则返回 True，否则返回 False
         """
         position = self._clamp_motor_position('pitch', position)
         
@@ -314,15 +324,15 @@ class RobotArm:
     
     def set_linear_position(self, position, blocking=False, timeout=5.0):
         """
-        Set the linear feed DC motor position
+        设置线性进给 DC 电机位置
         
         Args:
-            position: Target position
-            blocking: If True, wait for movement to complete
-            timeout: Maximum time to wait if blocking
+            position: 目标位置
+            blocking: 如果为 True，等待运动完成
+            timeout: 如果 blocking 为 True，最大等待时间（秒）
             
         Returns:
-            True if successful, False otherwise
+            bool: 如果成功则返回 True，否则返回 False
         """
         position = self._clamp_motor_position('linear', position)
         
@@ -348,15 +358,15 @@ class RobotArm:
     
     def set_speeds(self, servo_speed=None, pitch_speed=None, linear_speed=None):
         """
-        Set speeds for the different motors
+        设置不同电机的速度
         
         Args:
-            servo_speed: Time in ms for servo movements (0 = max speed)
-            pitch_speed: Speed for pitch motor (0-255)
-            linear_speed: Speed for linear motor (0-255)
+            servo_speed: 舵机运动的时间（毫秒，0 = 最大速度）
+            pitch_speed: pitch 电机的速度 (0-255)
+            linear_speed: 线性电机的速度 (0-255)
             
         Returns:
-            True if successful, False otherwise
+            bool: 如果成功则返回 True，否则返回 False
         """
         success = True
         
@@ -374,43 +384,72 @@ class RobotArm:
         
         return success
     
+    def set_servo_acc(self, servo_id, acceleration):
+        """
+        设置特定舵机的加速度
+        
+        Args:
+            servo_id: 舵机 ID
+            acceleration: 加速度值 (0-254)
+            
+        Returns:
+            bool: 如果成功则返回 True，否则返回 False
+        """
+        return self.servo.write_acceleration(servo_id, acceleration)
+    
+    def set_all_servo_acc(self, acceleration):
+        """
+        设置所有舵机的加速度
+        
+        Args:
+            acceleration: 加速度值 (0-254)
+            
+        Returns:
+            bool: 如果所有设置都成功则返回 True，否则返回 False
+        """
+        success = True
+        for joint, servo_id in self.joint_ids.items():
+            if not self.set_servo_acc(servo_id, acceleration):
+                success = False
+        return success
+    
     def stop_all(self):
         """
-        Stop all motors immediately
+        立即停止所有电机
         
         Returns:
-            True if successful, False otherwise
+            bool: 如果成功则返回 True，否则返回 False
         """
         dc_success = self.motor.stop_all()
         
-        # For servos, we set torque off which effectively stops them
+        # 对于舵机，我们禁用力矩，这会有效地停止它们
         servo_success = self.enable_torque(False)
         
         return dc_success and servo_success
     
     def home(self, blocking=True, timeout=10.0):
         """
-        Move the arm to the home position
+        将机械臂移动到原位
         
         Args:
-            blocking: If True, wait for movement to complete
-            timeout: Maximum time to wait if blocking
+            blocking: 如果为 True，等待运动完成
+            timeout: 如果 blocking 为 True，最大等待时间（秒）
             
         Returns:
-            True if successful, False otherwise
+            bool: 如果成功则返回 True，否则返回 False
         """
-        # Define home positions for all joints
+        # 定义所有关节的原位位置
         home_positions = {
-            'joint1': 2048,  # Center position
+            'joint1': 2048,  # 中间位置
             'joint2': 2048,
             'joint3': 2048,
             'joint4': 2048
         }
         
-        # Set all joints to home position
+        # 将所有关节设置为原位
         joints_success = self.set_joint_positions(home_positions, blocking=blocking, timeout=timeout)
         
-        # Home the DC motors
+        # 将 DC 电机归位
         dc_success = self.motor.home_motors()
         
         if dc_success and blocking:
@@ -432,51 +471,76 @@ class RobotArm:
     
     def calibrate(self):
         """
-        Perform calibration routine
+        执行校准程序
         
         Returns:
-            True if successful, False otherwise
+            bool: 如果成功则返回 True，否则返回 False
         """
-        # First disable torque
+        # 首先禁用力矩
         self.enable_torque(False)
         
-        # Then re-enable torque
+        # 然后重新使能力矩
         servo_success = self.enable_torque(True)
         
-        # Home the motors
+        # 将电机归位
         return servo_success and self.home()
     
     def move_cartesian(self, x, y, z, speed=None):
         """
-        Move the end effector to a Cartesian position (simplified)
-        This is a very simplified implementation that maps coordinates directly to motors
-        For a real implementation, inverse kinematics would be needed
+        将末端执行器移动到笛卡尔位置（简化实现）
+        这是一个非常简化的实现，将坐标直接映射到电机
+        对于真实实现，需要逆运动学
         
         Args:
-            x: X coordinate (maps to joint1)
-            y: Y coordinate (maps to linear feed)
-            z: Z coordinate (maps to pitch)
-            speed: Movement speed
+            x: X 坐标（映射到 joint1）
+            y: Y 坐标（映射到线性进给）
+            z: Z 坐标（映射到俯仰）
+            speed: 运动速度
             
         Returns:
-            True if successful, False otherwise
+            bool: 如果成功则返回 True，否则返回 False
         """
         if speed is not None:
             self.set_speeds(servo_speed=speed, pitch_speed=speed, linear_speed=speed)
         
-        # Map x to joint1 (base rotation)
-        # This is a simplified mapping and would need proper inverse kinematics in real use
-        joint1_pos = int(x * 10 + 2048)  # Simple scaling, 2048 is center
+        # 将 x 映射到 joint1（底座旋转）
+        # 这是一个简化映射，在实际使用中需要适当的逆运动学
+        joint1_pos = int(x * 10 + 2048)  # 简单缩放，2048 是中心
         
-        # Map y to linear feed
+        # 将 y 映射到线性进给
         linear_pos = int(y * 100)
         
-        # Map z to pitch
+        # 将 z 映射到俯仰
         pitch_pos = int(z * 100)
         
-        # Execute the movements
+        # 执行运动
         j1_success = self.set_joint_position('joint1', joint1_pos)
         linear_success = self.set_linear_position(linear_pos)
         pitch_success = self.set_pitch_position(pitch_pos)
         
-        return j1_success and linear_success and pitch_success 
+        return j1_success and linear_success and pitch_success
+    
+    def scan_servos(self, start_id=1, end_id=10):
+        """
+        扫描并检测连接的舵机
+        
+        Args:
+            start_id: 开始扫描的 ID
+            end_id: 结束扫描的 ID
+            
+        Returns:
+            list: 找到的舵机 ID 和型号列表
+        """
+        found_servos = []
+        
+        print(f"扫描舵机 ID {start_id} 到 {end_id}...")
+        for i in range(start_id, end_id + 1):
+            model_number, result, error = self.servo.ping(i)
+            if result == COMM_SUCCESS:
+                print(f"[ID:{i:03d}] 成功找到舵机，型号：{model_number}")
+                found_servos.append((i, model_number))
+            else:
+                if error != 0:
+                    print(f"[ID:{i:03d}] 通信错误: {self.servo.packet_handler.getRxPacketError(error)}")
+        
+        return found_servos 

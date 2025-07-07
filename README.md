@@ -1,10 +1,10 @@
-# SCServo Robot Arm Control
+# SCServo 机械臂控制
 
-一个用于控制机械臂的跨平台Python程序，支持SCServo（FT）舵机和DC直流电机。
+一个用于控制机械臂的跨平台Python程序，支持使用Feetech-Servo-SDK控制SCServo（FT）舵机和DC直流电机。
 
 ## 功能特点
 
-- 支持控制多达6个SCServo舵机关节（目前实现4个）
+- 使用官方Feetech-Servo-SDK控制多达6个SCServo舵机关节（目前实现4个）
 - 支持2个DC大电机（俯仰和直线进给）
 - 通过两个串口进行控制
 - 跨平台兼容（Windows，Linux和macOS）
@@ -42,6 +42,16 @@ python demo.py
 python demo.py --servo-port COM3 --motor-port COM4
 ```
 
+### 设置协议参数
+
+```bash
+# 对于 SCS 协议
+python demo.py --protocol-end 1
+
+# 对于 STS/SMS 协议
+python demo.py --protocol-end 0
+```
+
 ### 选择演示类型
 
 ```bash
@@ -49,58 +59,68 @@ python demo.py --demo basic  # 基本关节移动演示
 python demo.py --demo dc     # DC电机演示
 python demo.py --demo cartesian  # 笛卡尔坐标移动演示
 python demo.py --demo pick   # 简单抓取放置演示
+python demo.py --demo scan   # 扫描连接的舵机
 python demo.py --demo all    # 所有演示（默认）
 ```
 
 ## 在你的项目中使用
 
 ```python
-from arm_control.src import RobotArm
+from src import RobotArm
 
 # 初始化机械臂
-robot = RobotArm()
+robot = RobotArm(protocol_end=0)  # STS/SMS=0, SCS=1
 
 # 连接到控制器
-robot.connect("COM3", "COM4")
+robot.connect('/dev/ttyUSB0', '/dev/ttyUSB1')
 
-# 启用力矩
+# 使能舵机
 robot.enable_torque(True)
 
-# 移动关节
-robot.set_joint_position('joint1', 2048)  # 中间位置
+# 设置运动速度
+robot.set_speeds(servo_speed=500, pitch_speed=100, linear_speed=100)
 
-# 同时控制多关节
+# 移动单个关节
+robot.set_joint_position('joint1', 2048, blocking=True)
+
+# 同时移动多个关节
 positions = {
     'joint1': 2048,
-    'joint2': 1500,
-    'joint3': 2500,
+    'joint2': 2048,
+    'joint3': 2048,
     'joint4': 2048
 }
 robot.set_joint_positions(positions, blocking=True)
 
 # 控制DC电机
-robot.set_pitch_position(1000)  # 控制俯仰
-robot.set_linear_position(5000)  # 控制直线进给
+robot.set_pitch_position(1000, blocking=True)
+robot.set_linear_position(5000, blocking=True)
 
-# 回到原位
-robot.home()
+# 使用笛卡尔坐标控制
+robot.move_cartesian(10, 15, 5)
 
-# 断开连接
+# 扫描连接的舵机
+servos = robot.scan_servos(1, 10)
+
+# 结束后清理
+robot.enable_torque(False)
 robot.disconnect()
 ```
 
-## 系统架构
+## 项目结构
 
-- `scservo.py`: SCServo通信类，处理舵机的命令和响应
-- `dcmotor.py`: DC电机控制器，处理大电机的命令和响应
-- `robot_arm.py`: 主要的机械臂控制类，集成舵机和电机控制
-- `demo.py`: 演示程序
+- `src/feetech_servo_controller.py` - Feetech舵机控制类，使用Feetech-Servo-SDK
+- `src/dcmotor.py` - DC电机控制类
+- `src/robot_arm.py` - 机械臂主控制类，集成舵机和电机控制
+- `src/__init__.py` - 使包可导入
+- `demo.py` - 演示程序
+- `components/Feetech-Servo-SDK/` - Feetech官方舵机SDK
 
 ## 注意事项
 
-- 确保在使用前正确连接硬件
-- 舵机和DC电机使用不同的串口进行通信
-- 在开始使用前，建议先校准机械臂
+- 本程序使用Feetech官方的SCServo SDK来控制舵机
+- 对于不同型号的舵机，可能需要调整协议参数（使用--protocol-end参数）
+- 使用前请确保已正确连接舵机和电源
 
 ## 许可证
 
