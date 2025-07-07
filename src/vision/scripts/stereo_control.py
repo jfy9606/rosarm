@@ -113,8 +113,8 @@ class StereoControl:
             camera_matrix_right: Right camera matrix
             dist_coeffs_left: Left distortion coefficients
             dist_coeffs_right: Right distortion coefficients
-            R: Rotation matrix
-            T: Translation vector
+            R: Rotation matrix between cameras
+            T: Translation vector between cameras
             E: Essential matrix
             F: Fundamental matrix
             image_size: Image size (width, height)
@@ -128,24 +128,39 @@ class StereoControl:
         self.E = E
         self.F = F
         
-        # Compute rectification parameters
-        self.R1, self.R2, self.P1, self.P2, self.Q, self.roi_left, self.roi_right = cv2.stereoRectify(
-            self.camera_matrix_left, self.dist_coeffs_left,
-            self.camera_matrix_right, self.dist_coeffs_right,
-            image_size, self.R, self.T,
-            flags=cv2.CALIB_ZERO_DISPARITY, alpha=0.9
-        )
-        
-        # Compute rectification maps
-        self.map_left_x, self.map_left_y = cv2.initUndistortRectifyMap(
-            self.camera_matrix_left, self.dist_coeffs_left, self.R1, self.P1,
-            image_size, cv2.CV_32FC1
-        )
-        
-        self.map_right_x, self.map_right_y = cv2.initUndistortRectifyMap(
-            self.camera_matrix_right, self.dist_coeffs_right, self.R2, self.P2,
-            image_size, cv2.CV_32FC1
-        )
+        # 检查平移向量T是否为0向量，如果是则修正
+        T_norm = np.linalg.norm(self.T)
+        if T_norm < 0.001:  # 如果T太小
+            rospy.logwarn("Translation vector T is too small: %f, setting default value", T_norm)
+            # 设置一个默认的平移向量（假设相机平行安装，向右移动65mm）
+            self.T = np.array([0.065, 0.0, 0.0])
+            
+        try:
+            # Compute rectification parameters
+            self.R1, self.R2, self.P1, self.P2, self.Q, self.roi_left, self.roi_right = cv2.stereoRectify(
+                self.camera_matrix_left, self.dist_coeffs_left,
+                self.camera_matrix_right, self.dist_coeffs_right,
+                image_size, self.R, self.T,
+                flags=cv2.CALIB_ZERO_DISPARITY, alpha=0.9
+            )
+            
+            # Compute rectification maps
+            self.map_left_x, self.map_left_y = cv2.initUndistortRectifyMap(
+                self.camera_matrix_left, self.dist_coeffs_left, self.R1, self.P1,
+                image_size, cv2.CV_32FC1
+            )
+            
+            self.map_right_x, self.map_right_y = cv2.initUndistortRectifyMap(
+                self.camera_matrix_right, self.dist_coeffs_right, self.R2, self.P2,
+                image_size, cv2.CV_32FC1
+            )
+        except cv2.error as e:
+            rospy.logerr("Error in stereoRectify: %s", str(e))
+            # 将rectification地图设置为None，以便使用原始图像
+            self.map_left_x = None
+            self.map_left_y = None
+            self.map_right_x = None
+            self.map_right_y = None
     
     def set_view_mode(self, mode):
         """

@@ -1,9 +1,0 @@
-string arm_id
-geometry_msgs/Pose target_pose
-float64[] initial_guess
-bool use_initial_guess
----
-float64[] joint_values
-bool success
-string message
-float64 fitness_score 

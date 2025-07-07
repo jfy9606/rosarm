@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="port" default="/dev/ttyUSB1" doc="舵机控制串口设备" />
+  <arg name="baudrate" default="1000000" doc="舵机控制波特率" />
+
+  <!-- 启动舵机控制节点 -->
+  <node name="wrist_node" pkg="servo" type="wrist_node" output="screen">
+    <param name="port" value="$(arg port)" />
+    <param name="baudrate" value="$(arg baudrate)" />
+  </node>
+</launch> 

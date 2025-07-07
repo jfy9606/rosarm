@@ -1,0 +1,54 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- 设置启动参数 -->
+  <arg name="use_stereo_camera" default="true" />
+  <arg name="with_stereo_vision" default="true" />
+  <arg name="with_trajectory_planner" default="true" />
+  <arg name="with_arm_controller" default="true" />
+  <arg name="with_path_planner" default="true" />
+  <arg name="with_yolo_controller" default="true" />
+  <arg name="camera_device" default="/dev/video0" doc="摄像头设备"/>
+  <arg name="start_rviz" default="false" doc="是否启动RViz可视化" />
+  
+  <!-- 启动摄像头节点 (仅当不使用立体视觉时) -->
+  <group unless="$(arg with_stereo_vision)">
+    <node name="gui_camera_node" pkg="vision" type="camera_node.py" output="screen">
+      <param name="device" value="$(arg camera_device)" />
+      <param name="width" value="640" />
+      <param name="height" value="480" />
+      <param name="fps" value="30" />
+    </node>
+  </group>
+  
+  <!-- 启动立体视觉节点 -->
+  <group if="$(arg with_stereo_vision)">
+    <include file="$(find vision)/launch/stereo_vision.launch">
+      <!-- 无需额外参数 -->
+    </include>
+  </group>
+  
+  <!-- 启动YOLO控制器 -->
+  <group if="$(arg with_yolo_controller)">
+    <node pkg="vision" type="detector_node.py" name="detector_node" output="screen">
+      <param name="detection_enabled" value="true" />
+      <param name="conf_threshold" value="0.25" />
+      <param name="model_path" value="yolo11n.pt" />
+    </node>
+  </group>
+  
+  <!-- 启动轨迹规划节点 -->
+  <group if="$(arg with_trajectory_planner)">
+    <!-- 已在vision/launch/stereo_vision.launch中包含 -->
+  </group>
+  
+  <!-- 启动关节状态发布器 -->
+  <include file="$(find arm_gui)/launch/joint_state_publisher.launch" />
+
+  <!-- 可选启动RViz -->
+  <group if="$(arg start_rviz)">
+    <node name="rviz" pkg="rviz" type="rviz" args="-d $(find arm_gui)/rviz/arm_vision.rviz" />
+  </group>
+
+  <!-- 加载机械臂描述参数 -->
+  <rosparam command="load" file="$(find arm_trajectory)/config/arm_params.yaml" />
+</launch> 

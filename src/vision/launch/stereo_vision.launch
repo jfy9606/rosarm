@@ -34,12 +34,10 @@
   <node name="camera_relay_merged" pkg="topic_tools" type="relay" args="/camera/image_raw /stereo_camera/image_raw" />
 
   <!-- 启动YOLO检测器节点 -->
-  <node pkg="vision" type="detector_node.py" name="yolo_detector_node" output="screen">
-    <param name="model_path" value="$(arg yolo_model_path)"/>
-    <param name="conf_threshold" value="0.25"/>
-    <param name="detection_enabled" value="$(arg enable_detection)"/>
-    <param name="image_topic" value="/stereo_camera/image_raw"/>
-    <param name="auto_download" value="true"/>
+  <node pkg="vision" type="detector_node.py" name="detector_node" output="screen">
+    <param name="detection_enabled" value="$(arg enable_detection)" />
+    <param name="conf_threshold" value="0.25" />
+    <param name="model_path" value="yolo11n.pt" />
   </node>
 
   <!-- 启动立体视觉检测节点进行深度计算 -->
@@ -111,7 +109,7 @@
   </group>
 
   <!-- 启动GUI界面 -->
-  <node pkg="arm_gui" type="arm_gui_node" name="arm_gui_node" output="screen" respawn="true">
+  <node pkg="arm_gui" type="main_window" name="arm_gui_node" output="screen" respawn="true">
     <!-- GUI参数 -->
     <param name="update_rate" value="20" />
     <param name="use_stereo_camera" value="true" />

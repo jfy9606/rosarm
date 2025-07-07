@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 import os
 import sys
+import time
 from sensor_msgs.msg import Image, CameraInfo
 from std_msgs.msg import Int32
 from cv_bridge import CvBridge, CvBridgeError
@@ -118,32 +119,73 @@ class CameraNode:
     
     def start_camera(self):
         """Start camera and publishing timer"""
-        # Open camera
-        try:
-            # Open camera using VideoCapture
-            self.camera.camera = cv2.VideoCapture(self.camera_index)
-            
-            # Set MJPEG format
-            self.camera.camera.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M','J','P','G'))
-            self.camera.camera.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
-            self.camera.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
-            self.camera.camera.set(cv2.CAP_PROP_FPS, self.fps)
-            
-            # Check if camera is open
-            self.camera.camera_open = self.camera.camera.isOpened()
-            
-            if self.camera.camera_open:
-                rospy.loginfo(f"Stereo camera opened successfully with MJPEG format: {self.width}x{self.height}")
-                # Start timer for publishing images
-                self.timer = rospy.Timer(rospy.Duration(1.0 / self.publish_rate), self.timer_callback)
-                rospy.loginfo(f"Camera started with publish rate {self.publish_rate} Hz")
-                return True
+        # 检查摄像头设备是否存在
+        device_path = f"/dev/video{self.camera_index}"
+        if not os.path.exists(device_path):
+            rospy.logerr(f"Camera device {device_path} does not exist")
+            # 尝试寻找其他可用摄像头
+            for i in range(10):  # 检查video0-video9
+                alt_device = f"/dev/video{i}"
+                if os.path.exists(alt_device):
+                    rospy.logwarn(f"Found alternative camera device: {alt_device}")
+                    self.camera_index = i
+                    break
             else:
-                rospy.logerr(f"Failed to open camera {self.camera_index}")
+                rospy.logerr("No camera devices found")
                 return False
-        except Exception as e:
-            rospy.logerr(f"Error opening camera: {str(e)}")
-            return False
+        
+        # 最多尝试3次打开摄像头
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            try:
+                # 确保之前的实例已关闭
+                if hasattr(self.camera, 'camera') and self.camera.camera is not None:
+                    self.camera.camera.release()
+                    time.sleep(0.5)  # 给系统一些时间完全释放摄像头
+                
+                # 打开摄像头
+                rospy.loginfo(f"Attempting to open camera {self.camera_index} (attempt {attempt+1}/{max_attempts})")
+                self.camera.camera = cv2.VideoCapture(self.camera_index)
+                
+                # 设置MJPEG格式
+                self.camera.camera.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M','J','P','G'))
+                self.camera.camera.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+                self.camera.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+                self.camera.camera.set(cv2.CAP_PROP_FPS, self.fps)
+                
+                # 读取一帧确认摄像头是否可用
+                for _ in range(5):  # 最多尝试读取5次
+                    ret, frame = self.camera.camera.read()
+                    if ret and frame is not None and frame.size > 0:
+                        break
+                    time.sleep(0.1)
+                
+                # 检查摄像头是否打开
+                self.camera.camera_open = (ret and frame is not None and frame.size > 0)
+                
+                if self.camera.camera_open:
+                    rospy.loginfo(f"Stereo camera opened successfully with MJPEG format: {self.width}x{self.height}")
+                    # 启动定时器发布图像
+                    self.timer = rospy.Timer(rospy.Duration(1.0 / self.publish_rate), self.timer_callback)
+                    rospy.loginfo(f"Camera started with publish rate {self.publish_rate} Hz")
+                    return True
+                else:
+                    rospy.logwarn(f"Failed to read from camera {self.camera_index} on attempt {attempt+1}")
+                    if self.camera.camera.isOpened():
+                        self.camera.camera.release()
+                    time.sleep(1.0)  # 等待1秒后重试
+            except Exception as e:
+                rospy.logerr(f"Error opening camera: {str(e)}")
+                if hasattr(self.camera, 'camera') and self.camera.camera is not None:
+                    if self.camera.camera.isOpened():
+                        self.camera.camera.release()
+                time.sleep(1.0)  # 等待1秒后重试
+        
+        rospy.logerr(f"Failed to open camera {self.camera_index} after {max_attempts} attempts")
+        
+        # 创建模拟图像，这样即使没有摄像头也能继续运行
+        self._create_dummy_image()
+        return False
     
     def stop_camera(self):
         """Stop camera and publishing timer"""
@@ -253,6 +295,92 @@ class CameraNode:
         camera_info.D = [0, 0, 0, 0, 0]
         
         return camera_info
+    
+    def _create_dummy_image(self):
+        """创建模拟图像，当摄像头无法使用时使用"""
+        # 创建模拟左右两侧图像
+        image_width = self.width // 2
+        image_height = self.height
+        
+        # 创建一个灰色背景
+        dummy_left = np.ones((image_height, image_width, 3), dtype=np.uint8) * 128
+        dummy_right = np.ones((image_height, image_width, 3), dtype=np.uint8) * 128
+        
+        # 在左图上添加文字
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        cv2.putText(dummy_left, "Camera Not Available", (20, image_height//2 - 20), 
+                    font, 0.8, (0, 0, 255), 2)
+        cv2.putText(dummy_left, "Left View", (20, image_height//2 + 20), 
+                    font, 0.8, (255, 0, 0), 2)
+        
+        # 在右图上添加文字
+        cv2.putText(dummy_right, "Camera Not Available", (20, image_height//2 - 20), 
+                    font, 0.8, (0, 0, 255), 2)
+        cv2.putText(dummy_right, "Right View", (20, image_height//2 + 20), 
+                    font, 0.8, (0, 255, 0), 2)
+        
+        # 合并成一个完整的双目图像
+        self.dummy_image = np.hstack([dummy_left, dummy_right])
+        
+        # 创建模拟定时器来发布图像
+        self.camera.camera_open = False  # 标记摄像头实际未打开
+        self.timer = rospy.Timer(rospy.Duration(1.0 / self.publish_rate), self.dummy_timer_callback)
+        rospy.loginfo("Created dummy stereo image and started publishing")
+    
+    def dummy_timer_callback(self, event):
+        """定时发布模拟图像的回调函数"""
+        if not hasattr(self, 'dummy_image') or self.dummy_image is None:
+            return
+            
+        try:
+            timestamp = rospy.Time.now()
+            
+            # 分割左右图像
+            image_width = self.width // 2
+            left_image = self.dummy_image[:, :image_width]
+            right_image = self.dummy_image[:, image_width:]
+            
+            # 转换为ROS消息
+            left_msg = self.bridge.cv2_to_imgmsg(left_image, "bgr8")
+            right_msg = self.bridge.cv2_to_imgmsg(right_image, "bgr8")
+            
+            # 设置消息头
+            left_msg.header.stamp = timestamp
+            left_msg.header.frame_id = self.frame_id + "_left"
+            right_msg.header.stamp = timestamp
+            right_msg.header.frame_id = self.frame_id + "_right"
+            
+            # 更新相机信息时间戳
+            left_camera_info = self.create_camera_info_msg()
+            left_camera_info.header.stamp = timestamp
+            left_camera_info.header.frame_id = self.frame_id + "_left"
+            left_camera_info.width = image_width
+            
+            right_camera_info = self.create_camera_info_msg()
+            right_camera_info.header.stamp = timestamp
+            right_camera_info.header.frame_id = self.frame_id + "_right"
+            right_camera_info.width = image_width
+            
+            # 发布图像和相机信息
+            self.left_image_pub.publish(left_msg)
+            self.right_image_pub.publish(right_msg)
+            self.left_camera_info_pub.publish(left_camera_info)
+            self.right_camera_info_pub.publish(right_camera_info)
+            
+            # 同时发布原始合并图像
+            combined_msg = self.bridge.cv2_to_imgmsg(self.dummy_image, "bgr8")
+            combined_msg.header.stamp = timestamp
+            combined_msg.header.frame_id = self.frame_id
+            self.image_pub.publish(combined_msg)
+            
+            # 更新相机信息时间戳
+            self.camera_info_msg.header.stamp = timestamp
+            self.camera_info_pub.publish(self.camera_info_msg)
+            
+        except CvBridgeError as e:
+            rospy.logerr(f"CV Bridge error in dummy timer: {str(e)}")
+        except Exception as e:
+            rospy.logerr(f"Error in dummy timer callback: {str(e)}")
     
     def shutdown(self):
         """Shutdown node"""

@@ -1,0 +1,10 @@
+# 请求：目标位姿
+geometry_msgs/Pose pose
+# 初始猜测值（可选）
+float64[] initial_guess
+---
+# 响应：关节角度数组
+float64[] joint_values
+bool success
+string message
+float64 fitness_score 

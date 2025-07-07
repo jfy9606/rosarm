@@ -80,7 +80,7 @@ class DetectorNode:
         self.right_detection_pub = rospy.Publisher('/detections/right/image', Image, queue_size=10)
         self.poses_pub = rospy.Publisher('/detections/poses', PoseArray, queue_size=10)
         self.status_pub = rospy.Publisher('/detector/status', Bool, queue_size=10, latch=True)
-        self.view_pub = rospy.Publisher('/detector/view', Int32, queue_size=10, latch=True)
+        self.view_pub = rospy.Publisher('/view/current_view', Int32, queue_size=10, latch=True)
         
         # Initialize images
         self.left_image = None
@@ -127,7 +127,8 @@ class DetectorNode:
         """Handle view selection message"""
         # msg.data: 0 for left view, 1 for right view
         self.current_view = 'right' if msg.data == 1 else 'left'
-        self.publish_view()
+        # 临时禁用视图发布以避免错误
+        # self.publish_view()
     
     def publish_status_timer(self, event):
         """Periodically publish status"""
@@ -141,9 +142,13 @@ class DetectorNode:
     
     def publish_view(self):
         """Publish current detection view"""
-        view_msg = Int32()
-        view_msg.data = 1 if self.current_view == 'right' else 0
-        self.view_pub.publish(view_msg)
+        try:
+            view_msg = Int32()
+            view_msg.data = 1 if self.current_view == 'right' else 0
+            if hasattr(self, 'view_pub'):
+                self.view_pub.publish(view_msg)
+        except Exception as e:
+            rospy.logerr(f"Error publishing view: {str(e)}")
     
     def control_callback(self, msg):
         """Handle control message"""

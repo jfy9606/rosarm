@@ -1,6 +1,0 @@
-string arm_id
-float64[] joint_values
----
-geometry_msgs/Pose end_effector_pose
-bool success
-string message 

@@ -1,0 +1,10 @@
+uint8 motor_id
+int32 position
+int16 velocity
+uint16 acceleration
+uint16 deceleration
+bool is_position_mode
+uint16 position_threshold
+---
+bool success
+string message 

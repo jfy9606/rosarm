@@ -1,0 +1,47 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- 参数设置 -->
+  <arg name="motor_port" default="/dev/ttyUSB0" doc="电机控制串口" />
+  <arg name="servo_port" default="/dev/ttyUSB1" doc="舵机控制串口" />
+  <arg name="baudrate" default="115200" doc="串口波特率" />
+  <arg name="use_camera" default="false" />
+
+  <!-- 启动电机控制节点 -->
+  <include file="$(find motor)/launch/motor_control.launch">
+    <arg name="port" value="$(arg motor_port)" />
+    <arg name="baudrate" value="$(arg baudrate)" />
+  </include>
+
+  <!-- 启动舵机控制节点 -->
+  <node pkg="servo" type="wrist_node" name="wrist_node" output="screen">
+    <param name="port" value="$(arg servo_port)" />
+    <param name="baudrate" value="$(arg baudrate)" />
+  </node>
+
+  <!-- 启动真空吸盘控制节点 -->
+  <node pkg="servo" type="vacuum_node" name="vacuum_node" output="screen" />
+
+  <!-- 启动ARM节点 -->
+  <node pkg="servo" type="arm_node" name="arm_node" output="screen">
+    <param name="port" value="$(arg servo_port)" />
+    <param name="baudrate" value="$(arg baudrate)" />
+  </node>
+
+  <!-- 启动运动学控制节点 -->
+  <node pkg="trajectory" type="trajectory_node" name="trajectory_node" output="screen" />
+
+  <!-- 启动路径规划节点 -->
+  <node pkg="trajectory" type="path_planner_node" name="path_planner_node" output="screen" />
+
+  <!-- 启动关节状态发布器 -->
+  <node pkg="gui" type="joint_state_publisher_node" name="joint_state_publisher" output="screen" />
+
+  <!-- 启动GUI界面 -->
+  <node pkg="gui" type="main_window" name="gui_node" output="screen" />
+
+  <!-- 如果启用相机，则启动相机节点 -->
+  <group if="$(arg use_camera)">
+    <include file="$(find stereo_camera)/launch/stereo_camera.launch" />
+    <include file="$(find visual_recognition)/launch/yolo_detection.launch" />
+  </group>
+</launch> 
