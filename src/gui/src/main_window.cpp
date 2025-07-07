@@ -1173,29 +1173,9 @@ bool MainWindow::checkJointLimits(const std::vector<double>& joint_values)
 }
 
 void MainWindow::setupJointLimits()
-    // 初始化运动学工具
-    try {
-        kinematics_utils_ = new trajectory::KinematicsControl();
-        if (!kinematics_utils_) {
-            ROS_ERROR("无法创建KinematicsControl对象");
-        }
-    } catch (const std::exception& e) {
-        ROS_ERROR("创建KinematicsControl异常: %s", e.what());
-        kinematics_utils_ = nullptr;
-    }
 {
     if (kinematics_utils_ != nullptr) {
         kinematics_utils_->setupJointLimits("");
-    // 初始化运动学工具
-    try {
-        kinematics_utils_ = new trajectory::KinematicsControl();
-        if (!kinematics_utils_) {
-            ROS_ERROR("无法创建KinematicsControl对象");
-        }
-    } catch (const std::exception& e) {
-        ROS_ERROR("创建KinematicsControl异常: %s", e.what());
-        kinematics_utils_ = nullptr;
-    }
     }
 }
 
