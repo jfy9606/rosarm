@@ -9,6 +9,12 @@ from .feetech_servo_controller import FeetechServoController
 from .dcmotor import DCMotorController
 import time
 import math
+import sys
+import os
+
+# 导入 Feetech-Servo-SDK 中的 COMM_SUCCESS
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'components', 'Feetech-Servo-SDK'))
+from scservo_sdk import COMM_SUCCESS
 
 
 class RobotArm:
