@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="port" default="/dev/ttyUSB0" doc="电机控制串口设备" />
+  <arg name="baudrate" default="115200" doc="电机控制波特率" />
+
+  <!-- 启动电机控制节点 -->
+  <node name="motor_node" pkg="motor" type="motor_node" output="screen">
+    <param name="port" value="$(arg port)" />
+    <param name="baudrate" value="$(arg baudrate)" />
+  </node>
+</launch> 

@@ -1,0 +1,4 @@
+arm_bringup
+/home/jfy/rosarm/devel/.private/arm_bringup/lib/pkgconfig/arm_bringup.pc /home/jfy/rosarm/devel/lib/pkgconfig/arm_bringup.pc
+/home/jfy/rosarm/devel/.private/arm_bringup/share/arm_bringup/cmake/arm_bringupConfig.cmake /home/jfy/rosarm/devel/share/arm_bringup/cmake/arm_bringupConfig.cmake
+/home/jfy/rosarm/devel/.private/arm_bringup/share/arm_bringup/cmake/arm_bringupConfig-version.cmake /home/jfy/rosarm/devel/share/arm_bringup/cmake/arm_bringupConfig-version.cmake

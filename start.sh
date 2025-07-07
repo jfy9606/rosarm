@@ -304,6 +304,7 @@ show_menu() {
         echo -e "${YELLOW}1. 启动完整系统${NC}"
         echo -e "${YELLOW}2. 检测串口设备${NC}"
         echo -e "${YELLOW}3. 修复设备权限${NC}"
+        echo -e "${YELLOW}4. 修复波特率配置${NC}"
         echo -e "${YELLOW}0. 退出${NC}"
         echo -e "${BLUE}=====================================${NC}"
         echo -ne "${GREEN}请选择: ${NC}"
@@ -318,6 +319,11 @@ show_menu() {
                 ;;
             3)
                 fix_permissions
+                ;;
+            4)
+                ./fix_baudrate.sh
+                echo -e "${GREEN}波特率配置已更新，按任意键继续...${NC}"
+                read -r -n 1
                 ;;
             0)
                 echo -e "${GREEN}退出程序${NC}"

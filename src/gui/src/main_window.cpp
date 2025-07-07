@@ -25,97 +25,103 @@ MainWindow::MainWindow(ros::NodeHandle& nh, QWidget* parent)
     yolo_enabled_(false), camera_view_mode_(0), is_camera_available_(false),
     stereo_camera_error_count_(0), available_camera_index_(-1),
     ignore_slider_events_(false), ignore_spin_events_(false), ui_processing_(false),
-    updateTimer(new QTimer(this))
+    updateTimer(new QTimer(this)), kinematics_utils_(nullptr)
 {
-    // 设置窗口标题和大小
-    setWindowTitle("Robotic Arm Control System");
-    resize(1024, 768);
-    
-    // 设置状态栏
-    statusBar()->showMessage("Initializing robotic arm control interface...");
-    
-    // 创建占位图像 - 即使没有相机也先创建
-    createPlaceholderImage("Waiting for camera connection...");
-    
-    // 初始化ROS
-    initializeROS();
-    
-    // 初始化成员变量
-    initializeMembers();
-    
-    // 初始化UI配置
-    setupUi();
-    
-    // 初始化控件连接
-    connectSignalSlots();
-    
-    // 设置关节限制
-    setupJointLimits();
-    // 初始化运动学工具
     try {
-        kinematics_utils_ = new trajectory::KinematicsControl();
-        if (!kinematics_utils_) {
-            ROS_ERROR("无法创建KinematicsControl对象");
+        // 设置窗口标题和大小
+        setWindowTitle("Robotic Arm Control System");
+        resize(1024, 768);
+        
+        // 设置状态栏
+        statusBar()->showMessage("Initializing robotic arm control interface...");
+        
+        // 创建占位图像 - 即使没有相机也先创建
+        createPlaceholderImage("Waiting for camera connection...");
+        
+        // 初始化ROS
+        initializeROS();
+        
+        // 初始化成员变量
+        initializeMembers();
+        
+        // 初始化UI配置
+        setupUi();
+        
+        // 初始化控件连接
+        connectSignalSlots();
+        
+        // 初始化运动学工具 - 确保只初始化一次
+        try {
+            kinematics_utils_ = new trajectory::KinematicsControl();
+            if (!kinematics_utils_) {
+                ROS_ERROR("无法创建KinematicsControl对象");
+            } else {
+                // 设置关节限制
+                setupJointLimits();
+            }
+        } catch (const std::exception& e) {
+            ROS_ERROR("创建KinematicsControl异常: %s", e.what());
+            kinematics_utils_ = nullptr;
         }
+        
+        // 创建主标签页控件
+        QTabWidget* mainTabWidget = new QTabWidget(this);
+        setCentralWidget(mainTabWidget);
+
+        // 创建机械臂控制标签页
+        QWidget* armControlTab = new QWidget();
+        QVBoxLayout* armLayout = new QVBoxLayout(armControlTab);
+
+        // 添加机械臂控制相关组件
+        armLayout->addWidget(createArmControlPanel());
+        armLayout->addWidget(createJointControlPanel());
+        armLayout->addWidget(createPositionControlPanel());
+
+        // 创建视觉系统标签页
+        QWidget* visionTab = new QWidget();
+        QVBoxLayout* visionLayout = new QVBoxLayout(visionTab);
+
+        // 添加视觉系统相关组件
+        visionLayout->addWidget(createCameraViewPanel());
+        visionLayout->addWidget(createObjectDetectionPanel());
+        visionLayout->addWidget(createDepthVisualizationPanel());
+
+        // 创建桥接控制标签页
+        QWidget* bridgeTab = new QWidget();
+        QVBoxLayout* bridgeLayout = new QVBoxLayout(bridgeTab);
+
+        // 添加桥接控制相关组件
+        bridgeLayout->addWidget(createVisualServoBridgePanel());
+
+        // 将标签页添加到主标签页控件
+        mainTabWidget->addTab(armControlTab, tr("机械臂控制"));
+        mainTabWidget->addTab(visionTab, tr("视觉系统"));
+        mainTabWidget->addTab(bridgeTab, tr("系统桥接"));
+        
+        // 启动定时器
+        updateTimer->start(33);  // 30FPS
+        
+        // 设置相机重连定时器
+        connect(&camera_reconnect_timer_, &QTimer::timeout, this, &MainWindow::attemptCameraReconnect);
+        camera_reconnect_timer_.start(5000);  // 每5秒尝试重连相机
+        
+        // 将界面设置为初始状态
+        updateGUIJointValues();
+        
+        // 更新UI
+        updateUI();
+        
+        // 更新相机视图（使用占位图像）
+        updateCameraView();
+        
+        statusBar()->showMessage("机械臂控制界面已启动");
     } catch (const std::exception& e) {
-        ROS_ERROR("创建KinematicsControl异常: %s", e.what());
-        kinematics_utils_ = nullptr;
+        ROS_ERROR("初始化GUI时出现异常: %s", e.what());
+        QMessageBox::critical(this, "初始化错误", QString("GUI初始化失败: %1").arg(e.what()));
+    } catch (...) {
+        ROS_ERROR("初始化GUI时出现未知异常");
+        QMessageBox::critical(this, "初始化错误", "GUI初始化过程中发生未知错误");
     }
-    
-    // 初始化运动学工具
-    kinematics_utils_ = new trajectory::KinematicsControl();
-    
-    // 创建主标签页控件
-    QTabWidget* mainTabWidget = new QTabWidget(this);
-    setCentralWidget(mainTabWidget);
-
-    // 创建机械臂控制标签页
-    QWidget* armControlTab = new QWidget();
-    QVBoxLayout* armLayout = new QVBoxLayout(armControlTab);
-
-    // 添加机械臂控制相关组件
-    armLayout->addWidget(createArmControlPanel());
-    armLayout->addWidget(createJointControlPanel());
-    armLayout->addWidget(createPositionControlPanel());
-
-    // 创建视觉系统标签页
-    QWidget* visionTab = new QWidget();
-    QVBoxLayout* visionLayout = new QVBoxLayout(visionTab);
-
-    // 添加视觉系统相关组件
-    visionLayout->addWidget(createCameraViewPanel());
-    visionLayout->addWidget(createObjectDetectionPanel());
-    visionLayout->addWidget(createDepthVisualizationPanel());
-
-    // 创建桥接控制标签页
-    QWidget* bridgeTab = new QWidget();
-    QVBoxLayout* bridgeLayout = new QVBoxLayout(bridgeTab);
-
-    // 添加桥接控制相关组件
-    bridgeLayout->addWidget(createVisualServoBridgePanel());
-
-    // 将标签页添加到主标签页控件
-    mainTabWidget->addTab(armControlTab, tr("机械臂控制"));
-    mainTabWidget->addTab(visionTab, tr("视觉系统"));
-    mainTabWidget->addTab(bridgeTab, tr("系统桥接"));
-    
-    // 启动定时器
-    updateTimer->start(33);  // 30FPS
-    
-    // 设置相机重连定时器
-    connect(&camera_reconnect_timer_, &QTimer::timeout, this, &MainWindow::attemptCameraReconnect);
-    camera_reconnect_timer_.start(5000);  // 每5秒尝试重连相机
-    
-    // 将界面设置为初始状态
-    updateGUIJointValues();
-    
-    // 更新UI
-    updateUI();
-    
-    // 更新相机视图（使用占位图像）
-    updateCameraView();
-    
-    statusBar()->showMessage("机械臂控制界面已启动");
 }
 
 MainWindow::~MainWindow()
@@ -1115,20 +1121,18 @@ double MainWindow::radToDeg(double rad)
 
 geometry_msgs::Pose MainWindow::forwardKinematics(const std::vector<double>& joint_values)
 {
+    geometry_msgs::Pose default_pose;
+    default_pose.position.x = 0.3; // 默认30cm前方
+    default_pose.position.y = 0.0;
+    default_pose.position.z = 0.3; // 默认30cm高度
+    default_pose.orientation.w = 1.0;
+    default_pose.orientation.x = 0.0;
+    default_pose.orientation.y = 0.0;
+    default_pose.orientation.z = 0.0;
+
     if (!kinematics_utils_) {
         // Fallback if kinematics_utils_ is not initialized
-        geometry_msgs::Pose default_pose;
-        default_pose.position.x = 0.3; // 默认30cm前方
-        default_pose.position.y = 0.0;
-        default_pose.position.z = 0.3; // 默认30cm高度
-        default_pose.orientation.w = 1.0;
-        default_pose.orientation.x = 0.0;
-        default_pose.orientation.y = 0.0;
-        default_pose.orientation.z = 0.0;
-        
-        // 记录警告
         ROS_WARN("运动学工具未初始化，使用默认位姿");
-        
         return default_pose;
     }
     
@@ -1137,16 +1141,9 @@ geometry_msgs::Pose MainWindow::forwardKinematics(const std::vector<double>& joi
     } catch (const std::exception& e) {
         // 捕获可能的异常并提供默认值
         ROS_ERROR("正向运动学计算失败: %s", e.what());
-        
-        geometry_msgs::Pose default_pose;
-        default_pose.position.x = 0.3;
-        default_pose.position.y = 0.0;
-        default_pose.position.z = 0.3;
-        default_pose.orientation.w = 1.0;
-        default_pose.orientation.x = 0.0;
-        default_pose.orientation.y = 0.0;
-        default_pose.orientation.z = 0.0;
-        
+        return default_pose;
+    } catch (...) {
+        ROS_ERROR("正向运动学计算失败: 未知错误");
         return default_pose;
     }
 }
@@ -1156,10 +1153,19 @@ std::vector<double> MainWindow::inverseKinematics(const geometry_msgs::Pose& tar
 {
     if (!kinematics_utils_) {
         // Fallback if kinematics_utils_ is not initialized
-        ROS_ERROR("Kinematics utilities not initialized, cannot perform inverse kinematics");
+        ROS_ERROR("运动学工具未初始化，无法执行逆运动学计算");
         return std::vector<double>();
     }
-    return kinematics_utils_->inverseKinematics(target_pose, initial_guess);
+
+    try {
+        return kinematics_utils_->inverseKinematics(target_pose, initial_guess);
+    } catch (const std::exception& e) {
+        ROS_ERROR("逆运动学计算失败: %s", e.what());
+        return std::vector<double>();
+    } catch (...) {
+        ROS_ERROR("逆运动学计算失败: 未知错误");
+        return std::vector<double>();
+    }
 }
 
 bool MainWindow::checkJointLimits(const std::vector<double>& joint_values)
@@ -1175,7 +1181,13 @@ bool MainWindow::checkJointLimits(const std::vector<double>& joint_values)
 void MainWindow::setupJointLimits()
 {
     if (kinematics_utils_ != nullptr) {
-        kinematics_utils_->setupJointLimits("");
+        try {
+            kinematics_utils_->setupJointLimits("");
+        } catch (const std::exception& e) {
+            ROS_ERROR("设置关节限制时出现异常: %s", e.what());
+        } catch (...) {
+            ROS_ERROR("设置关节限制时出现未知异常");
+        }
     }
 }
 

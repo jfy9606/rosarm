@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <launch>
   <arg name="port" default="/dev/ttyUSB1" doc="真空吸盘控制串口设备" />
-  <arg name="baudrate" default="1000000" doc="真空吸盘控制波特率" />
+  <arg name="baudrate" default="115200" doc="真空吸盘控制波特率" />
 
   <!-- 启动真空吸盘控制节点 -->
   <node name="vacuum_node" pkg="servo" type="vacuum_node" output="screen">
