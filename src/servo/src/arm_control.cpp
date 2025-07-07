@@ -72,7 +72,7 @@ bool ArmControl::setJointPositions(const std::vector<double>& joint_positions) {
     state_.joint_positions = joint_positions;
     updateEndEffectorPose();
     
-    return true;
+        return true;
 }
 
 std::vector<double> ArmControl::getJointPositions() const {

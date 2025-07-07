@@ -20,10 +20,12 @@ trajectory
 /home/jfy/rosarm/devel/.private/trajectory/lib/python3/dist-packages/trajectory/srv/_ForwardKinematics.py /home/jfy/rosarm/devel/lib/python3/dist-packages/trajectory/srv/_ForwardKinematics.py
 /home/jfy/rosarm/devel/.private/trajectory/lib/python3/dist-packages/trajectory/srv/_InverseKinematics.py /home/jfy/rosarm/devel/lib/python3/dist-packages/trajectory/srv/_InverseKinematics.py
 /home/jfy/rosarm/devel/.private/trajectory/lib/pkgconfig/trajectory.pc /home/jfy/rosarm/devel/lib/pkgconfig/trajectory.pc
+/home/jfy/rosarm/devel/.private/trajectory/lib/trajectory/visual_servo_bridge.py /home/jfy/rosarm/devel/lib/trajectory/visual_servo_bridge.py
 /home/jfy/rosarm/devel/.private/trajectory/lib/trajectory/trajectory_node.py /home/jfy/rosarm/devel/lib/trajectory/trajectory_node.py
 /home/jfy/rosarm/devel/.private/trajectory/lib/trajectory/path_planner_node.py /home/jfy/rosarm/devel/lib/trajectory/path_planner_node.py
 /home/jfy/rosarm/devel/.private/trajectory/lib/trajectory/kinematics_node.py /home/jfy/rosarm/devel/lib/trajectory/kinematics_node.py
 /home/jfy/rosarm/devel/.private/trajectory/lib/trajectory/trajectory_node /home/jfy/rosarm/devel/lib/trajectory/trajectory_node
+/home/jfy/rosarm/devel/.private/trajectory/lib/trajectory/visual_servo_node.py /home/jfy/rosarm/devel/lib/trajectory/visual_servo_node.py
 /home/jfy/rosarm/devel/.private/trajectory/share/gennodejs/ros/trajectory/_index.js /home/jfy/rosarm/devel/share/gennodejs/ros/trajectory/_index.js
 /home/jfy/rosarm/devel/.private/trajectory/share/gennodejs/ros/trajectory/msg/_index.js /home/jfy/rosarm/devel/share/gennodejs/ros/trajectory/msg/_index.js
 /home/jfy/rosarm/devel/.private/trajectory/share/gennodejs/ros/trajectory/msg/TrajectoryPath.js /home/jfy/rosarm/devel/share/gennodejs/ros/trajectory/msg/TrajectoryPath.js

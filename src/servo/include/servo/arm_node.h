@@ -12,6 +12,7 @@
 #include <servo/MotorOrder.h>
 #include <servo/SerControl.h>
 #include <servo/HomePosition.h>
+#include <std_msgs/Float64MultiArray.h>
 #include <string>
 #include <vector>
 
@@ -84,7 +85,7 @@ private:
     
     // 回调函数
     void jointStateCallback(const sensor_msgs::JointState::ConstPtr& msg);
-    void jointCommandCallback(const sensor_msgs::JointState::ConstPtr& msg);
+    void jointCommandCallback(const std_msgs::Float64MultiArray::ConstPtr& msg);
     void poseCommandCallback(const geometry_msgs::Pose::ConstPtr& msg);
     void vacuumCommandCallback(const std_msgs::Bool::ConstPtr& msg);
     void vacuumPowerCallback(const std_msgs::Int32::ConstPtr& msg);

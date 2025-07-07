@@ -34,10 +34,10 @@
   </node>
 
   <!-- 启动运动学控制节点 -->
-  <node pkg="trajectory" type="trajectory_node" name="trajectory_node" output="screen" />
+  <node pkg="trajectory" type="trajectory_node.py" name="trajectory_node" output="screen" />
 
   <!-- 启动路径规划节点 -->
-  <node pkg="trajectory" type="path_planner_node" name="path_planner_node" output="screen" />
+  <node pkg="trajectory" type="path_planner_node.py" name="path_planner_node" output="screen" />
 
   <!-- 启动关节状态发布器 -->
   <node pkg="gui" type="joint_state_publisher_node" name="joint_state_publisher" output="screen" />

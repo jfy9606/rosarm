@@ -136,6 +136,13 @@ catkin_install_python(PROGRAMS
   scripts/trajectory_node.py
   scripts/path_planner_node.py
   scripts/kinematics_node.py
+  scripts/visual_servo_node.py
+  scripts/visual_servo_bridge.py
+  scripts/path_planner_control.py
+  scripts/trajectory_control.py
+  scripts/kinematics_control.py
+  scripts/whales_optimizer.py
+  scripts/__init__.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 ) 
 

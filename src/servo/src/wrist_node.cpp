@@ -177,7 +177,7 @@ void WristNode::setJointPositions(const std::vector<double>& positions) {
     msg.data = positions;
     joint_pub_.publish(msg);
     
-    ROS_DEBUG("已发送关节位置命令");
+    ROS_DEBUG("Joint position command sent");
 }
 
 std::vector<double> WristNode::getJointPositions() const {
@@ -216,7 +216,7 @@ bool WristNode::jointControlServiceCallback(servo::JointControl::Request& req,
     // 验证关节位置数组的长度
     if (req.position.empty()) {
         res.success = false;
-        res.message = "关节位置数组为空";
+        res.message = "Joint position array is empty";
         return true;
     }
     
@@ -224,10 +224,10 @@ bool WristNode::jointControlServiceCallback(servo::JointControl::Request& req,
         // 设置关节位置
         setJointPositions(req.position);
         res.success = true;
-        res.message = "关节控制命令已执行";
+        res.message = "Joint control command executed";
     } catch (const std::exception& e) {
         res.success = false;
-        res.message = std::string("关节控制失败: ") + e.what();
+        res.message = std::string("Joint control failed: ") + e.what();
     }
     
     return true;

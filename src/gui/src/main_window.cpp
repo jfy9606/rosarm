@@ -1,4 +1,4 @@
-#include "gui/main_window.h"
+#include "main_window.h"
 #include <QMessageBox>
 #include <QFileDialog>
 #include <QDebug>
@@ -11,6 +11,7 @@
 #include <cv_bridge/cv_bridge.h>
 #include <opencv2/imgproc/imgproc.hpp>
 #include "trajectory/kinematics_control.h"
+#include <std_msgs/Float64MultiArray.h>
 
 // 前向声明UI命名空间
 namespace Ui {
@@ -26,14 +27,14 @@ MainWindow::MainWindow(ros::NodeHandle& nh, QWidget* parent)
     updateTimer(new QTimer(this))
 {
     // 设置窗口标题和大小
-    setWindowTitle("机械臂控制系统");
+    setWindowTitle("Robotic Arm Control System");
     resize(1024, 768);
     
     // 设置状态栏
-    statusBar()->showMessage("机械臂控制界面初始化中...");
+    statusBar()->showMessage("Initializing robotic arm control interface...");
     
     // 创建占位图像 - 即使没有相机也先创建
-    createPlaceholderImage("等待摄像头连接...");
+    createPlaceholderImage("Waiting for camera connection...");
     
     // 初始化ROS
     initializeROS();
@@ -120,7 +121,7 @@ void MainWindow::initializeROS()
 {
     try {
         // 初始化发布者
-        joint_command_pub_ = nh_.advertise<sensor_msgs::JointState>("/joint_command", 1);
+        joint_command_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("/joint_command", 1);
         vacuum_cmd_pub_ = nh_.advertise<std_msgs::Bool>("/vacuum_command", 1);
         vacuum_power_pub_ = nh_.advertise<std_msgs::Int32>("/vacuum_power", 1);
         camera_view_mode_pub_ = nh_.advertise<std_msgs::Int32>("/stereo_camera/view_mode", 1);
@@ -132,10 +133,10 @@ void MainWindow::initializeROS()
         // 设置ROS订阅
         setupROSSubscriptions();
         
-        ROS_INFO("ROS初始化完成");
+        ROS_INFO("ROS initialization complete");
     }
     catch (const std::exception& e) {
-        ROS_ERROR("ROS初始化失败: %s", e.what());
+        ROS_ERROR("ROS initialization failed: %s", e.what());
     }
 }
 
@@ -912,35 +913,24 @@ void MainWindow::onHomeButtonClicked()
 // 相机重连槽函数
 void MainWindow::attemptCameraReconnect()
 {
-    // 如果相机已经可用，不需要重连
-    if (is_camera_available_) {
-        return;
-    }
-    
-    ROS_INFO("尝试重新连接相机...");
-    
-    // 这里只需要显示更新后的状态信息，实际重连由stereo_camera_node负责
-    // 我们只需要在这里更新UI状态
-    
-    // 更新占位图像消息，告知用户我们正在尝试重连
-    static int reconnect_attempts = 0;
-    reconnect_attempts++;
-    
-    QString message = QString("相机未连接，正在尝试重连... (尝试 %1 次)").arg(reconnect_attempts);
-    createPlaceholderImage(message.toStdString());
-    
-    // 更新相机视图
-    updateCameraView();
-    
-    // 记录到状态栏
-    statusBar()->showMessage(message, 2000);
-    
-    // 检查是否有相机可用
+    // 查找可用相机
+    if (!is_camera_available_) {
     if (findAvailableCamera()) {
-        ROS_INFO("找到可用相机");
         is_camera_available_ = true;
-        reconnect_attempts = 0;
-        statusBar()->showMessage("相机已重新连接", 2000);
+            stereo_camera_error_count_ = 0;
+            camera_reconnect_timer_.setInterval(5000);  // 恢复正常检查间隔
+            ROS_INFO("Camera reconnected successfully.");
+            QString message = "Camera reconnected successfully";
+            createPlaceholderImage(message);
+        } else {
+            stereo_camera_error_count_++;
+            // 如果长时间无法连接相机，降低重连频率
+            if (stereo_camera_error_count_ > 12) {  // 1分钟后
+                camera_reconnect_timer_.setInterval(30000);  // 30秒检查一次
+            }
+            QString message = "Waiting for camera connection... (" + QString::number(stereo_camera_error_count_) + ")";
+            createPlaceholderImage(message);
+        }
     }
 }
 
@@ -972,32 +962,19 @@ void MainWindow::sendJointCommand()
 
 void MainWindow::sendJointCommand(const std::vector<double>& joint_values)
 {
-    // 创建关节状态消息
-    sensor_msgs::JointState joint_msg;
-    joint_msg.header.stamp = ros::Time::now();
-    joint_msg.name = {"joint1", "joint2", "joint3", "joint4", "joint5", "joint6"};
-    joint_msg.position = joint_values;
+    if (joint_values.size() < 6) {
+        ROS_ERROR("Invalid joint values size");
+        return;
+    }
+    
+    // 创建关节命令消息
+    std_msgs::Float64MultiArray joint_cmd;
+    joint_cmd.data = joint_values;
     
     // 发布关节命令
-    joint_command_pub_.publish(joint_msg);
+    joint_command_pub_.publish(joint_cmd);
     
-    // 使用服务调用（如果服务可用）
-    if (joint_control_client_.exists()) {
-        servo::JointControl srv;
-        srv.request.position = joint_values;
-        
-        if (joint_control_client_.call(srv)) {
-            if (srv.response.success) {
-                ROS_INFO("关节控制成功");
-            } else {
-                ROS_WARN("关节控制失败: %s", srv.response.message.c_str());
-            }
-        } else {
-            ROS_ERROR("调用关节控制服务失败");
-        }
-    } else {
-        ROS_INFO("关节控制服务不可用，仅使用消息发布");
-    }
+    ROS_INFO("Joint command sent");
 }
 
 void MainWindow::sendVacuumCommand(bool on, int power)
@@ -1521,46 +1498,33 @@ void MainWindow::showObjectDistanceOverlay(QImage& image, const std::vector<Dete
     }
 }
 
-void MainWindow::createPlaceholderImage(const std::string& message)
+void MainWindow::createPlaceholderImage(const QString& message)
 {
+    // 创建占位图像
     int width = 640;
     int height = 480;
-    
-    // 创建占位图像
     QImage placeholder(width, height, QImage::Format_RGB888);
-    placeholder.fill(QColor(40, 40, 40)); // 深灰色背景
+    placeholder.fill(Qt::black);
     
-    // 添加文本
     QPainter painter(&placeholder);
-    painter.setRenderHint(QPainter::Antialiasing);
     
-    // 设置字体
-    QFont font = painter.font();
-    font.setPointSize(16);
-    font.setBold(true);
-    painter.setFont(font);
-    
-    // 设置文本样式
+    // 绘制提示文本
+    if (!message.isEmpty()) {
     painter.setPen(Qt::white);
+        painter.setFont(QFont("Arial", 14, QFont::Bold));
+        QRect textRect = painter.fontMetrics().boundingRect(0, 0, width, height, Qt::AlignCenter, message);
+        painter.drawText((width - textRect.width()) / 2, (height + textRect.height()) / 2, message);
+    }
     
-    // 绘制文本
-    QString text = message.empty() ? "相机未连接" : QString::fromStdString(message);
-    QRect textRect = painter.fontMetrics().boundingRect(text);
-    int x = (width - textRect.width()) / 2;
-    int y = (height - textRect.height()) / 2 + painter.fontMetrics().ascent();
-    painter.drawText(x, y, text);
-    
-    // 在下方添加提示
-    font.setPointSize(12);
-    painter.setFont(font);
-    QString hint = "正在尝试连接，请稍候...";
-    textRect = painter.fontMetrics().boundingRect(hint);
-    x = (width - textRect.width()) / 2;
-    y += 40;
-    painter.drawText(x, y, hint);
-    
-    // 保存占位图像
+    // 存储占位图像
     current_camera_image_ = placeholder;
+    left_camera_image_ = placeholder;
+    right_camera_image_ = placeholder;
+    current_depth_image_ = placeholder;
+    detection_image_ = placeholder;
+    
+    // 更新界面
+    updateCameraView();
 }
 
 QImage MainWindow::cvMatToQImage(const cv::Mat& mat)
@@ -2105,4 +2069,54 @@ void MainWindow::updateEndEffectorPose()
         }
         ROS_ERROR("末端位置计算错误: %s", e.what());
     }
+}
+
+void MainWindow::onShowDetectionBoxesToggled(bool checked) {
+    show_detection_boxes_ = checked;
+    updateCameraView();
+}
+
+void MainWindow::onShowDistanceOverlayToggled(bool checked) {
+    show_distance_overlay_ = checked;
+    updateCameraView();
+}
+
+void MainWindow::onDetectionModelChanged(const QString& model) {
+    current_detection_model_ = model.toStdString();
+    // 发送模型变更消息
+    ROS_INFO("Detection model changed to: %s", current_detection_model_.c_str());
+}
+
+void MainWindow::onDetectObjectsClicked() {
+    // 触发物体检测
+    ROS_INFO("Object detection triggered");
+}
+
+void MainWindow::onObjectTableItemClicked(int row, int column) {
+    selected_object_index_ = row;
+    ROS_INFO("Selected object at index: %d", selected_object_index_);
+}
+
+void MainWindow::onGraspSelectedObjectClicked() {
+    if (selected_object_index_ >= 0 && selected_object_index_ < static_cast<int>(detected_objects_.size())) {
+        ROS_INFO("Attempting to grasp selected object");
+    } else {
+        ROS_WARN("No valid object selected for grasping");
+    }
+}
+
+void MainWindow::onStereoViewButtonClicked() {
+    camera_view_mode_ = 2;
+    std_msgs::Int32 mode_msg;
+    mode_msg.data = camera_view_mode_;
+    camera_view_mode_pub_.publish(mode_msg);
+    ROS_INFO("Camera view mode set to: Stereo");
+}
+
+void MainWindow::onDepthViewButtonClicked() {
+    camera_view_mode_ = 3;
+    std_msgs::Int32 mode_msg;
+    mode_msg.data = camera_view_mode_;
+    camera_view_mode_pub_.publish(mode_msg);
+    ROS_INFO("Camera view mode set to: Depth");
 }

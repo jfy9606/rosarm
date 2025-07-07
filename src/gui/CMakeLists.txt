@@ -74,11 +74,12 @@ set(MAIN_SOURCES
   src/main.cpp
 )
 
-# Qt moc处理
-qt5_wrap_cpp(MAIN_WINDOW_MOC_SOURCES include/gui/main_window.h)
-
 # GUI可执行文件 - 分开编译main_window和main.cpp
-add_library(main_window_lib ${MAIN_WINDOW_SOURCES} ${MAIN_WINDOW_MOC_SOURCES})
+add_library(main_window_lib
+  src/main_window.cpp
+  include/main_window.h
+)
+
 target_link_libraries(main_window_lib
   ${catkin_LIBRARIES}
   Qt5::Core
@@ -109,7 +110,7 @@ install(TARGETS main_window main_window_lib joint_state_publisher_node
   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
 )
 
-install(DIRECTORY include/${PROJECT_NAME}/
+install(DIRECTORY include/
   DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
   FILES_MATCHING PATTERN "*.h"
 )

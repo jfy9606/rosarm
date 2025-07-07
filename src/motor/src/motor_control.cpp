@@ -108,4 +108,4 @@ bool MotorControl::initializeMotor(uint8_t motor_id) {
     return true;
 }
 
-} // namespace motor
+} // namespace motor 

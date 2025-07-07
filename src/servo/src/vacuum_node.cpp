@@ -17,12 +17,12 @@ VacuumNode::VacuumNode(const std::string& port, int baudrate) : serial_port_(-1)
     
     // 初始化串口
     if (!initializeSerialPort(port, baudrate)) {
-        ROS_ERROR("初始化串口失败，将尝试定期重新连接");
+        ROS_ERROR("Initialization failed, will try to reconnect periodically");
         // 设置定期重试连接的定时器
         reconnect_timer_ = nh_.createTimer(ros::Duration(5.0), 
                                           [this, port, baudrate](const ros::TimerEvent&) {
                                               if (serial_port_ < 0) {
-                                                  ROS_INFO("尝试重新连接串口...");
+                                                  ROS_INFO("Attempting to reconnect serial port...");
                                                   initializeSerialPort(port, baudrate);
                                               }
                                           });
@@ -35,7 +35,7 @@ VacuumNode::VacuumNode(const std::string& port, int baudrate) : serial_port_(-1)
     // 设置服务
     vacuum_service_ = nh_.advertiseService("vacuum_control", &VacuumNode::vacuumServiceCallback, this);
     
-    ROS_INFO("真空吸盘控制器已初始化，串口: %s，波特率: %d", port.c_str(), baudrate);
+    ROS_INFO("Vacuum suction controller initialized, port: %s, baudrate: %d", port.c_str(), baudrate);
     
     // 默认关闭真空吸盘
     setVacuum(false, 0);
@@ -75,19 +75,19 @@ std::string VacuumNode::findSerialDevice(const std::string& preferred_port) {
     // 如果找到多个设备，优先选择备选端口
     for (const auto& device : possible_devices) {
         if (device == "/dev/ttyUSB1" || device == "/dev/ttyUSB0") {
-            ROS_WARN("使用备选串口设备: %s", device.c_str());
+            ROS_WARN("Using alternative serial device: %s", device.c_str());
             return device;
         }
     }
     
     // 如果找到任何设备，返回第一个
     if (!possible_devices.empty()) {
-        ROS_WARN("使用可用的串口设备: %s", possible_devices[0].c_str());
+        ROS_WARN("Using available serial device: %s", possible_devices[0].c_str());
         return possible_devices[0];
     }
     
     // 如果没有找到设备，返回原始端口
-    ROS_ERROR("未找到可用的串口设备，将尝试使用原始端口: %s", preferred_port.c_str());
+    ROS_ERROR("No available serial device found, will try using original port: %s", preferred_port.c_str());
     return preferred_port;
 }
 
@@ -105,7 +105,7 @@ bool VacuumNode::initializeSerialPort(const std::string& port, int baudrate) {
     // 打开串口
     serial_port_ = open(actual_port.c_str(), O_RDWR | O_NOCTTY);
     if (serial_port_ < 0) {
-        ROS_ERROR("无法打开串口 %s", actual_port.c_str());
+        ROS_ERROR("Unable to open serial port %s", actual_port.c_str());
         return false;
     }
     
@@ -113,7 +113,7 @@ bool VacuumNode::initializeSerialPort(const std::string& port, int baudrate) {
     struct termios tty;
     memset(&tty, 0, sizeof(tty));
     if (tcgetattr(serial_port_, &tty) != 0) {
-        ROS_ERROR("tcgetattr 错误");
+        ROS_ERROR("tcgetattr error");
         close(serial_port_);
         serial_port_ = -1;
         return false;
@@ -127,8 +127,16 @@ bool VacuumNode::initializeSerialPort(const std::string& port, int baudrate) {
         case 38400: baud = B38400; break;
         case 57600: baud = B57600; break;
         case 115200: baud = B115200; break;
+        case 1000000: 
+            #ifdef B1000000
+            baud = B1000000; 
+            #else
+            ROS_WARN("Baudrate 1000000 not supported by this system, using 115200");
+            baud = B115200;
+            #endif
+            break;
         default:
-            ROS_WARN("不支持的波特率 %d，使用默认值 115200", baudrate);
+            ROS_WARN("Unsupported baudrate %d, using default 115200", baudrate);
             baud = B115200;
             break;
     }
@@ -153,13 +161,13 @@ bool VacuumNode::initializeSerialPort(const std::string& port, int baudrate) {
     tty.c_cc[VTIME] = 10; // 100ms超时
     
     if (tcsetattr(serial_port_, TCSANOW, &tty) != 0) {
-        ROS_ERROR("tcsetattr 错误");
+        ROS_ERROR("tcsetattr error");
         close(serial_port_);
         serial_port_ = -1;
         return false;
     }
     
-    ROS_INFO("成功连接到串口: %s，波特率: %d", actual_port.c_str(), baudrate);
+    ROS_INFO("Successfully connected to serial port: %s, baudrate: %d", actual_port.c_str(), baudrate);
     return true;
 }
 
@@ -187,14 +195,14 @@ bool VacuumNode::vacuumServiceCallback(servo::VacuumCmd::Request& req,
     
     bool success = setVacuum(req.enable, power);
     res.success = success;
-    res.message = success ? "成功" : "失败";
+    res.message = success ? "Success" : "Failure";
     return true;
 }
 
 bool VacuumNode::setVacuum(bool enable, int power) {
     // 如果端口未打开，尝试重新连接
     if (serial_port_ < 0) {
-        ROS_ERROR("串口未打开，尝试重新连接");
+        ROS_ERROR("Serial port not open, attempting to reconnect");
         if (!initializeSerialPort(port_name_, 115200)) {
             return false;
         }
@@ -229,13 +237,13 @@ bool VacuumNode::setVacuum(bool enable, int power) {
             break;
         }
         
-        ROS_WARN("写入串口失败，尝试重新发送 (%d/3)", i+1);
+        ROS_WARN("Write to serial port failed, retrying (%d/3)", i+1);
         // 短暂延迟后重试
         ros::Duration(0.1).sleep();
     }
     
     if (!success) {
-        ROS_ERROR("多次尝试写入串口失败，可能需要检查硬件连接");
+        ROS_ERROR("Multiple attempts to write to serial port failed, possibly hardware connection issue");
         // 可能是串口断开，将端口标记为无效以便重新连接
         if (serial_port_ >= 0) {
             close(serial_port_);
@@ -244,7 +252,7 @@ bool VacuumNode::setVacuum(bool enable, int power) {
         return false;
     }
     
-    ROS_INFO("真空吸盘: %s, 功率: %d%%", enable ? "开启" : "关闭", power);
+    ROS_INFO("Vacuum status: %s, power: %d%%", enable ? "ON" : "OFF", power);
     return true;
 }
 

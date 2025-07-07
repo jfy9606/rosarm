@@ -22,7 +22,7 @@ public:
      * @brief 析构函数
      */
     ~ArmControl();
-    
+
     /**
      * @brief 设置关节位置
      * @param joint_positions 关节位置数组

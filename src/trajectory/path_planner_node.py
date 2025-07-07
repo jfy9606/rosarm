@@ -11,7 +11,8 @@ from visualization_msgs.msg import Marker, MarkerArray
 
 # 使用直接导入
 import sys, os
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# 添加scripts目录到Python路径
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'scripts'))
 from path_planner_control import PathPlannerControl
 
 class PathPlannerNode:

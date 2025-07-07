@@ -30,10 +30,14 @@
 #include <QQuaternion>
 #include <QImage>
 #include <QPainter>
+#include <QCheckBox>
+#include <QComboBox>
+#include <QTableWidget>
 
 #include <ros/ros.h>
 #include <std_msgs/Int32.h>
 #include <std_msgs/Bool.h>
+#include <std_msgs/Float64MultiArray.h>
 #include <sensor_msgs/JointState.h>
 #include <sensor_msgs/Image.h>
 #include <geometry_msgs/Pose.h>
@@ -76,7 +80,7 @@ class MainWindow : public QMainWindow
     Q_OBJECT
 
 public:
-    explicit MainWindow(ros::NodeHandle& nh, QWidget* parent = nullptr);
+    explicit MainWindow(ros::NodeHandle& nh = *(new ros::NodeHandle()), QWidget* parent = nullptr);
     ~MainWindow();
 
 protected:
@@ -114,6 +118,8 @@ private slots:
     // 相机视图控制槽函数
     void onLeftViewButtonClicked();
     void onRightViewButtonClicked();
+    void onStereoViewButtonClicked();
+    void onDepthViewButtonClicked();
     
     // 位置控制槽函数
     void onMoveToPositionClicked();
@@ -121,6 +127,14 @@ private slots:
     
     // 相机重连槽函数
     void attemptCameraReconnect();
+
+    // 物体检测相关槽函数
+    void onShowDetectionBoxesToggled(bool checked);
+    void onShowDistanceOverlayToggled(bool checked);
+    void onDetectionModelChanged(const QString& model);
+    void onDetectObjectsClicked();
+    void onObjectTableItemClicked(int row, int column);
+    void onGraspSelectedObjectClicked();
 
 private:
     // UI创建函数
@@ -156,7 +170,7 @@ private:
     void logMessage(const QString& message);
     
     // 图像处理函数
-    void createPlaceholderImage(const std::string& message = "");
+    void createPlaceholderImage(const QString& message = "");
     QImage cvMatToQImage(const cv::Mat& mat);
     cv::Mat qImageToCvMat(const QImage& image);
     void drawDetectionBoxes(QImage& image, const std::vector<DetectedObject>& objects);
@@ -174,7 +188,7 @@ private:
     
     // 成员变量
     Ui::MainWindow* ui;
-    ros::NodeHandle& nh_;
+    ros::NodeHandle nh_;
     QTimer* updateTimer;
     QTimer camera_reconnect_timer_;
     
@@ -232,6 +246,16 @@ private:
     QLabel* cameraView;
     QPushButton* leftViewButton;
     QPushButton* rightViewButton;
+    QPushButton* stereoViewButton;
+    QPushButton* depthViewButton;
+    
+    // 物体检测组件
+    QCheckBox* showDetectionBoxesCheckBox;
+    QCheckBox* showDistanceOverlayCheckBox;
+    QComboBox* detectionModelComboBox;
+    QPushButton* detectObjectsButton;
+    QTableWidget* objectsTable;
+    QPushButton* graspSelectedObjectButton;
     
     // 其他控制部件
     QPushButton* homeButton;

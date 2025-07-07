@@ -17,12 +17,12 @@ MotorNode::MotorNode(const std::string& port, int baudrate)
     
     // 初始化串口
     if (!initializeSerialPort(port, baudrate)) {
-        ROS_ERROR("初始化串口失败，将尝试定期重新连接");
+        ROS_ERROR("Initialization of serial port failed, will attempt to reconnect periodically");
         // 设置定期重试连接的定时器
         reconnect_timer_ = nh_.createTimer(ros::Duration(5.0), 
                                           [this, port, baudrate](const ros::TimerEvent&) {
                                               if (serial_port_ < 0) {
-                                                  ROS_INFO("尝试重新连接串口...");
+                                                  ROS_INFO("Attempting to reconnect serial port...");
                                                   initializeSerialPort(port, baudrate);
                                               }
                                           });
@@ -34,7 +34,7 @@ MotorNode::MotorNode(const std::string& port, int baudrate)
     // 设置服务
     motor_control_service_ = nh_.advertiseService("motor_control", &MotorNode::motorControlServiceCallback, this);
     
-    ROS_INFO("电机控制器已初始化，串口: %s，波特率: %d", port.c_str(), baudrate);
+    ROS_INFO("Motor controller initialized, port: %s, baudrate: %d", port.c_str(), baudrate);
 }
 
 MotorNode::~MotorNode() {
@@ -69,19 +69,19 @@ std::string MotorNode::findSerialDevice(const std::string& preferred_port) {
     // 如果找到多个设备，优先选择备选端口
     for (const auto& device : possible_devices) {
         if (device == "/dev/ttyUSB0" || device == "/dev/ttyUSB2") {
-            ROS_WARN("使用备选串口设备: %s", device.c_str());
+            ROS_WARN("Using alternative serial device: %s", device.c_str());
             return device;
         }
     }
     
     // 如果找到任何设备，返回第一个
     if (!possible_devices.empty()) {
-        ROS_WARN("使用可用的串口设备: %s", possible_devices[0].c_str());
+        ROS_WARN("Using available serial device: %s", possible_devices[0].c_str());
         return possible_devices[0];
     }
     
     // 如果没有找到设备，返回原始端口
-    ROS_ERROR("未找到可用的串口设备，将尝试使用原始端口: %s", preferred_port.c_str());
+    ROS_ERROR("No available serial device found, will attempt to use original port: %s", preferred_port.c_str());
     return preferred_port;
 }
 
@@ -99,7 +99,7 @@ bool MotorNode::initializeSerialPort(const std::string& port, int baudrate) {
     // 打开串口
     serial_port_ = open(actual_port.c_str(), O_RDWR | O_NOCTTY);
     if (serial_port_ < 0) {
-        ROS_ERROR("无法打开串口 %s", actual_port.c_str());
+        ROS_ERROR("Unable to open serial port %s", actual_port.c_str());
         return false;
     }
     
@@ -107,7 +107,7 @@ bool MotorNode::initializeSerialPort(const std::string& port, int baudrate) {
     struct termios tty;
     memset(&tty, 0, sizeof(tty));
     if (tcgetattr(serial_port_, &tty) != 0) {
-        ROS_ERROR("tcgetattr 错误");
+        ROS_ERROR("tcgetattr error");
         close(serial_port_);
         serial_port_ = -1;
         return false;
@@ -122,7 +122,7 @@ bool MotorNode::initializeSerialPort(const std::string& port, int baudrate) {
         case 57600: baud = B57600; break;
         case 115200: baud = B115200; break;
         default:
-            ROS_WARN("不支持的波特率 %d，使用默认值 115200", baudrate);
+            ROS_WARN("Unsupported baudrate %d, using default 115200", baudrate);
             baud = B115200;
             break;
     }
@@ -147,13 +147,13 @@ bool MotorNode::initializeSerialPort(const std::string& port, int baudrate) {
     tty.c_cc[VTIME] = 10; // 100ms超时
     
     if (tcsetattr(serial_port_, TCSANOW, &tty) != 0) {
-        ROS_ERROR("tcsetattr 错误");
+        ROS_ERROR("tcsetattr error");
         close(serial_port_);
         serial_port_ = -1;
         return false;
     }
     
-    ROS_INFO("成功连接到串口: %s，波特率: %d", actual_port.c_str(), baudrate);
+    ROS_INFO("Successfully connected to serial port: %s, baudrate: %d", actual_port.c_str(), baudrate);
     return true;
 }
 
@@ -193,7 +193,7 @@ bool MotorNode::motorControlServiceCallback(servo::MotorControl::Request& req,
                                    req.position, req.position_threshold);
     
     res.success = success;
-    res.message = success ? "成功控制电机" : "电机控制失败";
+    res.message = success ? "Successfully controlled motor" : "Motor control failed";
     
     return true;
 }
@@ -204,7 +204,7 @@ bool MotorNode::sendMotorCommand(uint8_t motor_id, uint8_t form, int16_t velocit
                                uint16_t position_threshold) {
     // 检查串口连接
     if (serial_port_ < 0) {
-        ROS_ERROR("串口未打开，尝试重新连接");
+        ROS_ERROR("Serial port not opened, attempting to reconnect");
         if (!initializeSerialPort(port_name_, baudrate_)) {
             return false;
         }

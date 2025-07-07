@@ -11,85 +11,85 @@ public:
     JointStatePublisher() {
         ros::NodeHandle nh;
         
-        // 初始化关节值 - 当前只有四个可用关节，其他关节处于未部署状态
-        // 以下顺序：1=俯仰电机, 2=直线进给电机, 3=绕轴旋转电机, 4=第二俯仰电机, 5&6=未部署
+        // Initialize joint values - currently only four joints are available, others are not deployed
+        // Order: 1=pitch motor, 2=linear feed motor, 3=rotation motor, 4=second pitch motor, 5&6=not deployed
         current_joint_positions_ = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
         current_joint_velocities_ = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
         
-        // 创建发布器
+        // Create publisher
         joint_state_pub_ = nh.advertise<sensor_msgs::JointState>("/arm1/joint_states", 10);
         
-        // 创建订阅器，接收电机位置信息用于初始化
+        // Create subscribers to receive motor position information for initialization
         motor1_sub_ = nh.subscribe("/motor1/position", 10, &JointStatePublisher::motor1Callback, this);
         motor2_sub_ = nh.subscribe("/motor2/position", 10, &JointStatePublisher::motor2Callback, this);
         motor3_sub_ = nh.subscribe("/motor3/position", 10, &JointStatePublisher::motor3Callback, this);
         motor4_sub_ = nh.subscribe("/motor4/position", 10, &JointStatePublisher::motor4Callback, this);
         
-        // 5和6号电机未部署，但保留接口以便将来扩展
+        // Motors 5 and 6 are not deployed, but interfaces are reserved for future expansion
         motor5_sub_ = nh.subscribe("/motor5/position", 10, &JointStatePublisher::motor5Callback, this);
         motor6_sub_ = nh.subscribe("/motor6/position", 10, &JointStatePublisher::motor6Callback, this);
         
-        // 订阅关节控制命令话题
+        // Subscribe to joint command topic
         joint_command_sub_ = nh.subscribe("/arm1/joint_command", 10, &JointStatePublisher::jointCommandCallback, this);
         
-        // 启动定时器，定期发布关节状态
+        // Start timer to publish joint states periodically
         timer_ = nh.createTimer(ros::Duration(0.1), &JointStatePublisher::timerCallback, this);  // 10Hz
         
-        // 立即发布一次初始关节状态，确保GUI能获取到数据
+        // Publish initial joint state immediately to ensure GUI can get data
         publishJointState();
         
-        ROS_INFO("Joint State Publisher 已初始化，当前有4个可用关节（1-4号），5-6号未部署");
+        ROS_INFO("Joint State Publisher initialized, 4 joints available (1-4), joints 5-6 not deployed");
     }
     
-    // 电机回调函数 - 第一个俯仰关节
+    // Motor callback function - first pitch joint
     void motor1Callback(const std_msgs::Int32::ConstPtr& msg) {
-        // 将电机位置转换为关节角度（弧度）
-        // 电机位置范围通常是800-2200
+        // Convert motor position to joint angle (radians)
+        // Motor position range is typically 800-2200
         float pos = mapValue(msg->data, 800, 2200, -M_PI/2, M_PI/2);
         current_joint_positions_[0] = pos;
     }
     
-    // 直线进给电机
+    // Linear feed motor
     void motor2Callback(const std_msgs::Int32::ConstPtr& msg) {
-        // 将电机位置转换为伸缩长度（厘米）
+        // Convert motor position to extension length (cm)
         float pos = mapValue(msg->data, 800, 2200, 0, 43);
         current_joint_positions_[1] = pos;
     }
     
-    // 绕轴旋转电机
+    // Rotation motor
     void motor3Callback(const std_msgs::Int32::ConstPtr& msg) {
         float pos = mapValue(msg->data, 800, 2200, -M_PI, M_PI);
         current_joint_positions_[2] = pos;
     }
     
-    // 第二个俯仰电机
+    // Second pitch motor
     void motor4Callback(const std_msgs::Int32::ConstPtr& msg) {
         float pos = mapValue(msg->data, 800, 2200, -M_PI/2, M_PI/2);
         current_joint_positions_[3] = pos;
     }
     
-    // 未部署关节5
+    // Undeployed joint 5
     void motor5Callback(const std_msgs::Int32::ConstPtr& msg) {
-        // 这个关节未部署，保持默认值
+        // This joint is not deployed, keep default value
         current_joint_positions_[4] = 0;
     }
     
-    // 未部署关节6
+    // Undeployed joint 6
     void motor6Callback(const std_msgs::Int32::ConstPtr& msg) {
-        // 这个关节未部署，保持默认值
+        // This joint is not deployed, keep default value
         current_joint_positions_[5] = 0;
     }
     
-    // 处理关节控制命令
+    // Process joint control commands
     void jointCommandCallback(const sensor_msgs::JointState::ConstPtr& msg) {
-        // 更新关节位置
-        if (msg->position.size() >= 4) {  // 至少需要4个可用关节的值
+        // Update joint positions
+        if (msg->position.size() >= 4) {  // At least need values for 4 available joints
             for (size_t i = 0; i < 4 && i < msg->position.size(); i++) {
                 current_joint_positions_[i] = msg->position[i];
             }
         }
         
-        // 如果有速度信息，也进行更新
+        // If velocity information is available, update it as well
         if (msg->velocity.size() >= 4) {
             for (size_t i = 0; i < 4 && i < msg->velocity.size(); i++) {
                 current_joint_velocities_[i] = msg->velocity[i];
@@ -97,35 +97,35 @@ public:
         }
     }
     
-    // 添加一个新的函数，封装关节状态发布逻辑
+    // Add a new function to encapsulate joint state publishing logic
     void publishJointState() {
         sensor_msgs::JointState joint_state;
         
-        // 设置时间戳和帧ID
+        // Set timestamp and frame ID
         joint_state.header.stamp = ros::Time::now();
         joint_state.header.frame_id = "arm1_base_link";
         
-        // 设置关节名称
+        // Set joint names
         joint_state.name = {
-            "arm1_joint1",  // 俯仰电机
-            "arm1_joint2",  // 直线进给电机
-            "arm1_joint3",  // 绕轴旋转电机
-            "arm1_joint4",  // 第二俯仰电机
-            "arm1_joint5",  // 未部署
-            "arm1_joint6"   // 未部署
+            "arm1_joint1",  // Pitch motor
+            "arm1_joint2",  // Linear feed motor
+            "arm1_joint3",  // Rotation motor
+            "arm1_joint4",  // Second pitch motor
+            "arm1_joint5",  // Not deployed
+            "arm1_joint6"   // Not deployed
         };
         
-        // 设置关节位置
+        // Set joint positions
         joint_state.position = current_joint_positions_;
         
-        // 设置关节速度
+        // Set joint velocities
         joint_state.velocity = current_joint_velocities_;
         
-        // 发布关节状态
+        // Publish joint state
         joint_state_pub_.publish(joint_state);
     }
     
-    // 定时器回调，发布当前关节状态
+    // Timer callback to publish current joint state
     void timerCallback(const ros::TimerEvent&) {
         publishJointState();
     }
@@ -144,7 +144,7 @@ private:
     std::vector<double> current_joint_positions_;
     std::vector<double> current_joint_velocities_;
     
-    // 映射函数，将值从一个范围映射到另一个范围
+    // Mapping function to map a value from one range to another
     float mapValue(float value, float fromLow, float fromHigh, float toLow, float toHigh) {
         return (value - fromLow) * (toHigh - toLow) / (fromHigh - fromLow) + toLow;
     }

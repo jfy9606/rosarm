@@ -11,7 +11,8 @@ from trajectory.srv import ForwardKinematics, InverseKinematics, PlanTrajectory
 
 # 使用直接导入
 import sys, os
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# 添加scripts目录到Python路径
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'scripts'))
 from trajectory_control import TrajectoryControl
 
 class TrajectoryNode:

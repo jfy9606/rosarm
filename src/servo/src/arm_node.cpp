@@ -1,5 +1,6 @@
 #include <servo/arm_node.h>
 #include <std_msgs/String.h>
+#include <std_msgs/Float64MultiArray.h>
 
 namespace servo {
 
@@ -31,17 +32,17 @@ ArmNode::ArmNode(const std::string& motor_port, const std::string& servo_port,
     joint_control_service_ = nh_.advertiseService("/joint_control", &ArmNode::jointControlServiceCallback, this);
     home_position_service_ = nh_.advertiseService("/home_position_service", &ArmNode::homePositionServiceCallback, this);
     
-    ROS_INFO("机械臂节点已初始化，电机串口: %s，舵机串口: %s", motor_port.c_str(), servo_port.c_str());
+    ROS_INFO("Arm node initialized, motor port: %s, servo port: %s", motor_port.c_str(), servo_port.c_str());
 }
 
 ArmNode::~ArmNode() {
     // 发布状态
-    publishStatus("机械臂节点已关闭");
+    publishStatus("Arm node closed");
 }
 
 void ArmNode::run() {
     // 发布状态
-    publishStatus("机械臂节点已启动");
+    publishStatus("Arm node started");
     
     // 发布关节状态
     ros::Rate rate(10);  // 10 Hz
@@ -73,28 +74,28 @@ void ArmNode::jointStateCallback(const sensor_msgs::JointState::ConstPtr& msg) {
     }
 }
 
-void ArmNode::jointCommandCallback(const sensor_msgs::JointState::ConstPtr& msg) {
+void ArmNode::jointCommandCallback(const std_msgs::Float64MultiArray::ConstPtr& msg) {
     // 处理关节命令
-    if (msg->position.size() >= 6) {
-        std::vector<double> joint_values(msg->position.begin(), msg->position.begin() + 6);
+    if (msg->data.size() >= 6) {
+        std::vector<double> joint_values(msg->data.begin(), msg->data.begin() + 6);
         
         // 设置关节位置
         if (arm_control_.setJointPositions(joint_values)) {
-            publishStatus("关节控制成功");
+            publishStatus("Joint control successful");
         } else {
-            publishStatus("关节控制失败");
+            publishStatus("Joint control failed");
         }
     } else {
-        publishStatus("关节命令数据不足");
+        publishStatus("Insufficient joint command data");
     }
 }
 
 void ArmNode::poseCommandCallback(const geometry_msgs::Pose::ConstPtr& msg) {
     // 处理位姿命令
     if (arm_control_.setEndEffectorPose(*msg)) {
-        publishStatus("位姿控制成功");
+        publishStatus("Pose control successful");
     } else {
-        publishStatus("位姿控制失败");
+        publishStatus("Pose control failed");
     }
 }
 
@@ -103,7 +104,7 @@ void ArmNode::vacuumCommandCallback(const std_msgs::Bool::ConstPtr& msg) {
     is_vacuum_on_ = msg->data;
     
     // 实际应用中这里应调用真空控制函数
-    publishStatus(is_vacuum_on_ ? "真空吸盘已开启" : "真空吸盘已关闭");
+    publishStatus(is_vacuum_on_ ? "Vacuum suction enabled" : "Vacuum suction disabled");
 }
 
 void ArmNode::vacuumPowerCallback(const std_msgs::Int32::ConstPtr& msg) {
@@ -113,7 +114,7 @@ void ArmNode::vacuumPowerCallback(const std_msgs::Int32::ConstPtr& msg) {
     // 如果真空吸盘已开启，更新功率
     if (is_vacuum_on_) {
         // 实际应用中这里应调用真空控制函数
-        publishStatus("真空吸盘功率已更新: " + std::to_string(vacuum_power_) + "%");
+        publishStatus("Vacuum power updated: " + std::to_string(vacuum_power_) + "%");
     }
 }
 
@@ -122,12 +123,12 @@ void ArmNode::gripperCommandCallback(const std_msgs::Bool::ConstPtr& msg) {
     is_gripper_open_ = msg->data;
     
     // 更新状态
-    publishStatus(is_gripper_open_ ? "夹爪已打开" : "夹爪已关闭");
+    publishStatus(is_gripper_open_ ? "Gripper opened" : "Gripper closed");
 }
 
 void ArmNode::motorOrderCallback(const servo::MotorOrder::ConstPtr& msg) {
     // 处理兼容liancheng_socket风格的电机命令
-    publishStatus("收到电机命令");
+    publishStatus("Motor command received");
     
     // 实际应用中这里应将命令转发给电机控制器
     // 由于该命令通常控制大臂的两个电机，这里需要实现对应的控制逻辑
@@ -152,7 +153,7 @@ void ArmNode::motorOrderCallback(const servo::MotorOrder::ConstPtr& msg) {
 
 void ArmNode::servoControlCallback(const servo::SerControl::ConstPtr& msg) {
     // 处理舵机控制命令
-    publishStatus("收到舵机命令");
+    publishStatus("Servo command received");
     
     // 舵机ID到关节索引的映射
     int joint_index = -1;
@@ -180,9 +181,9 @@ void ArmNode::homePositionCallback(const std_msgs::Bool::ConstPtr& msg) {
     // 处理回到初始位置命令
     if (msg->data) {
         if (arm_control_.goHome()) {
-            publishStatus("机械臂已回到初始位置");
+            publishStatus("Arm returned to home position");
         } else {
-            publishStatus("机械臂回到初始位置失败");
+            publishStatus("Failed to return arm to home position");
         }
     }
 }
@@ -192,7 +193,7 @@ bool ArmNode::jointControlServiceCallback(servo::JointControl::Request& req,
     // 处理关节控制服务
     if (req.position.size() < 6) {
         res.success = false;
-        res.message = "关节数据不足，需要6个关节值";
+        res.message = "Insufficient joint data, 6 joint values required";
         return true;
     }
     
@@ -203,7 +204,7 @@ bool ArmNode::jointControlServiceCallback(servo::JointControl::Request& req,
     
     // 设置响应
     res.success = success;
-    res.message = success ? "关节控制成功" : "关节控制失败";
+    res.message = success ? "Joint control successful" : "Joint control failed";
     
     return true;
 }
@@ -215,7 +216,7 @@ bool ArmNode::homePositionServiceCallback(servo::HomePosition::Request& req,
     
     // 设置响应
     res.success = success;
-    res.message = success ? "机械臂已回到初始位置" : "机械臂回到初始位置失败";
+    res.message = success ? "Arm returned to home position" : "Failed to return arm to home position";
     
     return true;
 }

@@ -4,12 +4,12 @@
 import rospy
 import numpy as np
 from sensor_msgs.msg import JointState
-from geometry_msgs.msg import Pose
+from geometry_msgs.msg import Pose, PoseStamped
 from std_msgs.msg import Float64MultiArray
 from trajectory.srv import ForwardKinematics, ForwardKinematicsResponse
 from trajectory.srv import InverseKinematics, InverseKinematicsResponse
 
-# 导入控制模块
+# 使用直接导入
 import sys, os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from kinematics_control import KinematicsControl
