@@ -731,6 +731,38 @@ class RobotArmGUI(QMainWindow):
                 pass
             
         event.accept()
+        
+    def preselect_ports(self, servo_port, motor_port, servo_baudrate=1000000, motor_baudrate=115200, protocol_end=0):
+        """
+        预选串口和设置参数，用于命令行参数传递
+        
+        Args:
+            servo_port: 舵机串口
+            motor_port: 电机串口
+            servo_baudrate: 舵机波特率
+            motor_baudrate: 电机波特率
+            protocol_end: 协议结束位
+        """
+        # 检查端口是否在列表中，如果不在，就刷新端口列表
+        if servo_port not in [self.servo_port_combo.itemText(i) for i in range(self.servo_port_combo.count())]:
+            self.refresh_ports()
+            
+        # 设置串口
+        if servo_port in [self.servo_port_combo.itemText(i) for i in range(self.servo_port_combo.count())]:
+            self.servo_port_combo.setCurrentText(servo_port)
+            
+        if motor_port in [self.motor_port_combo.itemText(i) for i in range(self.motor_port_combo.count())]:
+            self.motor_port_combo.setCurrentText(motor_port)
+        
+        # 设置波特率
+        if str(servo_baudrate) in [self.servo_baudrate_combo.itemText(i) for i in range(self.servo_baudrate_combo.count())]:
+            self.servo_baudrate_combo.setCurrentText(str(servo_baudrate))
+            
+        if str(motor_baudrate) in [self.motor_baudrate_combo.itemText(i) for i in range(self.motor_baudrate_combo.count())]:
+            self.motor_baudrate_combo.setCurrentText(str(motor_baudrate))
+            
+        # 自动连接
+        QTimer.singleShot(500, self.connect_robot)
 
 
 if __name__ == "__main__":
