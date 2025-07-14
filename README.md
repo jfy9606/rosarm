@@ -34,7 +34,6 @@ sudo apt install -y \
 ## 编译
 
 ```bash
-cd ~/rosarm_ros2
 colcon build --symlink-install
 ```
 
@@ -43,7 +42,6 @@ colcon build --symlink-install
 使用提供的启动脚本：
 
 ```bash
-cd ~/rosarm_ros2
 ./start.sh
 ```
 
