@@ -1,3 +1,0 @@
-/home/jetson/catkin_ws/src/servo_wrist/src/SCServo_Linux/CMakeFiles/rebuild_cache.dir
-/home/jetson/catkin_ws/src/servo_wrist/src/SCServo_Linux/CMakeFiles/SCServo.dir
-/home/jetson/catkin_ws/src/servo_wrist/src/SCServo_Linux/CMakeFiles/edit_cache.dir
