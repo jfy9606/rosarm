@@ -18,9 +18,9 @@ find_package(rclpy REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
-find_package(motor REQUIRED)
-find_package(servo REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
+find_package(rclcpp_components REQUIRED)
+find_package(Eigen3 REQUIRED)
 
 # Generate services
 rosidl_generate_interfaces(${PROJECT_NAME}
@@ -30,13 +30,84 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   DEPENDENCIES std_msgs geometry_msgs sensor_msgs
 )
 
+# Get the include directories for generated interfaces
+rosidl_get_typesupport_target(cpp_typesupport_target "${PROJECT_NAME}" "rosidl_typesupport_cpp")
+
 # Include directories
 include_directories(
   include
+  ${EIGEN3_INCLUDE_DIR}
+)
+
+# Create kinematics library
+add_library(kinematics SHARED
+  src/kinematics.cpp
+)
+target_include_directories(kinematics PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+target_link_libraries(kinematics
+  ${EIGEN3_LIBRARIES}
+)
+ament_target_dependencies(kinematics
+  rclcpp
+  geometry_msgs
+  sensor_msgs
+)
+
+# Create kinematics node as a component library
+add_library(kinematics_node SHARED
+  src/kinematics_node.cpp
+)
+target_include_directories(kinematics_node PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+target_link_libraries(kinematics_node
+  kinematics
+  "${cpp_typesupport_target}"
+)
+ament_target_dependencies(kinematics_node
+  rclcpp
+  rclcpp_components
+  geometry_msgs
+  sensor_msgs
+)
+rclcpp_components_register_node(kinematics_node
+  PLUGIN "kinematics::KinematicsNode"
+  EXECUTABLE kinematics_node_exec
+)
+
+# Create kinematics node standalone executable
+add_executable(kinematics_node_main
+  src/kinematics_node_main.cpp
+)
+target_link_libraries(kinematics_node_main
+  kinematics_node
+)
+
+# Install
+install(TARGETS 
+  kinematics
+  kinematics_node
+  kinematics_node_exec
+  kinematics_node_main
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
+)
+
+install(DIRECTORY include/
+  DESTINATION include
+)
+
+install(DIRECTORY launch/
+  DESTINATION share/${PROJECT_NAME}/launch
 )
 
 # Install Python modules
-ament_python_install_package(scripts)
+ament_python_install_package(${PROJECT_NAME})
 
 # Install Python executables
 install(PROGRAMS
@@ -45,12 +116,17 @@ install(PROGRAMS
   DESTINATION lib/${PROJECT_NAME}
 )
 
-# Install launch files
-install(DIRECTORY launch
-  DESTINATION share/${PROJECT_NAME}
-  PATTERN "*.py" PATTERN "*.launch.xml" PATTERN "*.yaml"
+ament_export_include_directories(include)
+ament_export_libraries(kinematics kinematics_node)
+ament_export_dependencies(
+  rclcpp
+  rclpy
+  std_msgs
+  geometry_msgs
+  sensor_msgs
+  rclcpp_components
+  Eigen3
 )
-
-ament_export_dependencies(rclcpp rclpy std_msgs geometry_msgs sensor_msgs motor servo)
+ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
 
 ament_package()

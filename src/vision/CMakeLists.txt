@@ -35,7 +35,7 @@ include_directories(
 )
 
 # Install Python modules
-ament_python_install_package(scripts)
+ament_python_install_package(${PROJECT_NAME})
 
 # Install Python executables
 install(PROGRAMS
@@ -47,7 +47,6 @@ install(PROGRAMS
 # Install launch files
 install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}
-  PATTERN "*.py" PATTERN "*.launch.xml" PATTERN "*.yaml"
 )
 
 # Install RVIZ config
@@ -65,4 +64,4 @@ ament_export_dependencies(
   image_transport
 )
 
-ament_package()
+ament_package() 

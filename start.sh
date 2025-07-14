@@ -1,59 +1,82 @@
 #!/bin/bash
 
-# Function to check if a device exists
-check_device() {
-    if [ -e "$1" ]; then
-        echo "Device $1 found."
-        return 0
-    else
-        echo "Device $1 not found."
-        return 1
-    fi
+# ROS 2 机械臂启动脚本
+
+# 设置颜色
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
+
+# 输出带颜色的消息
+echo_color() {
+  echo -e "${1}${2}${NC}"
 }
 
-# Function to set device permissions
-set_device_permissions() {
-    if [ -e "$1" ]; then
-        echo "Setting permissions for $1"
-        sudo chmod 666 "$1"
-    fi
-}
+# 检查是否已经设置ROS 2环境
+if [ -z "$ROS_DISTRO" ]; then
+  echo_color $YELLOW "未检测到ROS 2环境，尝试加载Rolling环境..."
+  source /opt/ros/rolling/setup.bash
+fi
 
-# Source ROS 2 setup
-source /opt/ros/rolling/setup.bash
+# 检查ROS 2环境是否正确加载
+if [ -z "$ROS_DISTRO" ]; then
+  echo_color $RED "错误: 无法加载ROS 2环境，请确保已安装ROS 2"
+  exit 1
+fi
+
+echo_color $GREEN "已加载ROS 2 $ROS_DISTRO 环境"
+
+# 检查工作空间是否已构建
+if [ ! -f "install/setup.bash" ]; then
+  echo_color $YELLOW "工作空间未构建，正在构建..."
+  colcon build --symlink-install
+  
+  # 检查构建是否成功
+  if [ $? -ne 0 ]; then
+    echo_color $RED "错误: 工作空间构建失败"
+    exit 1
+  fi
+fi
+
+# 加载工作空间
 source install/setup.bash
+echo_color $GREEN "已加载工作空间环境"
 
-# Set permissions for serial devices
-for i in {0..9}; do
-    set_device_permissions "/dev/ttyUSB$i"
-    set_device_permissions "/dev/ttyACM$i"
-done
+# 显示可用的启动选项
+echo_color $YELLOW "可用的启动选项:"
+echo "1. 启动完整系统 (包括GUI和视觉)"
+echo "2. 启动基本系统 (不包括视觉)"
+echo "3. 仅启动硬件控制 (电机和舵机)"
+echo "4. 仅启动GUI"
+echo "5. 退出"
 
-# Check for motor and servo devices
-MOTOR_PORT=""
-SERVO_PORT=""
+# 读取用户选择
+read -p "请选择启动选项 [1-5]: " choice
 
-# Try to find motor and servo ports
-for i in {0..9}; do
-    if check_device "/dev/ttyUSB$i"; then
-        if [ -z "$MOTOR_PORT" ]; then
-            MOTOR_PORT="/dev/ttyUSB$i"
-        elif [ -z "$SERVO_PORT" ]; then
-            SERVO_PORT="/dev/ttyUSB$i"
-        fi
-    fi
-done
-
-# Use default ports if not found
-if [ -z "$MOTOR_PORT" ]; then
-    MOTOR_PORT="/dev/ttyUSB0"
-    echo "No motor port detected, using default: $MOTOR_PORT"
-fi
-
-if [ -z "$SERVO_PORT" ]; then
-    SERVO_PORT="/dev/ttyUSB1"
-    echo "No servo port detected, using default: $SERVO_PORT"
-fi
-
-# Launch the system
-ros2 launch arm_bringup arm_control.launch.py motor_port:=$MOTOR_PORT servo_port:=$SERVO_PORT
+case $choice in
+  1)
+    echo_color $GREEN "启动完整系统..."
+    ros2 launch arm_bringup arm_control.launch.py use_gui:=true use_vision:=true use_rviz:=true
+    ;;
+  2)
+    echo_color $GREEN "启动基本系统 (不包括视觉)..."
+    ros2 launch arm_bringup arm_control.launch.py use_gui:=true use_vision:=false use_rviz:=true
+    ;;
+  3)
+    echo_color $GREEN "仅启动硬件控制..."
+    ros2 launch arm_bringup arm_control.launch.py use_gui:=false use_vision:=false use_rviz:=false
+    ;;
+  4)
+    echo_color $GREEN "仅启动GUI..."
+    ros2 launch gui gui.launch.py
+    ;;
+  5)
+    echo_color $YELLOW "退出"
+    exit 0
+    ;;
+  *)
+    echo_color $RED "无效选择，退出"
+    exit 1
+    ;;
+esac 

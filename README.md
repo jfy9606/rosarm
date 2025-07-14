@@ -1,64 +1,80 @@
-# ROS 2 Robotic Arm Control System
+# ROS 2 机械臂控制系统
 
-This repository contains the ROS 2 packages for controlling a robotic arm system.
+这是一个基于ROS 2的机械臂控制系统，从ROS 1 Noetic迁移而来。
 
-## Packages
+## 系统架构
 
-- **motor**: Motor controller interface and drivers
-- **servo**: Servo controller for wrist and vacuum end-effector
-- **trajectory**: Trajectory planning and path generation
-- **vision**: Computer vision and object detection
-- **gui**: Qt-based user interface for system control
-- **arm_bringup**: Launch files and configuration for system startup
+系统由以下几个主要包组成：
 
-## Prerequisites
+- **motor**: 电机控制包，负责与电机驱动器通信
+- **servo**: 舵机控制包，包括腕部控制和真空吸盘控制
+- **trajectory**: 轨迹规划包，包括运动学计算和路径规划
+- **vision**: 视觉处理包，用于目标检测和位置估计
+- **gui**: 图形用户界面包，提供用户交互界面
+- **arm_bringup**: 系统启动包，包含启动整个系统的launch文件
 
-- ROS 2 Rolling
-- Ubuntu 22.04 or newer
-- Qt 5
-- Python 3.8+
-
-## Building
+## 安装依赖
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/rosarm.git
-cd rosarm
+sudo apt update
+sudo apt install -y \
+  ros-rolling-rclcpp \
+  ros-rolling-rclpy \
+  ros-rolling-std-msgs \
+  ros-rolling-sensor-msgs \
+  ros-rolling-geometry-msgs \
+  ros-rolling-cv-bridge \
+  ros-rolling-image-transport \
+  ros-rolling-rviz2 \
+  ros-rolling-qt-gui-cpp \
+  ros-rolling-rqt-gui-cpp \
+  ros-rolling-launch-ros
+```
 
-# Install dependencies
-rosdep install --from-paths src --ignore-src -r -y
+## 编译
 
-# Build the workspace
+```bash
+cd ~/rosarm_ros2
 colcon build --symlink-install
 ```
 
-## Running
+## 运行
 
-You can use the start script which automatically detects devices and sets permissions:
+使用提供的启动脚本：
 
 ```bash
+cd ~/rosarm_ros2
 ./start.sh
 ```
 
-Or launch manually:
+或者手动启动：
 
 ```bash
-# Source ROS 2
-source /opt/ros/rolling/setup.bash
-source install/setup.bash
-
-# Launch the system
+# 启动完整系统
 ros2 launch arm_bringup arm_control.launch.py
+
+# 仅启动GUI
+ros2 launch gui gui.launch.py
+
+# 仅启动硬件控制
+ros2 launch arm_bringup arm_control.launch.py use_gui:=false use_vision:=false use_rviz:=false
 ```
 
-## Configuration
+## 功能
 
-The system can be configured using parameters specified in the launch files or via the command line:
+- 电机控制：通过串口通信控制电机
+- 舵机控制：控制腕部舵机和真空吸盘
+- 轨迹规划：提供正逆运动学计算和路径规划
+- 视觉处理：提供目标检测和位置估计
+- 图形界面：提供用户友好的控制界面
 
-```bash
-ros2 launch arm_bringup arm_control.launch.py motor_port:=/dev/ttyUSB0 servo_port:=/dev/ttyUSB1
-```
+## 系统要求
 
-## License
+- ROS 2 Rolling
+- Ubuntu 20.04或更高版本
+- Python 3.8或更高版本
+- C++14或更高版本
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+## 许可证
+
+待定 
