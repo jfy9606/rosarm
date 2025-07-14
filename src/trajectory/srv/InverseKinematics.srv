@@ -1,0 +1,8 @@
+geometry_msgs/Pose target_pose       # Target pose for end effector
+float64[] seed_joint_positions          # Seed joint positions to start IK search
+float64[] joint_constraints_min         # Minimum joint limits (optional)
+float64[] joint_constraints_max         # Maximum joint limits (optional)
+---
+float64[] joint_positions               # Resulting joint angles in radians
+bool success                            # Whether a solution was found
+string message                          # Error message if no solution 

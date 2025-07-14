@@ -1,0 +1,9 @@
+uint8 motor_id
+int32 position  # 目标位置
+int32 velocity  # 速度
+int32 acceleration  # 加速度
+bool relative  # 是否为相对位置
+---
+bool success
+string message
+int32 current_position  # 当前位置 

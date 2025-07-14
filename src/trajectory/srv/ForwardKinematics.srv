@@ -1,0 +1,5 @@
+float64[] joint_positions    # Joint angles in radians
+---
+geometry_msgs/Pose end_effector_pose  # Resulting end effector pose
+bool success                          # Whether the calculation was successful
+string message                        # Error message if not successful 

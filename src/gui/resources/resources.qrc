@@ -1,0 +1,13 @@
+<RCC>
+  <qresource>
+    <!-- 图标 -->
+    <file>icons/app_icon.png</file>
+    <file>icons/home.png</file>
+    <file>icons/stop.png</file>
+    <file>icons/play.png</file>
+    <file>icons/settings.png</file>
+    <file>icons/camera.png</file>
+    <!-- 样式表 -->
+    <file>styles/main_style.qss</file>
+  </qresource>
+</RCC> 
