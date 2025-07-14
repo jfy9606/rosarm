@@ -200,43 +200,48 @@ class RobotArmGUI(QMainWindow):
         dc_motor_group = QGroupBox("DC电机控制")
         dc_layout = QGridLayout(dc_motor_group)
         
+        # DC电机使能控制
+        self.dc_enable_button = QPushButton("使能DC电机")
+        self.dc_enable_button.clicked.connect(self.enable_dc_motors)
+        dc_layout.addWidget(self.dc_enable_button, 0, 0, 1, 3)
+        
         # 俯仰电机控制
-        dc_layout.addWidget(QLabel("俯仰速度:"), 0, 0)
+        dc_layout.addWidget(QLabel("俯仰速度:"), 1, 0)
         self.pitch_speed_slider = QSlider(Qt.Horizontal)
         self.pitch_speed_slider.setRange(0, 255)
         self.pitch_speed_slider.setValue(100)
         self.pitch_speed_slider.valueChanged.connect(self.update_speeds)
-        dc_layout.addWidget(self.pitch_speed_slider, 0, 1)
+        dc_layout.addWidget(self.pitch_speed_slider, 1, 1)
         self.pitch_speed_label = QLabel("100")
-        dc_layout.addWidget(self.pitch_speed_label, 0, 2)
+        dc_layout.addWidget(self.pitch_speed_label, 1, 2)
         
-        dc_layout.addWidget(QLabel("俯仰位置:"), 1, 0)
+        dc_layout.addWidget(QLabel("俯仰位置:"), 2, 0)
         self.pitch_slider = QSlider(Qt.Horizontal)
         self.pitch_slider.setRange(-10000, 10000)
         self.pitch_slider.setValue(0)
         self.pitch_slider.valueChanged.connect(self.move_pitch)
-        dc_layout.addWidget(self.pitch_slider, 1, 1)
+        dc_layout.addWidget(self.pitch_slider, 2, 1)
         self.pitch_value_label = QLabel("0")
-        dc_layout.addWidget(self.pitch_value_label, 1, 2)
+        dc_layout.addWidget(self.pitch_value_label, 2, 2)
         
         # 线性电机控制
-        dc_layout.addWidget(QLabel("线性速度:"), 2, 0)
+        dc_layout.addWidget(QLabel("线性速度:"), 3, 0)
         self.linear_speed_slider = QSlider(Qt.Horizontal)
         self.linear_speed_slider.setRange(0, 255)
         self.linear_speed_slider.setValue(100)
         self.linear_speed_slider.valueChanged.connect(self.update_speeds)
-        dc_layout.addWidget(self.linear_speed_slider, 2, 1)
+        dc_layout.addWidget(self.linear_speed_slider, 3, 1)
         self.linear_speed_label = QLabel("100")
-        dc_layout.addWidget(self.linear_speed_label, 2, 2)
+        dc_layout.addWidget(self.linear_speed_label, 3, 2)
         
-        dc_layout.addWidget(QLabel("线性位置:"), 3, 0)
+        dc_layout.addWidget(QLabel("线性位置:"), 4, 0)
         self.linear_slider = QSlider(Qt.Horizontal)
         self.linear_slider.setRange(0, 20000)
         self.linear_slider.setValue(0)
         self.linear_slider.valueChanged.connect(self.move_linear)
-        dc_layout.addWidget(self.linear_slider, 3, 1)
+        dc_layout.addWidget(self.linear_slider, 4, 1)
         self.linear_value_label = QLabel("0")
-        dc_layout.addWidget(self.linear_value_label, 3, 2)
+        dc_layout.addWidget(self.linear_value_label, 4, 2)
         
         basic_layout.addWidget(dc_motor_group)
         
@@ -340,6 +345,7 @@ class RobotArmGUI(QMainWindow):
             slider.setEnabled(enabled)
         
         # DC电机控制
+        self.dc_enable_button.setEnabled(enabled)
         self.pitch_speed_slider.setEnabled(enabled)
         self.pitch_slider.setEnabled(enabled)
         self.linear_speed_slider.setEnabled(enabled)
@@ -476,6 +482,25 @@ class RobotArmGUI(QMainWindow):
                 self.enable_button.setText("使能舵机")
                 self.statusBar.showMessage("舵机已禁用")
     
+    def enable_dc_motors(self):
+        """切换DC电机使能状态"""
+        if not self.connected or not self.robot:
+            return
+            
+        if self.dc_enable_button.text() == "使能DC电机":
+            # 在这里添加DC电机的使能代码
+            # 由于没有直接的DC电机使能接口，我们通过发送复位命令来初始化电机
+            if self.robot.motor.home_motors():
+                self.dc_enable_button.setText("禁用DC电机")
+                self.statusBar.showMessage("DC电机已使能")
+                # 等待电机初始化
+                time.sleep(0.5)
+        else:
+            # 禁用DC电机（停止所有电机）
+            if self.robot.motor.stop_all():
+                self.dc_enable_button.setText("使能DC电机")
+                self.statusBar.showMessage("DC电机已禁用")
+    
     def update_speeds(self):
         """更新各种电机的速度"""
         if not self.connected or not self.robot:
@@ -560,6 +585,9 @@ class RobotArmGUI(QMainWindow):
         # 禁用力矩
         self.robot.enable_torque(False)
         self.enable_button.setText("使能舵机")
+        
+        # 更新DC电机按钮状态
+        self.dc_enable_button.setText("使能DC电机")
     
     def home_position(self):
         """移动到初始位置"""
