@@ -426,6 +426,10 @@ class RobotArmGUI(QMainWindow):
                 self.enable_controls(True)
                 self.statusBar.showMessage("已连接")
                 
+                # 重置电机状态按钮
+                self.enable_button.setText("使能舵机")
+                self.dc_enable_button.setText("使能DC电机")
+                
                 # 启动状态更新定时器
                 self.status_timer.start(1000)  # 每秒更新一次
             else:
@@ -435,14 +439,27 @@ class RobotArmGUI(QMainWindow):
             # 断开连接
             self.status_timer.stop()
             
-            if self.robot:
-                self.robot.stop_all()
-                self.robot.enable_torque(False)
-                self.robot.disconnect()
+            try:
+                if self.robot:
+                    # 确保在断开连接前停止所有电机
+                    self.robot.stop_all()
+                    
+                    # 确保禁用力矩
+                    self.robot.enable_torque(False)
+                    
+                    # 断开连接
+                    self.robot.disconnect()
+            except Exception as e:
+                self.statusBar.showMessage(f"断开连接时出错: {e}")
             
             self.connected = False
             self.connect_button.setText("连接")
             self.enable_controls(False)
+            
+            # 重置按钮状态
+            self.enable_button.setText("使能舵机")
+            self.dc_enable_button.setText("使能DC电机")
+            
             self.statusBar.showMessage("已断开连接")
     
     def scan_servos(self):
@@ -487,34 +504,66 @@ class RobotArmGUI(QMainWindow):
         if not self.connected or not self.robot:
             return
             
-        if self.dc_enable_button.text() == "使能DC电机":
-            # 在这里添加DC电机的使能代码
-            # 由于没有直接的DC电机使能接口，我们通过发送复位命令来初始化电机
-            if self.robot.motor.home_motors():
+        try:
+            if self.dc_enable_button.text() == "使能DC电机":
+                # 直接改变按钮状态，不依赖于操作结果
                 self.dc_enable_button.setText("禁用DC电机")
-                self.statusBar.showMessage("DC电机已使能")
-                # 等待电机初始化
+                self.statusBar.showMessage("正在初始化DC电机...")
+                
+                # 发送复位命令来初始化电机
+                self.robot.motor.home_motors()
+                
+                # 短暂暂停以等待电机响应
+                QApplication.processEvents()
                 time.sleep(0.5)
-        else:
-            # 禁用DC电机（停止所有电机）
-            if self.robot.motor.stop_all():
+                
+                # 设置一个低速度值以确保电机能响应
+                self.robot.motor.set_motor_speed(50, 50)
+                
+                self.statusBar.showMessage("DC电机已使能")
+            else:
+                # 直接改变按钮状态
                 self.dc_enable_button.setText("使能DC电机")
+                self.statusBar.showMessage("正在停止DC电机...")
+                
+                # 尝试停止电机
+                self.robot.motor.stop_all()
+                
                 self.statusBar.showMessage("DC电机已禁用")
+        except Exception as e:
+            self.statusBar.showMessage(f"DC电机操作出错: {e}")
+            # 出错时重置按钮状态
+            self.dc_enable_button.setText("使能DC电机")
     
     def update_speeds(self):
         """更新各种电机的速度"""
         if not self.connected or not self.robot:
             return
         
-        servo_speed = self.servo_speed_slider.value()
-        pitch_speed = self.pitch_speed_slider.value()
-        linear_speed = self.linear_speed_slider.value()
-        
-        self.servo_speed_label.setText(str(servo_speed))
-        self.pitch_speed_label.setText(str(pitch_speed))
-        self.linear_speed_label.setText(str(linear_speed))
-        
-        self.robot.set_speeds(servo_speed=servo_speed, pitch_speed=pitch_speed, linear_speed=linear_speed)
+        try:
+            # 更新舵机速度
+            servo_speed = self.servo_speed_slider.value()
+            self.servo_speed_label.setText(str(servo_speed))
+            
+            # 更新DC电机速度
+            pitch_speed = self.pitch_speed_slider.value()
+            linear_speed = self.linear_speed_slider.value()
+            self.pitch_speed_label.setText(str(pitch_speed))
+            self.linear_speed_label.setText(str(linear_speed))
+            
+            # 应用速度设置
+            # 先分开设置以确保每个部分都能尝试执行
+            self.robot.set_speeds(servo_speed=servo_speed)
+            
+            # 只有在DC电机已使能时才设置DC电机速度
+            if self.dc_enable_button.text() == "禁用DC电机":
+                success = self.robot.motor.set_motor_speed(pitch_speed, linear_speed)
+                if success:
+                    self.statusBar.showMessage(f"DC电机速度已更新: 俯仰={pitch_speed}, 线性={linear_speed}")
+                else:
+                    self.statusBar.showMessage("DC电机速度设置失败")
+        except Exception as e:
+            self.statusBar.showMessage(f"速度设置出错: {e}")
     
     def update_acceleration(self):
         """更新舵机加速度"""
@@ -549,30 +598,94 @@ class RobotArmGUI(QMainWindow):
         if not self.connected or not self.robot:
             return
         
-        position = self.pitch_slider.value()
-        self.pitch_value_label.setText(str(position))
-        self.robot.set_pitch_position(position, blocking=False)
+        try:
+            # 检查电机是否已启用
+            if self.dc_enable_button.text() != "禁用DC电机":
+                self.statusBar.showMessage("请先使能DC电机")
+                return
+                
+            position = self.pitch_slider.value()
+            self.pitch_value_label.setText(str(position))
+            
+            # 更新状态栏
+            self.statusBar.showMessage(f"设置俯仰位置: {position}")
+            
+            # 确保使用适当的速度
+            speed = self.pitch_speed_slider.value()
+            self.robot.motor.set_pitch_position(position, speed)
+            
+        except Exception as e:
+            self.statusBar.showMessage(f"俯仰电机控制出错: {e}")
     
     def move_linear(self):
         """移动线性电机"""
         if not self.connected or not self.robot:
             return
         
-        position = self.linear_slider.value()
-        self.linear_value_label.setText(str(position))
-        self.robot.set_linear_position(position, blocking=False)
+        try:
+            # 检查电机是否已启用
+            if self.dc_enable_button.text() != "禁用DC电机":
+                self.statusBar.showMessage("请先使能DC电机")
+                return
+                
+            position = self.linear_slider.value()
+            self.linear_value_label.setText(str(position))
+            
+            # 更新状态栏
+            self.statusBar.showMessage(f"设置线性位置: {position}")
+            
+            # 确保使用适当的速度
+            speed = self.linear_speed_slider.value()
+            self.robot.motor.set_linear_position(position, speed)
+            
+        except Exception as e:
+            self.statusBar.showMessage(f"线性电机控制出错: {e}")
     
     def move_cartesian(self):
         """基于笛卡尔坐标移动"""
         if not self.connected or not self.robot:
             return
         
-        x = self.x_spinbox.value()
-        y = self.y_spinbox.value()
-        z = self.z_spinbox.value()
-        
-        self.statusBar.showMessage(f"移动到笛卡尔坐标: X={x}, Y={y}, Z={z}")
-        self.robot.move_cartesian(x, y, z)
+        try:
+            # 检查电机状态
+            if self.dc_enable_button.text() != "禁用DC电机":
+                self.statusBar.showMessage("请先使能DC电机才能使用笛卡尔坐标运动")
+                return
+            
+            if self.enable_button.text() != "禁用舵机":
+                self.statusBar.showMessage("请先使能舵机才能使用笛卡尔坐标运动")
+                return
+                
+            x = self.x_spinbox.value()
+            y = self.y_spinbox.value()
+            z = self.z_spinbox.value()
+            
+            self.statusBar.showMessage(f"移动到笛卡尔坐标: X={x}, Y={y}, Z={z}")
+            
+            # 先设置相应的速度
+            servo_speed = self.servo_speed_slider.value()
+            pitch_speed = self.pitch_speed_slider.value()
+            linear_speed = self.linear_speed_slider.value()
+            self.robot.set_speeds(servo_speed=servo_speed)
+            self.robot.motor.set_motor_speed(pitch_speed, linear_speed)
+            
+            # 然后分别移动各个轴，而不是使用move_cartesian
+            # 这样可以确保即使某个轴失败，其他轴仍能移动
+            
+            # 将 x 映射到 joint1（底座旋转）
+            joint1_pos = int(x * 10 + 2048)  # 简单缩放，2048 是中心
+            self.robot.set_joint_position('joint1', joint1_pos, blocking=False)
+            
+            # 将 y 映射到线性进给
+            linear_pos = int(y * 100)
+            self.robot.motor.set_linear_position(linear_pos, linear_speed)
+            
+            # 将 z 映射到俯仰
+            pitch_pos = int(z * 100)
+            self.robot.motor.set_pitch_position(pitch_pos, pitch_speed)
+            
+        except Exception as e:
+            self.statusBar.showMessage(f"笛卡尔坐标移动出错: {e}")
     
     def emergency_stop(self):
         """紧急停止"""
@@ -630,80 +743,137 @@ class RobotArmGUI(QMainWindow):
         if not self.connected or not self.robot:
             return
         
-        self.statusBar.showMessage("执行抓取-放置演示...")
-        
-        # 移动到抓取位置
-        self.robot.set_speeds(servo_speed=500, pitch_speed=100, linear_speed=100)
-        self.robot.set_joint_position('joint1', 1500, blocking=True)  # 底座旋转
-        self.robot.set_joint_position('joint2', 1700, blocking=True)  # 肩部
-        self.robot.set_joint_position('joint3', 2300, blocking=True)  # 肘部
-        self.robot.set_joint_position('joint4', 2048, blocking=True)  # 手腕
-        
-        # 降低以抓取
-        self.robot.set_pitch_position(-1000, blocking=True)
-        
-        # 模拟抓取
-        time.sleep(1)
-        
-        # 抓取后提升
-        self.robot.set_pitch_position(0, blocking=True)
-        
-        # 移动到放置位置
-        self.robot.set_joint_position('joint1', 2500, blocking=True)  # 旋转底座
-        
-        # 降低以放置
-        self.robot.set_pitch_position(-800, blocking=True)
-        
-        # 模拟释放
-        time.sleep(1)
-        
-        # 放置后提升
-        self.robot.set_pitch_position(0, blocking=True)
-        
-        # 返回原位
-        self.robot.home(blocking=True)
-        
-        self.statusBar.showMessage("抓取-放置演示完成")
+        try:
+            # 检查电机状态
+            if self.dc_enable_button.text() != "禁用DC电机":
+                self.statusBar.showMessage("请先使能DC电机才能执行演示")
+                return
+            
+            if self.enable_button.text() != "禁用舵机":
+                self.statusBar.showMessage("请先使能舵机才能执行演示")
+                return
+                
+            self.statusBar.showMessage("执行抓取-放置演示...")
+            
+            # 移动到抓取位置
+            self.robot.set_speeds(servo_speed=500)
+            self.robot.motor.set_motor_speed(100, 100)
+            self.robot.set_joint_position('joint1', 1500, blocking=True)  # 底座旋转
+            self.robot.set_joint_position('joint2', 1700, blocking=True)  # 肩部
+            self.robot.set_joint_position('joint3', 2300, blocking=True)  # 肘部
+            self.robot.set_joint_position('joint4', 2048, blocking=True)  # 手腕
+            
+            # 降低以抓取
+            self.robot.motor.set_pitch_position(-1000, 100)
+            time.sleep(1)
+            
+            # 模拟抓取
+            time.sleep(1)
+            
+            # 抓取后提升
+            self.robot.motor.set_pitch_position(0, 100)
+            time.sleep(1)
+            
+            # 移动到放置位置
+            self.robot.set_joint_position('joint1', 2500, blocking=True)  # 旋转底座
+            
+            # 降低以放置
+            self.robot.motor.set_pitch_position(-800, 100)
+            time.sleep(1)
+            
+            # 模拟释放
+            time.sleep(1)
+            
+            # 放置后提升
+            self.robot.motor.set_pitch_position(0, 100)
+            time.sleep(1)
+            
+            # 返回原位
+            self.robot.home(blocking=True)
+            
+            self.statusBar.showMessage("抓取-放置演示完成")
+        except Exception as e:
+            self.statusBar.showMessage(f"演示执行出错: {e}")
     
     def run_square_demo(self):
         """运行方形轨迹演示"""
         if not self.connected or not self.robot:
             return
         
-        self.statusBar.showMessage("执行方形轨迹演示...")
-        
-        self.robot.set_speeds(servo_speed=500, pitch_speed=100, linear_speed=100)
-        
-        # 在正方形轨迹上移动
-        self.robot.move_cartesian(10, 10, 10)
-        time.sleep(1)
-        
-        self.robot.move_cartesian(10, 20, 10)
-        time.sleep(1)
-        
-        self.robot.move_cartesian(-10, 20, 10)
-        time.sleep(1)
-        
-        self.robot.move_cartesian(-10, 10, 10)
-        time.sleep(1)
-        
-        self.robot.move_cartesian(10, 10, 10)
-        time.sleep(1)
-        
-        # 在垂直轨迹上移动
-        self.robot.move_cartesian(0, 15, -10)
-        time.sleep(1)
-        
-        self.robot.move_cartesian(0, 15, 10)
-        time.sleep(1)
-        
-        self.robot.move_cartesian(0, 15, 0)
-        time.sleep(1)
-        
-        # 返回原位
-        self.robot.home(blocking=True)
-        
-        self.statusBar.showMessage("方形轨迹演示完成")
+        try:
+            # 检查电机状态
+            if self.dc_enable_button.text() != "禁用DC电机":
+                self.statusBar.showMessage("请先使能DC电机才能执行演示")
+                return
+            
+            if self.enable_button.text() != "禁用舵机":
+                self.statusBar.showMessage("请先使能舵机才能执行演示")
+                return
+                
+            self.statusBar.showMessage("执行方形轨迹演示...")
+            
+            # 设置速度
+            self.robot.set_speeds(servo_speed=500)
+            self.robot.motor.set_motor_speed(100, 100)
+            
+            # 在正方形轨迹上移动
+            # 这里使用单独控制每个轴的方式，而不是调用move_cartesian
+            
+            # 点1
+            self.statusBar.showMessage("移动到点1 (10, 10, 10)")
+            self.robot.set_joint_position('joint1', 10*10+2048, blocking=False)
+            self.robot.motor.set_linear_position(10*100, 100)
+            self.robot.motor.set_pitch_position(10*100, 100)
+            time.sleep(1)
+            
+            # 点2
+            self.statusBar.showMessage("移动到点2 (10, 20, 10)")
+            self.robot.set_joint_position('joint1', 10*10+2048, blocking=False)
+            self.robot.motor.set_linear_position(20*100, 100)
+            self.robot.motor.set_pitch_position(10*100, 100)
+            time.sleep(1)
+            
+            # 点3
+            self.statusBar.showMessage("移动到点3 (-10, 20, 10)")
+            self.robot.set_joint_position('joint1', -10*10+2048, blocking=False)
+            self.robot.motor.set_linear_position(20*100, 100)
+            self.robot.motor.set_pitch_position(10*100, 100)
+            time.sleep(1)
+            
+            # 点4
+            self.statusBar.showMessage("移动到点4 (-10, 10, 10)")
+            self.robot.set_joint_position('joint1', -10*10+2048, blocking=False)
+            self.robot.motor.set_linear_position(10*100, 100)
+            self.robot.motor.set_pitch_position(10*100, 100)
+            time.sleep(1)
+            
+            # 点1 (闭合)
+            self.statusBar.showMessage("移动回点1 (10, 10, 10)")
+            self.robot.set_joint_position('joint1', 10*10+2048, blocking=False)
+            self.robot.motor.set_linear_position(10*100, 100)
+            self.robot.motor.set_pitch_position(10*100, 100)
+            time.sleep(1)
+            
+            # 垂直移动
+            self.statusBar.showMessage("执行垂直移动")
+            self.robot.set_joint_position('joint1', 0*10+2048, blocking=False)
+            self.robot.motor.set_linear_position(15*100, 100)
+            self.robot.motor.set_pitch_position(-10*100, 100)
+            time.sleep(1)
+            
+            self.robot.motor.set_pitch_position(10*100, 100)
+            time.sleep(1)
+            
+            self.robot.motor.set_pitch_position(0, 100)
+            time.sleep(1)
+            
+            # 返回原位
+            self.statusBar.showMessage("返回原位")
+            self.robot.home(blocking=True)
+            
+            self.statusBar.showMessage("方形轨迹演示完成")
+        except Exception as e:
+            self.statusBar.showMessage(f"演示执行出错: {e}")
     
     def update_status(self):
         """更新机械臂状态信息"""
