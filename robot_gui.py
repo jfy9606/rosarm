@@ -3,6 +3,10 @@
 
 """
 机械臂 Qt5 图形界面控制程序
+- 小臂电机：FT系列舵机，用于控制关节
+- 大臂电机：两个不同型号的DC电机
+  - AImotor：大臂的进给电机（线性移动）
+  - YF：大臂的俯仰电机（俯仰运动）
 """
 
 import sys
@@ -133,6 +137,26 @@ class RobotArmGUI(QMainWindow):
         servo_group = QGroupBox("舵机控制")
         servo_layout = QGridLayout(servo_group)
         
+        # 添加状态指示面板
+        status_group = QGroupBox("系统状态")
+        status_layout = QGridLayout(status_group)
+        
+        # 舵机电压显示
+        status_layout.addWidget(QLabel("舵机电压:"), 0, 0)
+        self.voltage_label = QLabel("未连接")
+        status_layout.addWidget(self.voltage_label, 0, 1)
+        
+        # 添加检查电压按钮
+        self.check_voltage_button = QPushButton("检查电压")
+        self.check_voltage_button.clicked.connect(self.check_voltage)
+        status_layout.addWidget(self.check_voltage_button, 0, 2)
+        
+        basic_layout.addWidget(status_group)
+        
+        # 舵机控制组
+        servo_group = QGroupBox("舵机控制")
+        servo_layout = QGridLayout(servo_group)
+        
         # 舵机扫描按钮
         self.scan_button = QPushButton("扫描舵机")
         self.scan_button.clicked.connect(self.scan_servos)
@@ -206,7 +230,7 @@ class RobotArmGUI(QMainWindow):
         dc_layout.addWidget(self.dc_enable_button, 0, 0, 1, 3)
         
         # 俯仰电机控制
-        dc_layout.addWidget(QLabel("俯仰速度:"), 1, 0)
+        dc_layout.addWidget(QLabel("YF俯仰速度:"), 1, 0)
         self.pitch_speed_slider = QSlider(Qt.Horizontal)
         self.pitch_speed_slider.setRange(0, 255)
         self.pitch_speed_slider.setValue(100)
@@ -215,7 +239,7 @@ class RobotArmGUI(QMainWindow):
         self.pitch_speed_label = QLabel("100")
         dc_layout.addWidget(self.pitch_speed_label, 1, 2)
         
-        dc_layout.addWidget(QLabel("俯仰位置:"), 2, 0)
+        dc_layout.addWidget(QLabel("YF俯仰位置:"), 2, 0)
         self.pitch_slider = QSlider(Qt.Horizontal)
         self.pitch_slider.setRange(-10000, 10000)
         self.pitch_slider.setValue(0)
@@ -225,7 +249,7 @@ class RobotArmGUI(QMainWindow):
         dc_layout.addWidget(self.pitch_value_label, 2, 2)
         
         # 线性电机控制
-        dc_layout.addWidget(QLabel("线性速度:"), 3, 0)
+        dc_layout.addWidget(QLabel("AImotor线性速度:"), 3, 0)
         self.linear_speed_slider = QSlider(Qt.Horizontal)
         self.linear_speed_slider.setRange(0, 255)
         self.linear_speed_slider.setValue(100)
@@ -234,7 +258,7 @@ class RobotArmGUI(QMainWindow):
         self.linear_speed_label = QLabel("100")
         dc_layout.addWidget(self.linear_speed_label, 3, 2)
         
-        dc_layout.addWidget(QLabel("线性位置:"), 4, 0)
+        dc_layout.addWidget(QLabel("AImotor线性位置:"), 4, 0)
         self.linear_slider = QSlider(Qt.Horizontal)
         self.linear_slider.setRange(0, 20000)
         self.linear_slider.setValue(0)
@@ -339,6 +363,7 @@ class RobotArmGUI(QMainWindow):
         self.enable_button.setEnabled(enabled)
         self.servo_speed_slider.setEnabled(enabled)
         self.acc_slider.setEnabled(enabled)
+        self.check_voltage_button.setEnabled(enabled)
         
         # 关节滑块
         for slider in self.joint_sliders.values():
@@ -559,7 +584,7 @@ class RobotArmGUI(QMainWindow):
             if self.dc_enable_button.text() == "禁用DC电机":
                 success = self.robot.motor.set_motor_speed(pitch_speed, linear_speed)
                 if success:
-                    self.statusBar.showMessage(f"DC电机速度已更新: 俯仰={pitch_speed}, 线性={linear_speed}")
+                    self.statusBar.showMessage(f"DC电机速度已更新: YF俯仰={pitch_speed}, AImotor线性={linear_speed}")
                 else:
                     self.statusBar.showMessage("DC电机速度设置失败")
         except Exception as e:
@@ -579,22 +604,25 @@ class RobotArmGUI(QMainWindow):
         if not self.connected or not self.robot:
             return
         
-        # 确定哪个滑块触发了这个事件
-        sender = self.sender()
-        if not sender:
-            return
+        try:
+            # 确定哪个滑块触发了这个事件
+            sender = self.sender()
+            if not sender:
+                return
+                
+            joint = sender.property("joint")
+            position = sender.value()
             
-        joint = sender.property("joint")
-        position = sender.value()
-        
-        # 更新标签
-        self.joint_value_labels[joint].setText(str(position))
-        
-        # 移动关节
-        self.robot.set_joint_position(joint, position, blocking=False)
+            # 更新标签
+            self.joint_value_labels[joint].setText(str(position))
+            
+            # 只移动单个关节，使用普通方法即可
+            self.robot.set_joint_position(joint, position, blocking=False)
+        except Exception as e:
+            self.statusBar.showMessage(f"移动关节出错: {e}")
     
     def move_pitch(self):
-        """移动俯仰电机"""
+        """移动YF型号俯仰电机"""
         if not self.connected or not self.robot:
             return
         
@@ -608,17 +636,17 @@ class RobotArmGUI(QMainWindow):
             self.pitch_value_label.setText(str(position))
             
             # 更新状态栏
-            self.statusBar.showMessage(f"设置俯仰位置: {position}")
+            self.statusBar.showMessage(f"设置YF俯仰位置: {position}")
             
             # 确保使用适当的速度
             speed = self.pitch_speed_slider.value()
             self.robot.motor.set_pitch_position(position, speed)
             
         except Exception as e:
-            self.statusBar.showMessage(f"俯仰电机控制出错: {e}")
+            self.statusBar.showMessage(f"YF俯仰电机控制出错: {e}")
     
     def move_linear(self):
-        """移动线性电机"""
+        """移动AImotor型号线性电机"""
         if not self.connected or not self.robot:
             return
         
@@ -632,14 +660,14 @@ class RobotArmGUI(QMainWindow):
             self.linear_value_label.setText(str(position))
             
             # 更新状态栏
-            self.statusBar.showMessage(f"设置线性位置: {position}")
+            self.statusBar.showMessage(f"设置AImotor线性位置: {position}")
             
             # 确保使用适当的速度
             speed = self.linear_speed_slider.value()
             self.robot.motor.set_linear_position(position, speed)
             
         except Exception as e:
-            self.statusBar.showMessage(f"线性电机控制出错: {e}")
+            self.statusBar.showMessage(f"AImotor线性电机控制出错: {e}")
     
     def move_cartesian(self):
         """基于笛卡尔坐标移动"""
@@ -662,27 +690,36 @@ class RobotArmGUI(QMainWindow):
             
             self.statusBar.showMessage(f"移动到笛卡尔坐标: X={x}, Y={y}, Z={z}")
             
-            # 先设置相应的速度
-            servo_speed = self.servo_speed_slider.value()
-            pitch_speed = self.pitch_speed_slider.value()
-            linear_speed = self.linear_speed_slider.value()
-            self.robot.set_speeds(servo_speed=servo_speed)
-            self.robot.motor.set_motor_speed(pitch_speed, linear_speed)
+            # 检查电压
+            self.check_voltage()
             
-            # 然后分别移动各个轴，而不是使用move_cartesian
-            # 这样可以确保即使某个轴失败，其他轴仍能移动
+            # 先设置较低的速度和加速度
+            servo_speed = min(300, self.servo_speed_slider.value())  # 限制最大速度
+            pitch_speed = min(80, self.pitch_speed_slider.value())   # 限制最大速度
+            linear_speed = min(80, self.linear_speed_slider.value()) # 限制最大速度
+            self.robot.set_speeds(servo_speed=servo_speed)
+            self.robot.set_all_servo_acc(3)  # 设置低加速度
+            self.robot.motor.set_motor_speed(pitch_speed, linear_speed)
             
             # 将 x 映射到 joint1（底座旋转）
             joint1_pos = int(x * 10 + 2048)  # 简单缩放，2048 是中心
-            self.robot.set_joint_position('joint1', joint1_pos, blocking=False)
             
+            # 用安全方法先移动底座
+            positions = {'joint1': joint1_pos}
+            self.move_joints_safely(positions, sequential=True)
+            time.sleep(0.3)  # 等待底座稳定
+            
+            # 再移动DC电机
             # 将 y 映射到线性进给
             linear_pos = int(y * 100)
             self.robot.motor.set_linear_position(linear_pos, linear_speed)
+            time.sleep(0.5)  # 等待线性轴开始移动
             
             # 将 z 映射到俯仰
             pitch_pos = int(z * 100)
             self.robot.motor.set_pitch_position(pitch_pos, pitch_speed)
+            
+            self.statusBar.showMessage(f"已移动到: X={x}, Y={y}, Z={z}")
             
         except Exception as e:
             self.statusBar.showMessage(f"笛卡尔坐标移动出错: {e}")
@@ -707,11 +744,31 @@ class RobotArmGUI(QMainWindow):
         if not self.connected or not self.robot:
             return
         
-        self.statusBar.showMessage("返回原位...")
-        self.robot.home()
-        
-        # 更新滑块位置
-        self.update_sliders_to_home()
+        try:
+            self.statusBar.showMessage("返回原位...")
+            
+            # 创建原位位置字典
+            home_positions = {
+                'joint1': 2048,  # 中间位置
+                'joint2': 2048,
+                'joint3': 2048,
+                'joint4': 2048
+            }
+            
+            # 使用安全移动方法，默认使用顺序移动
+            success = self.move_joints_safely(home_positions)
+            
+            if success:
+                # 使用原来的DC电机归位
+                self.robot.motor.home_motors()
+                self.statusBar.showMessage("已返回原位")
+            else:
+                self.statusBar.showMessage("返回原位失败")
+            
+            # 更新滑块位置
+            self.update_sliders_to_home()
+        except Exception as e:
+            self.statusBar.showMessage(f"返回原位出错: {e}")
     
     def update_sliders_to_home(self):
         """更新所有滑块到原位位置"""
@@ -731,12 +788,41 @@ class RobotArmGUI(QMainWindow):
         if not self.connected or not self.robot:
             return
         
-        self.statusBar.showMessage("正在校准...")
-        self.robot.calibrate()
-        self.statusBar.showMessage("校准完成")
-        
-        # 更新滑块位置
-        self.update_sliders_to_home()
+        try:
+            self.statusBar.showMessage("正在校准...")
+            
+            # 先禁用力矩，然后重新使能
+            self.robot.enable_torque(False)
+            time.sleep(0.3)
+            self.robot.enable_torque(True)
+            
+            # 检查电压
+            self.check_voltage()
+            
+            # 设置低加速度
+            self.robot.set_all_servo_acc(3)
+            
+            # 使用顺序移动返回原位
+            home_positions = {
+                'joint1': 2048,
+                'joint2': 2048,
+                'joint3': 2048,
+                'joint4': 2048
+            }
+            
+            success = self.move_joints_safely(home_positions, sequential=True)
+            
+            if success:
+                # DC电机归位
+                self.robot.motor.home_motors()
+                self.statusBar.showMessage("校准完成")
+            else:
+                self.statusBar.showMessage("校准失败")
+            
+            # 更新滑块位置
+            self.update_sliders_to_home()
+        except Exception as e:
+            self.statusBar.showMessage(f"校准出错: {e}")
     
     def run_pick_place_demo(self):
         """运行抓取和放置演示"""
@@ -755,41 +841,62 @@ class RobotArmGUI(QMainWindow):
                 
             self.statusBar.showMessage("执行抓取-放置演示...")
             
-            # 移动到抓取位置
-            self.robot.set_speeds(servo_speed=500)
-            self.robot.motor.set_motor_speed(100, 100)
-            self.robot.set_joint_position('joint1', 1500, blocking=True)  # 底座旋转
-            self.robot.set_joint_position('joint2', 1700, blocking=True)  # 肩部
-            self.robot.set_joint_position('joint3', 2300, blocking=True)  # 肘部
-            self.robot.set_joint_position('joint4', 2048, blocking=True)  # 手腕
+            # 首先检查电压
+            self.check_voltage()
             
+            # 移动到抓取位置 - 使用顺序移动
+            positions = {
+                'joint1': 1500,  # 底座旋转
+                'joint2': 1700,  # 肩部
+                'joint3': 2300,  # 肘部
+                'joint4': 2048   # 手腕
+            }
+            
+            self.statusBar.showMessage("移动到抓取位置...")
+            self.robot.set_speeds(servo_speed=300)  # 降低速度
+            self.robot.set_all_servo_acc(3)  # 设置低加速度
+            self.robot.motor.set_motor_speed(80, 80)  # 降低电机速度
+            
+            success = self.move_joints_safely(positions, sequential=True)
+            if not success:
+                self.statusBar.showMessage("移动失败，取消演示")
+                return
+                
             # 降低以抓取
-            self.robot.motor.set_pitch_position(-1000, 100)
-            time.sleep(1)
+            self.robot.motor.set_pitch_position(-1000, 80)
+            time.sleep(1.5)  # 给更多时间完成
             
             # 模拟抓取
             time.sleep(1)
             
             # 抓取后提升
-            self.robot.motor.set_pitch_position(0, 100)
-            time.sleep(1)
+            self.robot.motor.set_pitch_position(0, 80)
+            time.sleep(1.5)
             
-            # 移动到放置位置
-            self.robot.set_joint_position('joint1', 2500, blocking=True)  # 旋转底座
+            # 移动到放置位置 - 只需要移动底座
+            self.statusBar.showMessage("移动到放置位置...")
+            self.robot.set_joint_position('joint1', 2500, blocking=True)
             
             # 降低以放置
-            self.robot.motor.set_pitch_position(-800, 100)
-            time.sleep(1)
+            self.robot.motor.set_pitch_position(-800, 80)
+            time.sleep(1.5)
             
             # 模拟释放
             time.sleep(1)
             
             # 放置后提升
-            self.robot.motor.set_pitch_position(0, 100)
-            time.sleep(1)
+            self.robot.motor.set_pitch_position(0, 80)
+            time.sleep(1.5)
             
-            # 返回原位
-            self.robot.home(blocking=True)
+            # 返回原位 - 使用顺序移动
+            self.statusBar.showMessage("返回原位...")
+            home_positions = {
+                'joint1': 2048,
+                'joint2': 2048,
+                'joint3': 2048,
+                'joint4': 2048
+            }
+            self.move_joints_safely(home_positions, sequential=True)
             
             self.statusBar.showMessage("抓取-放置演示完成")
         except Exception as e:
@@ -812,64 +919,88 @@ class RobotArmGUI(QMainWindow):
                 
             self.statusBar.showMessage("执行方形轨迹演示...")
             
-            # 设置速度
-            self.robot.set_speeds(servo_speed=500)
-            self.robot.motor.set_motor_speed(100, 100)
+            # 首先检查电压
+            self.check_voltage()
+            
+            # 设置较低的速度和加速度
+            self.robot.set_speeds(servo_speed=300)  # 降低舵机速度
+            self.robot.set_all_servo_acc(3)  # 设置低加速度
+            self.robot.motor.set_motor_speed(80, 80)  # 降低电机速度
             
             # 在正方形轨迹上移动
-            # 这里使用单独控制每个轴的方式，而不是调用move_cartesian
+            # 这里使用顺序控制每个轴的方式，而不是调用move_cartesian
             
             # 点1
             self.statusBar.showMessage("移动到点1 (10, 10, 10)")
-            self.robot.set_joint_position('joint1', 10*10+2048, blocking=False)
-            self.robot.motor.set_linear_position(10*100, 100)
-            self.robot.motor.set_pitch_position(10*100, 100)
-            time.sleep(1)
+            pos = {'joint1': 10*10+2048}
+            self.move_joints_safely(pos, sequential=True)
+            time.sleep(0.3)  # 先等待底座移动
+            self.robot.motor.set_linear_position(10*100, 80)
+            time.sleep(0.5)  # 先等待线性轴移动
+            self.robot.motor.set_pitch_position(10*100, 80)
+            time.sleep(1.5)  # 等待所有轴到位
             
             # 点2
             self.statusBar.showMessage("移动到点2 (10, 20, 10)")
-            self.robot.set_joint_position('joint1', 10*10+2048, blocking=False)
-            self.robot.motor.set_linear_position(20*100, 100)
-            self.robot.motor.set_pitch_position(10*100, 100)
-            time.sleep(1)
+            # 底座不需要移动，保持原位
+            self.robot.motor.set_linear_position(20*100, 80)
+            time.sleep(1.5)
             
             # 点3
             self.statusBar.showMessage("移动到点3 (-10, 20, 10)")
-            self.robot.set_joint_position('joint1', -10*10+2048, blocking=False)
-            self.robot.motor.set_linear_position(20*100, 100)
-            self.robot.motor.set_pitch_position(10*100, 100)
-            time.sleep(1)
+            pos = {'joint1': -10*10+2048}
+            self.move_joints_safely(pos, sequential=True)
+            time.sleep(1.5)
             
             # 点4
             self.statusBar.showMessage("移动到点4 (-10, 10, 10)")
-            self.robot.set_joint_position('joint1', -10*10+2048, blocking=False)
-            self.robot.motor.set_linear_position(10*100, 100)
-            self.robot.motor.set_pitch_position(10*100, 100)
-            time.sleep(1)
+            self.robot.motor.set_linear_position(10*100, 80)
+            time.sleep(1.5)
             
             # 点1 (闭合)
             self.statusBar.showMessage("移动回点1 (10, 10, 10)")
-            self.robot.set_joint_position('joint1', 10*10+2048, blocking=False)
-            self.robot.motor.set_linear_position(10*100, 100)
-            self.robot.motor.set_pitch_position(10*100, 100)
-            time.sleep(1)
+            pos = {'joint1': 10*10+2048}
+            self.move_joints_safely(pos, sequential=True)
+            time.sleep(1.5)
             
             # 垂直移动
             self.statusBar.showMessage("执行垂直移动")
-            self.robot.set_joint_position('joint1', 0*10+2048, blocking=False)
-            self.robot.motor.set_linear_position(15*100, 100)
-            self.robot.motor.set_pitch_position(-10*100, 100)
+            pos = {'joint1': 0*10+2048}
+            self.move_joints_safely(pos, sequential=True)
+            time.sleep(0.3)
+            self.robot.motor.set_linear_position(15*100, 80)
             time.sleep(1)
             
-            self.robot.motor.set_pitch_position(10*100, 100)
-            time.sleep(1)
+            # 移动Z轴
+            self.statusBar.showMessage("垂直向下")
+            self.robot.motor.set_pitch_position(-10*100, 60)  # 降低速度
+            time.sleep(1.5)
             
-            self.robot.motor.set_pitch_position(0, 100)
-            time.sleep(1)
+            self.statusBar.showMessage("垂直向上")
+            self.robot.motor.set_pitch_position(10*100, 60)  # 降低速度
+            time.sleep(1.5)
+            
+            self.statusBar.showMessage("垂直回中")
+            self.robot.motor.set_pitch_position(0, 60)  # 降低速度
+            time.sleep(1.5)
             
             # 返回原位
             self.statusBar.showMessage("返回原位")
-            self.robot.home(blocking=True)
+            home_positions = {
+                'joint1': 2048,
+                'joint2': 2048,
+                'joint3': 2048,
+                'joint4': 2048
+            }
+            
+            # 确保DC电机先归位
+            self.robot.motor.set_linear_position(0, 60)
+            time.sleep(1.5)
+            self.robot.motor.set_pitch_position(0, 60)
+            time.sleep(1.5)
+            
+            # 然后舵机按顺序归位
+            self.move_joints_safely(home_positions, sequential=True)
             
             self.statusBar.showMessage("方形轨迹演示完成")
         except Exception as e:
@@ -961,6 +1092,87 @@ class RobotArmGUI(QMainWindow):
             
         # 自动连接
         QTimer.singleShot(500, self.connect_robot)
+
+    def check_voltage(self):
+        """检查所有舵机的电压"""
+        if not self.connected or not self.robot:
+            return
+            
+        try:
+            voltages = {}
+            all_ok = True
+            
+            # 检查所有舵机的电压
+            for joint, servo_id in self.robot.joint_ids.items():
+                is_ok, voltage = self.robot.check_servo_voltage(servo_id)
+                voltages[joint] = voltage
+                
+                if not is_ok:
+                    all_ok = False
+            
+            # 更新电压标签
+            if voltages:
+                voltage_text = ", ".join([f"{j}: {v:.1f}V" for j, v in voltages.items()])
+                if all_ok:
+                    self.voltage_label.setText(f"正常: {voltage_text}")
+                    self.voltage_label.setStyleSheet("color: green")
+                else:
+                    self.voltage_label.setText(f"异常! {voltage_text}")
+                    self.voltage_label.setStyleSheet("color: red")
+                
+                self.statusBar.showMessage("电压检查完成")
+            else:
+                self.voltage_label.setText("读取失败")
+                self.voltage_label.setStyleSheet("color: orange")
+                self.statusBar.showMessage("无法读取电压")
+        
+        except Exception as e:
+            self.statusBar.showMessage(f"检查电压出错: {e}")
+            
+    def move_joints_safely(self, positions, sequential=True):
+        """安全地移动多个关节，可以选择顺序移动或带重试的同步移动
+        
+        Args:
+            positions: 关节位置字典
+            sequential: 是否按顺序移动
+        """
+        if not self.connected or not self.robot:
+            return False
+            
+        self.statusBar.showMessage("移动关节中...")
+        
+        success = False
+        
+        try:
+            # 检查舵机电压
+            all_ok = True
+            for joint, servo_id in self.robot.joint_ids.items():
+                if joint in positions:
+                    is_ok, voltage = self.robot.check_servo_voltage(servo_id)
+                    if not is_ok:
+                        all_ok = False
+                        break
+            
+            # 如果电压有问题，优先使用顺序移动
+            if not all_ok:
+                self.statusBar.showMessage("检测到电压问题，使用顺序移动以减少负载")
+                sequential = True
+                
+            # 根据选择的方式移动关节
+            if sequential:
+                success = self.robot.set_joint_positions_sequential(positions)
+            else:
+                success = self.robot.set_joint_positions_with_retry(positions)
+                
+            if success:
+                self.statusBar.showMessage("移动完成")
+            else:
+                self.statusBar.showMessage("移动失败")
+                
+        except Exception as e:
+            self.statusBar.showMessage(f"移动出错: {e}")
+            
+        return success
 
 
 if __name__ == "__main__":

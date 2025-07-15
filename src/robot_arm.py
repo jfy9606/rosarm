@@ -3,6 +3,10 @@
 
 """
 机械臂控制类，集成 Feetech 舵机控制和 DC 电机控制
+- 小臂电机：FT系列舵机，用于控制关节
+- 大臂电机：两个不同型号的DC电机
+  - AImotor：大臂的进给电机（线性移动）
+  - YF：大臂的俯仰电机（俯仰运动）
 """
 
 from .feetech_servo_controller import FeetechServoController
@@ -20,6 +24,10 @@ from scservo_sdk import COMM_SUCCESS
 class RobotArm:
     """
     机械臂控制类，集成 Feetech 舵机控制和 DC 电机控制
+    - 小臂电机：FT系列舵机，用于控制关节
+    - 大臂电机：
+      - AImotor型号：大臂的进给电机（线性移动）
+      - YF型号：大臂的俯仰电机（俯仰运动）
     """
     
     # 默认关节 ID
@@ -43,16 +51,16 @@ class RobotArm:
     }
     
     # DC 电机限位
-    DEFAULT_PITCH_LIMITS = (-10000, 10000)
-    DEFAULT_LINEAR_LIMITS = (0, 20000)
+    DEFAULT_PITCH_LIMITS = (-10000, 10000)  # YF型号俯仰电机限位
+    DEFAULT_LINEAR_LIMITS = (0, 20000)      # AImotor型号进给电机限位
     
     def __init__(self, servo_port=None, motor_port=None, joint_ids=None, joint_limits=None, protocol_end=0):
         """
         初始化机械臂控制器
         
         Args:
-            servo_port: 舵机控制串口
-            motor_port: DC 电机控制串口
+            servo_port: FT系列舵机控制串口
+            motor_port: DC 电机控制串口 (AImotor进给电机和YF俯仰电机)
             joint_ids: 关节名称到舵机 ID 的映射字典
             joint_limits: 关节名称到位置限位的映射字典
             protocol_end: 舵机协议位结束（STS/SMS=0, SCS=1），默认为 0
@@ -68,28 +76,28 @@ class RobotArm:
         self.joint_limits = joint_limits if joint_limits else self.DEFAULT_JOINT_LIMITS
         
         # 设置 DC 电机限位
-        self.pitch_limits = self.DEFAULT_PITCH_LIMITS
-        self.linear_limits = self.DEFAULT_LINEAR_LIMITS
+        self.pitch_limits = self.DEFAULT_PITCH_LIMITS  # YF型号俯仰电机限位
+        self.linear_limits = self.DEFAULT_LINEAR_LIMITS  # AImotor型号进给电机限位
         
         # 当前关节位置
         self.current_positions = {}
         
         # 当前 DC 电机位置
-        self.current_pitch = 0
-        self.current_linear = 0
+        self.current_pitch = 0  # YF俯仰电机位置
+        self.current_linear = 0  # AImotor进给电机位置
         
         # 运动速度
         self.servo_speed = 0  # 时间（毫秒，0 = 最大速度）
-        self.pitch_speed = 100
-        self.linear_speed = 100
+        self.pitch_speed = 100  # YF俯仰电机速度
+        self.linear_speed = 100  # AImotor进给电机速度
     
     def connect(self, servo_port, motor_port, servo_baudrate=1000000, motor_baudrate=115200, protocol_end=0):
         """
         连接到舵机和电机控制器
         
         Args:
-            servo_port: 舵机控制串口
-            motor_port: DC 电机控制串口
+            servo_port: FT系列舵机控制串口
+            motor_port: DC 电机控制串口 (AImotor和YF)
             servo_baudrate: 舵机通信波特率
             motor_baudrate: 电机通信波特率
             protocol_end: 舵机协议位结束（STS/SMS=0, SCS=1），默认为 0
@@ -296,7 +304,7 @@ class RobotArm:
     
     def set_pitch_position(self, position, blocking=False, timeout=5.0):
         """
-        设置 pitch DC 电机位置
+        设置 YF型号俯仰 DC 电机位置
         
         Args:
             position: 目标位置
@@ -330,7 +338,7 @@ class RobotArm:
     
     def set_linear_position(self, position, blocking=False, timeout=5.0):
         """
-        设置线性进给 DC 电机位置
+        设置 AImotor型号线性进给 DC 电机位置
         
         Args:
             position: 目标位置
@@ -367,9 +375,9 @@ class RobotArm:
         设置不同电机的速度
         
         Args:
-            servo_speed: 舵机运动的时间（毫秒，0 = 最大速度）
-            pitch_speed: pitch 电机的速度 (0-255)
-            linear_speed: 线性电机的速度 (0-255)
+            servo_speed: FT系列舵机运动的时间（毫秒，0 = 最大速度）
+            pitch_speed: YF型号俯仰电机的速度 (0-255)
+            linear_speed: AImotor型号线性电机的速度 (0-255)
             
         Returns:
             bool: 如果成功则返回 True，否则返回 False
@@ -498,9 +506,9 @@ class RobotArm:
         对于真实实现，需要逆运动学
         
         Args:
-            x: X 坐标（映射到 joint1）
-            y: Y 坐标（映射到线性进给）
-            z: Z 坐标（映射到俯仰）
+            x: X 坐标（映射到 joint1 FT系列舵机）
+            y: Y 坐标（映射到 AImotor型号线性进给电机）
+            z: Z 坐标（映射到 YF型号俯仰电机）
             speed: 运动速度
             
         Returns:
@@ -513,10 +521,10 @@ class RobotArm:
         # 这是一个简化映射，在实际使用中需要适当的逆运动学
         joint1_pos = int(x * 10 + 2048)  # 简单缩放，2048 是中心
         
-        # 将 y 映射到线性进给
+        # 将 y 映射到 AImotor型号线性进给电机
         linear_pos = int(y * 100)
         
-        # 将 z 映射到俯仰
+        # 将 z 映射到 YF型号俯仰电机
         pitch_pos = int(z * 100)
         
         # 执行运动
@@ -550,3 +558,110 @@ class RobotArm:
                     print(f"[ID:{i:03d}] 通信错误: {self.servo.packet_handler.getRxPacketError(error)}")
         
         return found_servos 
+    
+    def check_servo_voltage(self, servo_id):
+        """
+        检查舵机电压是否在正常范围内
+        
+        Args:
+            servo_id: 舵机ID
+            
+        Returns:
+            tuple: (is_ok, voltage)
+                is_ok: 如果电压正常则为True
+                voltage: 电压值(单位:V)
+        """
+        if not self.servo or not self.servo.port_handler:
+            return False, 0
+        
+        try:
+            # 读取电压寄存器(地址62)
+            voltage_raw, result, error = self.servo.packet_handler.read1ByteTxRx(
+                self.servo.port_handler, servo_id, 62)  # ADDR_SCS_PRESENT_VOLTAGE
+            
+            if result != COMM_SUCCESS or error != 0:
+                return False, 0
+            
+            # 转换为实际电压(单位:V)
+            voltage = voltage_raw / 10.0
+            
+            # 检查电压是否在安全范围内(通常6V-12V，但这里我们宽松一些)
+            is_ok = (voltage >= 5.5) and (voltage <= 12.5)
+            
+            return is_ok, voltage
+            
+        except Exception as e:
+            print(f"检查电压时出错: {e}")
+            return False, 0
+    
+    def set_joint_positions_with_retry(self, positions, blocking=False, timeout=5.0, max_retries=3):
+        """
+        设置多个关节的位置，带有重试机制
+        
+        Args:
+            positions: {joint: position} 格式的字典
+            blocking: 如果为 True，等待所有运动完成
+            timeout: 如果 blocking 为 True，最大等待时间（秒）
+            max_retries: 最大重试次数
+            
+        Returns:
+            bool: 如果成功则返回 True，否则返回 False
+        """
+        # 检查所有舵机的电压
+        all_voltages_ok = True
+        for joint, servo_id in self.joint_ids.items():
+            if joint in positions:
+                is_ok, voltage = self.check_servo_voltage(servo_id)
+                if not is_ok:
+                    print(f"警告: 舵机ID {servo_id} 电压异常: {voltage}V")
+                    all_voltages_ok = False
+        
+        if not all_voltages_ok:
+            print("由于电压问题，可能会出现运动错误")
+        
+        # 尝试最多max_retries次
+        for attempt in range(max_retries):
+            try:
+                success = self.set_joint_positions(positions, blocking, timeout)
+                if success:
+                    return True
+                    
+                # 如果失败但还有重试机会，先暂停一会
+                if attempt < max_retries - 1:
+                    print(f"设置位置失败，暂停后重试 ({attempt+1}/{max_retries})")
+                    time.sleep(0.2 * (attempt + 1))  # 递增等待时间
+                    
+            except Exception as e:
+                print(f"移动舵机时出错: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(0.2 * (attempt + 1))
+                else:
+                    return False
+        
+        return False
+        
+    def set_joint_positions_sequential(self, positions, blocking=True):
+        """
+        按顺序设置多个关节的位置，而不是同时设置
+        这可以减少瞬时功率需求，避免电压下降
+        
+        Args:
+            positions: {joint: position} 格式的字典
+            blocking: 如果为 True，等待每个关节运动完成
+            
+        Returns:
+            bool: 如果所有关节都成功则返回 True，否则返回 False
+        """
+        all_success = True
+        
+        # 按顺序设置每个关节
+        for joint, position in positions.items():
+            success = self.set_joint_position(joint, position, blocking=blocking)
+            if not success:
+                all_success = False
+                print(f"设置关节 {joint} 位置失败")
+            
+            # 即使是非阻塞模式，也稍微暂停一下，以避免同时启动
+            time.sleep(0.05)
+        
+        return all_success 

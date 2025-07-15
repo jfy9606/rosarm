@@ -5,13 +5,15 @@ import struct
 
 class DCMotorController:
     """
-    Controller class for the two large DC motors (pitch and linear feed)
-    communicating via serial port
+    Controller class for the two large DC motors:
+    - YF型号: 大臂的俯仰电机（pitch motor）
+    - AImotor型号: 大臂的进给电机（linear feed motor）
+    通过串口通信控制
     """
     
     # Command codes
-    CMD_SET_PITCH = 0x01
-    CMD_SET_LINEAR = 0x02
+    CMD_SET_PITCH = 0x01    # YF俯仰电机命令
+    CMD_SET_LINEAR = 0x02   # AImotor进给电机命令
     CMD_STOP_ALL = 0x03
     CMD_GET_STATUS = 0x04
     CMD_SET_SPEED = 0x05
@@ -187,7 +189,7 @@ class DCMotorController:
     
     def set_pitch_position(self, position, speed=None):
         """
-        Set the pitch motor position
+        Set the YF型号俯仰电机 position
         
         Args:
             position: Target position (-32768 to 32767)
@@ -211,7 +213,7 @@ class DCMotorController:
     
     def set_linear_position(self, position, speed=None):
         """
-        Set the linear feed motor position
+        Set the AImotor型号进给电机 position
         
         Args:
             position: Target position (-32768 to 32767)
@@ -291,28 +293,27 @@ class DCMotorController:
     
     def set_motor_speed(self, pitch_speed=None, linear_speed=None):
         """
-        Set the speed of the motors
+        Set the speed for both motors
         
         Args:
-            pitch_speed: Speed for pitch motor (0-255)
-            linear_speed: Speed for linear motor (0-255)
+            pitch_speed: Speed for YF俯仰电机 (0-255)
+            linear_speed: Speed for AImotor进给电机 (0-255)
             
         Returns:
             True if successful, False otherwise
         """
         data = []
         
-        # Add pitch speed if provided
         if pitch_speed is not None:
-            data.extend([0x01, min(255, max(0, pitch_speed))])
+            data.append(min(255, max(0, pitch_speed)))
+        else:
+            data.append(255)  # Default to max speed
             
-        # Add linear speed if provided
         if linear_speed is not None:
-            data.extend([0x02, min(255, max(0, linear_speed))])
+            data.append(min(255, max(0, linear_speed)))
+        else:
+            data.append(255)  # Default to max speed
             
-        if not data:  # No speeds provided
-            return False
-        
         if not self._send_command(self.CMD_SET_SPEED, data):
             return False
         
@@ -321,28 +322,27 @@ class DCMotorController:
     
     def set_motor_acceleration(self, pitch_accel=None, linear_accel=None):
         """
-        Set the acceleration of the motors
+        Set acceleration parameters for both motors
         
         Args:
-            pitch_accel: Acceleration for pitch motor (0-255)
-            linear_accel: Acceleration for linear motor (0-255)
+            pitch_accel: Acceleration for YF俯仰电机 (0-255)
+            linear_accel: Acceleration for AImotor进给电机 (0-255)
             
         Returns:
             True if successful, False otherwise
         """
         data = []
         
-        # Add pitch acceleration if provided
         if pitch_accel is not None:
-            data.extend([0x01, min(255, max(0, pitch_accel))])
+            data.append(min(255, max(0, pitch_accel)))
+        else:
+            data.append(10)  # Default value
             
-        # Add linear acceleration if provided
         if linear_accel is not None:
-            data.extend([0x02, min(255, max(0, linear_accel))])
+            data.append(min(255, max(0, linear_accel)))
+        else:
+            data.append(10)  # Default value
             
-        if not data:  # No accelerations provided
-            return False
-        
         if not self._send_command(self.CMD_SET_ACCEL, data):
             return False
         
