@@ -1,3 +1,3 @@
 """
-Vision package for ROS 2.
+Vision package for ROS 2
 """ 

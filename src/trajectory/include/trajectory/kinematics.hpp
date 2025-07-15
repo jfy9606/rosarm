@@ -50,6 +50,11 @@ public:
   void setJointLimits(
     const std::vector<std::pair<double, double>>& limits);
     
+  // 设置关节限制（使用分离的min/max向量）
+  bool setJointLimits(
+    const std::vector<double>& min_limits,
+    const std::vector<double>& max_limits);
+    
   // 设置关节名称
   void setJointNames(
     const std::vector<std::string>& names);

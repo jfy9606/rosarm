@@ -1,0 +1,24 @@
+# 硬件配置文件
+# 定义舵机和电机类型映射
+
+# 舵机配置 (FT系列舵机)
+servo_config:
+  # 小臂舵机配置
+  wrist_servos:
+    # STS型号1舵机 (4个)
+    - {id: 1, name: "wrist_pitch", type: "STS_TYPE1", min_pos: 0, max_pos: 4095}
+    - {id: 2, name: "wrist_roll", type: "STS_TYPE1", min_pos: 0, max_pos: 4095}
+    - {id: 3, name: "wrist_yaw", type: "STS_TYPE1", min_pos: 0, max_pos: 4095}
+    - {id: 4, name: "gripper", type: "STS_TYPE1", min_pos: 0, max_pos: 4095}
+    # STS型号2舵机 (2个)
+    - {id: 5, name: "elbow_pitch", type: "STS_TYPE2", min_pos: 0, max_pos: 3500}
+    - {id: 6, name: "elbow_roll", type: "STS_TYPE2", min_pos: 0, max_pos: 3500}
+
+# 电机配置
+motor_config:
+  # 大臂电机配置
+  arm_motors:
+    # AImotor - 大臂进给电机
+    - {id: 1, name: "arm_feed", type: "AI_MOTOR", max_speed: 1000, max_acc: 200}
+    # YF - 大臂俯仰电机
+    - {id: 2, name: "arm_pitch", type: "YF_MOTOR", max_speed: 800, max_acc: 150} 

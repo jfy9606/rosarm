@@ -1,12 +1,12 @@
 #ifndef SERVO_CONTROL_HPP
 #define SERVO_CONTROL_HPP
 
-#include <rclcpp/rclcpp.hpp>
-#include <servo/msg/ser_control.hpp>
 #include <memory>
 #include <string>
 #include <vector>
+#include <map>
 #include <serial/serial.h>
+#include "servo/feetech_adapter.hpp"
 
 namespace servo_control {
 
@@ -47,9 +47,21 @@ public:
   // 检查连接状态
   bool isConnected() const;
 
+  // 加载舵机配置
+  bool loadServoConfigs(const std::string& config_file);
+
+  // 同步读取多个舵机的位置
+  std::map<uint8_t, int> syncReadPositions(const std::vector<uint8_t>& ids);
+  
+  // 同步写入多个舵机的位置
+  bool syncWritePositions(const std::map<uint8_t, uint16_t>& positions);
+
 private:
-  // 串口连接
+  // 串口连接 (用于传统方式)
   serial::Serial serial_;
+  
+  // Feetech适配器 (用于FT系列舵机)
+  std::unique_ptr<FeeTechAdapter> ft_adapter_;
   
   // 串口参数
   std::string port_;
@@ -59,13 +71,16 @@ private:
   // 连接状态
   bool connected_;
   
-  // 发送指令包
+  // 舵机类型映射
+  std::map<uint8_t, FTServoType> servo_types_;
+  
+  // 发送指令包 (传统方式)
   bool sendPacket(const std::vector<uint8_t>& packet);
   
-  // 读取响应
+  // 读取响应 (传统方式)
   std::vector<uint8_t> readPacket();
   
-  // 计算校验和
+  // 计算校验和 (传统方式)
   uint8_t calculateChecksum(const std::vector<uint8_t>& data);
 };
 

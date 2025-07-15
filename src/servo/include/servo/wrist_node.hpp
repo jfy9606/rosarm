@@ -3,7 +3,7 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
-#include <servo/msg/ser_control.hpp>
+#include <servo/msg/ser_control.hpp>  // 应该使用生成的头文件
 #include <servo/srv/joint_control.hpp>
 #include "servo/servo_control.hpp"
 

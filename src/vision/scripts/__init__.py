@@ -1,3 +1,0 @@
-"""
-Vision package scripts.
-""" 

@@ -3,7 +3,7 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
-#include <servo/srv/joint_control.hpp>
+#include "gui/mock_services.hpp"
 #include <mutex>
 #include <vector>
 #include <string>
@@ -25,7 +25,7 @@ private:
   
   // ROS publishers and subscribers
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_pub_;
-  rclcpp::Client<servo::srv::JointControl>::SharedPtr joint_control_client_;
+  mock::JointControlClient::SharedPtr joint_control_client_;
   rclcpp::TimerBase::SharedPtr timer_;
   
   // Mutex for thread safety

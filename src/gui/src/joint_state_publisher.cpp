@@ -26,9 +26,8 @@ JointStatePublisher::JointStatePublisher(const rclcpp::NodeOptions & options)
   joint_state_pub_ = this->create_publisher<sensor_msgs::msg::JointState>(
     "joint_states", 10);
     
-  // Create service client
-  joint_control_client_ = this->create_client<servo::srv::JointControl>(
-    "joint_control");
+  // Create mock service client
+  joint_control_client_ = std::make_shared<mock::JointControlClient>();
     
   // Create timer for publishing joint states
   auto timer_period = std::chrono::duration<double>(1.0 / publish_rate_);

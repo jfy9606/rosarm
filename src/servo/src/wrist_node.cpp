@@ -10,16 +10,22 @@ WristNode::WristNode(const rclcpp::NodeOptions & options)
   this->declare_parameter<std::string>("port", "/dev/ttyUSB1");
   this->declare_parameter<int>("baudrate", 1000000);
   this->declare_parameter<int>("timeout", 100);
+  this->declare_parameter<std::string>("config_file", "");
   
   device_port_ = this->get_parameter("port").as_string();
   baudrate_ = this->get_parameter("baudrate").as_int();
   timeout_ = this->get_parameter("timeout").as_int();
+  std::string config_file = this->get_parameter("config_file").as_string();
   
   RCLCPP_INFO(this->get_logger(), "Port: %s, Baudrate: %d", device_port_.c_str(), baudrate_);
   
   // 初始化关节ID映射
   joint_id_map_["wrist_pitch"] = 1;  // 腕部俯仰关节，ID为1
   joint_id_map_["wrist_roll"] = 2;   // 腕部滚转关节，ID为2
+  joint_id_map_["wrist_yaw"] = 3;    // 腕部偏航关节，ID为3
+  joint_id_map_["gripper"] = 4;      // 夹爪关节，ID为4
+  joint_id_map_["elbow_pitch"] = 5;  // 肘部俯仰关节，ID为5
+  joint_id_map_["elbow_roll"] = 6;   // 肘部滚转关节，ID为6
   
   // 加载关节限制
   loadJointLimits();
@@ -57,6 +63,15 @@ WristNode::WristNode(const rclcpp::NodeOptions & options)
   if (!initServoControl()) {
     RCLCPP_ERROR(this->get_logger(), "Failed to initialize servo control");
   }
+  
+  // 加载配置文件
+  if (!config_file.empty()) {
+    if (servo_control_->loadServoConfigs(config_file)) {
+      RCLCPP_INFO(this->get_logger(), "Loaded servo configurations from %s", config_file.c_str());
+    } else {
+      RCLCPP_ERROR(this->get_logger(), "Failed to load servo configurations from %s", config_file.c_str());
+    }
+  }
 }
 
 WristNode::~WristNode()
@@ -74,50 +89,74 @@ void WristNode::jointControlCallback(
   if (!servo_control_ || !servo_control_->isConnected()) {
     RCLCPP_ERROR(this->get_logger(), "Servo control not connected");
     response->success = false;
+    response->message = "Servo control not connected";
     return;
   }
   
-  // 检查关节名称是否有效
-  if (joint_id_map_.find(request->joint_name) == joint_id_map_.end()) {
-    RCLCPP_ERROR(this->get_logger(), "Unknown joint name: %s", request->joint_name.c_str());
+  // 根据消息定义, JointControl.srv 包含 float64[] position
+  // 假设数组下标对应于预定义的关节顺序
+  std::vector<std::string> joint_names;
+  for (const auto& pair : joint_id_map_) {
+    joint_names.push_back(pair.first);
+  }
+  
+  bool all_success = true;
+  std::stringstream result_messages;
+  
+  // 确保提供了足够的位置数据
+  if (request->position.size() < joint_names.size()) {
     response->success = false;
+    response->message = "Not enough position values provided";
     return;
   }
   
-  uint8_t id = joint_id_map_[request->joint_name];
+  // 准备同步写入的位置映射
+  std::map<uint8_t, uint16_t> positions;
+  
+  // 为每个关节设置位置
+  for (size_t i = 0; i < joint_names.size(); ++i) {
+    const std::string& joint_name = joint_names[i];
+    double position_value = request->position[i];
+    uint8_t id = joint_id_map_[joint_name];
   
   // 检查角度是否在限制范围内
-  if (joint_limits_.count(request->joint_name) > 0) {
-    auto limits = joint_limits_[request->joint_name];
-    if (request->position < limits.first || request->position > limits.second) {
+    if (joint_limits_.count(joint_name) > 0) {
+      auto limits = joint_limits_[joint_name];
+      if (position_value < limits.first || position_value > limits.second) {
       RCLCPP_ERROR(this->get_logger(), 
                   "Position %f is out of limits [%f, %f] for joint %s",
-                  request->position, limits.first, limits.second,
-                  request->joint_name.c_str());
-      response->success = false;
-      return;
+                    position_value, limits.first, limits.second, joint_name.c_str());
+        all_success = false;
+        result_messages << "Joint " << joint_name << " position out of limits. ";
+        continue;
     }
   }
   
   // 将角度转换为舵机值
-  uint16_t position = angleToServoValue(request->position, request->joint_name);
+    uint16_t servo_value = angleToServoValue(position_value, joint_name);
   
-  // 设置舵机位置
-  bool result = servo_control_->setPosition(id, position, request->time, request->speed);
+    // 添加到位置映射
+    positions[id] = servo_value;
   
-  if (result) {
     // 更新关节状态
-    joint_positions_[request->joint_name] = request->position;
+    joint_positions_[joint_name] = position_value;
     RCLCPP_INFO(this->get_logger(), 
                "Set joint %s to position %f (servo value: %d)",
-               request->joint_name.c_str(), request->position, position);
-  } else {
-    RCLCPP_ERROR(this->get_logger(), 
-                "Failed to set joint %s to position %f",
-                request->joint_name.c_str(), request->position);
+               joint_name.c_str(), position_value, servo_value);
   }
   
-  response->success = result;
+  // 同步写入所有舵机位置
+  if (!positions.empty()) {
+    bool result = servo_control_->syncWritePositions(positions);
+    if (!result) {
+      RCLCPP_ERROR(this->get_logger(), "Failed to sync write positions");
+      all_success = false;
+      result_messages << "Failed to sync write positions. ";
+    }
+  }
+  
+  response->success = all_success;
+  response->message = all_success ? "All joints set successfully" : result_messages.str();
 }
 
 void WristNode::servoControlCallback(const servo::msg::SerControl::SharedPtr msg)
@@ -128,30 +167,36 @@ void WristNode::servoControlCallback(const servo::msg::SerControl::SharedPtr msg
   }
   
   // 检查关节ID是否在范围内
-  if (msg->id < 1 || msg->id > 254) {
-    RCLCPP_ERROR(this->get_logger(), "Invalid servo ID: %d", msg->id);
+  if (msg->servo_id < 1 || msg->servo_id > 254) {
+    RCLCPP_ERROR(this->get_logger(), "Invalid servo ID: %d", msg->servo_id);
     return;
   }
   
-  // 直接设置舵机位置
-  bool result = servo_control_->setPosition(msg->id, msg->position, msg->time, msg->speed);
+  // 直接设置舵机位置，使用消息中的target_position, velocity, acceleration
+  bool result = servo_control_->setPosition(
+      static_cast<uint8_t>(msg->servo_id), 
+      static_cast<uint16_t>(msg->target_position),
+      0,  // 默认time=0
+      static_cast<uint16_t>(msg->velocity)  // 使用velocity作为speed
+  );
   
   if (result) {
     // 尝试更新已知关节的位置
     for (const auto& joint : joint_id_map_) {
-      if (joint.second == msg->id) {
-        joint_positions_[joint.first] = servoValueToAngle(msg->position, joint.first);
+      if (joint.second == static_cast<uint8_t>(msg->servo_id)) {
+        joint_positions_[joint.first] = servoValueToAngle(
+            static_cast<uint16_t>(msg->target_position), joint.first);
         break;
       }
     }
     
     RCLCPP_INFO(this->get_logger(), 
-               "Set servo ID %d to position %d with time %d and speed %d",
-               msg->id, msg->position, msg->time, msg->speed);
+               "Set servo ID %d to position %d with velocity %d",
+               msg->servo_id, msg->target_position, msg->velocity);
   } else {
     RCLCPP_ERROR(this->get_logger(), 
                 "Failed to set servo ID %d to position %d",
-                msg->id, msg->position);
+                msg->servo_id, msg->target_position);
   }
 }
 
@@ -165,18 +210,29 @@ void WristNode::timerCallback()
   auto joint_state_msg = std::make_unique<sensor_msgs::msg::JointState>();
   joint_state_msg->header.stamp = this->now();
   
-  // 读取所有关节的当前位置
+  // 准备要读取的舵机ID列表
+  std::vector<uint8_t> ids;
   for (const auto& joint : joint_id_map_) {
-    int position = servo_control_->getPosition(joint.second);
-    if (position >= 0) {
-      // 将舵机位置转换为角度
-      double angle = servoValueToAngle(position, joint.first);
-      joint_positions_[joint.first] = angle;
+    ids.push_back(joint.second);
+  }
+  
+  // 同步读取所有舵机位置
+  auto positions = servo_control_->syncReadPositions(ids);
+  
+  // 更新关节状态
+  for (const auto& joint : joint_id_map_) {
+    const std::string& joint_name = joint.first;
+    uint8_t id = joint.second;
+    
+    // 如果成功读取到位置，更新关节状态
+    if (positions.count(id) > 0) {
+      double angle = servoValueToAngle(positions[id], joint_name);
+      joint_positions_[joint_name] = angle;
     }
     
     // 添加到关节状态消息
-    joint_state_msg->name.push_back(joint.first);
-    joint_state_msg->position.push_back(joint_positions_[joint.first]);
+    joint_state_msg->name.push_back(joint_name);
+    joint_state_msg->position.push_back(joint_positions_[joint_name]);
     joint_state_msg->velocity.push_back(0.0);  // 暂不提供速度信息
     joint_state_msg->effort.push_back(0.0);    // 暂不提供力矩信息
   }
@@ -214,6 +270,17 @@ rcl_interfaces::msg::SetParametersResult WristNode::parametersCallback(
     } else if (param.get_name() == "timeout") {
       timeout_ = param.as_int();
       RCLCPP_INFO(this->get_logger(), "Updated timeout: %d", timeout_);
+    } else if (param.get_name() == "config_file") {
+      std::string config_file = param.as_string();
+      if (!config_file.empty() && servo_control_) {
+        if (servo_control_->loadServoConfigs(config_file)) {
+          RCLCPP_INFO(this->get_logger(), "Loaded servo configurations from %s", config_file.c_str());
+        } else {
+          RCLCPP_ERROR(this->get_logger(), "Failed to load servo configurations from %s", config_file.c_str());
+          result.successful = false;
+          result.reason = "Failed to load servo configurations";
+        }
+      }
     }
   }
   
@@ -267,6 +334,16 @@ uint16_t WristNode::angleToServoValue(double angle, const std::string& joint_nam
   } else if (joint_name == "wrist_roll") {
     // 假设腕部滚转关节的中心位置对应0度
     return static_cast<uint16_t>(center + angle * 1024.0 / M_PI);
+  } else if (joint_name == "wrist_yaw") {
+    // 假设腕部偏航关节的中心位置对应0度
+    return static_cast<uint16_t>(center + angle * 1024.0 / M_PI);
+  } else if (joint_name == "gripper") {
+    // 夹爪关节映射
+    return static_cast<uint16_t>(center + angle * 1024.0 / M_PI);
+  } else if (joint_name == "elbow_pitch" || joint_name == "elbow_roll") {
+    // STS_TYPE2舵机的映射可能不同
+    // 假设范围为[0, 3500]
+    return static_cast<uint16_t>(1750 + angle * 875.0 / M_PI);
   } else {
     // 默认映射
     return static_cast<uint16_t>((normalized_angle + M_PI) * 2048.0 / M_PI);
@@ -286,6 +363,16 @@ double WristNode::servoValueToAngle(uint16_t value, const std::string& joint_nam
   } else if (joint_name == "wrist_roll") {
     // 假设腕部滚转关节的中心位置对应0度
     return static_cast<double>(value - center) * M_PI / 1024.0;
+  } else if (joint_name == "wrist_yaw") {
+    // 假设腕部偏航关节的中心位置对应0度
+    return static_cast<double>(value - center) * M_PI / 1024.0;
+  } else if (joint_name == "gripper") {
+    // 夹爪关节映射
+    return static_cast<double>(value - center) * M_PI / 1024.0;
+  } else if (joint_name == "elbow_pitch" || joint_name == "elbow_roll") {
+    // STS_TYPE2舵机的映射可能不同
+    // 假设范围为[0, 3500]
+    return static_cast<double>(value - 1750) * M_PI / 875.0;
   } else {
     // 默认映射
     return static_cast<double>(value) * M_PI / 2048.0 - M_PI;
@@ -297,6 +384,10 @@ void WristNode::loadJointLimits()
   // 设置关节限制（弧度）
   joint_limits_["wrist_pitch"] = std::make_pair(-M_PI/2, M_PI/2);  // ±90度
   joint_limits_["wrist_roll"] = std::make_pair(-M_PI, M_PI);        // ±180度
+  joint_limits_["wrist_yaw"] = std::make_pair(-M_PI/2, M_PI/2);     // ±90度
+  joint_limits_["gripper"] = std::make_pair(-M_PI/4, M_PI/4);       // ±45度
+  joint_limits_["elbow_pitch"] = std::make_pair(-M_PI/2, M_PI/2);   // ±90度
+  joint_limits_["elbow_roll"] = std::make_pair(-M_PI/2, M_PI/2);    // ±90度
   
   // 从参数服务器加载关节限制
   // 这里可以添加从参数中加载限制的代码

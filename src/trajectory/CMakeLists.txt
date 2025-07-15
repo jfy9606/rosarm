@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.10...3.25)
 project(trajectory)
 
 # Default to C++14
@@ -49,6 +49,7 @@ target_include_directories(kinematics PUBLIC
 )
 target_link_libraries(kinematics
   ${EIGEN3_LIBRARIES}
+  "${cpp_typesupport_target}"
 )
 ament_target_dependencies(kinematics
   rclcpp
@@ -107,7 +108,9 @@ install(DIRECTORY launch/
 )
 
 # Install Python modules
-ament_python_install_package(${PROJECT_NAME})
+# 避免目标名冲突
+set(PYTHON_PACKAGE_NAME ${PROJECT_NAME}_py)
+ament_python_install_package(${PYTHON_PACKAGE_NAME} PACKAGE_DIR ${PROJECT_NAME})
 
 # Install Python executables
 install(PROGRAMS
@@ -127,6 +130,6 @@ ament_export_dependencies(
   rclcpp_components
   Eigen3
 )
-ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
+ament_export_targets()
 
 ament_package()

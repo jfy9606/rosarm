@@ -3,13 +3,15 @@
 
 #include <QMessageBox>
 #include <QDebug>
+#include <QVBoxLayout>
+#include <QPushButton>
 #include <functional>
 
 namespace gui {
 
 MainWindow::MainWindow(rclcpp::Node::SharedPtr node, QWidget *parent)
   : QMainWindow(parent)
-  , ui(nullptr) // Replace with ui(new Ui::MainWindow) when UI file is available
+  , ui(nullptr) // We're not using a .ui file for now
   , node_(node)
 {
   // ui->setupUi(this); // Uncomment when UI file is available
@@ -18,8 +20,25 @@ MainWindow::MainWindow(rclcpp::Node::SharedPtr node, QWidget *parent)
   setWindowTitle("ROS 2 Robotic Arm Control");
   resize(800, 600);
   
-  // Create a simple UI programmatically (replace with .ui file when available)
-  // This is just a placeholder
+  // Create a simple UI programmatically
+  QWidget *centralWidget = new QWidget(this);
+  setCentralWidget(centralWidget);
+  
+  QVBoxLayout *mainLayout = new QVBoxLayout(centralWidget);
+  
+  // Add buttons
+  QPushButton *homeButton = new QPushButton("Home Position", centralWidget);
+  QPushButton *moveButton = new QPushButton("Move", centralWidget);
+  QPushButton *gripperButton = new QPushButton("Toggle Gripper", centralWidget);
+  
+  mainLayout->addWidget(homeButton);
+  mainLayout->addWidget(moveButton);
+  mainLayout->addWidget(gripperButton);
+  
+  // Connect signals to slots
+  connect(homeButton, &QPushButton::clicked, this, &MainWindow::onHomeButtonClicked);
+  connect(moveButton, &QPushButton::clicked, this, &MainWindow::onMoveButtonClicked);
+  connect(gripperButton, &QPushButton::clicked, this, &MainWindow::onGripperButtonClicked);
   
   // Setup ROS publishers and subscribers
   command_pub_ = node_->create_publisher<std_msgs::msg::String>(
@@ -39,9 +58,6 @@ MainWindow::MainWindow(rclcpp::Node::SharedPtr node, QWidget *parent)
 
 MainWindow::~MainWindow()
 {
-  if (ui) {
-    delete ui;
-  }
 }
 
 void MainWindow::updateRobotStatus()
@@ -77,10 +93,10 @@ void MainWindow::onGripperButtonClicked()
   command_pub_->publish(msg);
 }
 
-void MainWindow::jointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg)
+void MainWindow::jointStateCallback(const sensor_msgs::msg::JointState::SharedPtr /*msg*/)
 {
   // Process joint state updates
-  // This is a placeholder
+  // This is a placeholder - parameter intentionally unused for now
 }
 
 } // namespace gui 

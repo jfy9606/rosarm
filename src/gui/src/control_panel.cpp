@@ -13,21 +13,15 @@ ControlPanel::ControlPanel(rclcpp::Node::SharedPtr node, QWidget *parent)
   // Initialize joint names
   joint_names_ = {"joint1", "joint2", "joint3", "joint4", "joint5", "gripper"};
   
-  // Create service clients
-  joint_control_client_ = node_->create_client<servo::srv::JointControl>("joint_control");
-  vacuum_client_ = node_->create_client<servo::srv::VacuumCmd>("vacuum_control");
+  // Create mock service clients
+  joint_control_client_ = std::make_shared<mock::JointControlClient>();
+  vacuum_client_ = std::make_shared<mock::VacuumCmdClient>();
   
   // Setup UI
   setupUI();
   
-  // Wait for services to be available
-  if (!joint_control_client_->wait_for_service(std::chrono::seconds(1))) {
-    RCLCPP_WARN(node_->get_logger(), "Joint control service not available");
-  }
-  
-  if (!vacuum_client_->wait_for_service(std::chrono::seconds(1))) {
-    RCLCPP_WARN(node_->get_logger(), "Vacuum control service not available");
-  }
+  // Mock services are always available
+  RCLCPP_INFO(node_->get_logger(), "Using mock services for control");
 }
 
 void ControlPanel::setupUI()
@@ -123,25 +117,21 @@ void ControlPanel::sendJointCommand(int joint_index, double position)
 {
   if (joint_index < 0 || joint_index >= static_cast<int>(joint_names_.size())) return;
   
-  // Check if service is available
-  if (!joint_control_client_->service_is_ready()) {
-    RCLCPP_WARN(node_->get_logger(), "Joint control service not available");
-    return;
-  }
+  // Create mock request
+  auto request = std::make_shared<mock::JointControlRequest>();
   
-  // Create request
-  auto request = std::make_shared<servo::srv::JointControl::Request>();
-  request->joint_name = joint_names_[joint_index];
-  request->position = position;
+  // Set positions for all joints, but only change the selected one
+  request->position.resize(joint_names_.size(), 0.0);
+  request->position[joint_index] = position;
   
-  // Send request
+  // Send mock request
   auto result_future = joint_control_client_->async_send_request(
     request,
-    [this, joint_index](rclcpp::Client<servo::srv::JointControl>::SharedFuture future) {
+    [this, joint_index](mock::JointControlClient::SharedFuture future) {
       auto result = future.get();
       if (result->success) {
-        RCLCPP_INFO(node_->get_logger(), "Joint %d moved to position: %f", 
-                    joint_index, result->actual_position);
+        RCLCPP_INFO(node_->get_logger(), "Joint %d moved successfully: %s", 
+                    joint_index, result->message.c_str());
       } else {
         RCLCPP_ERROR(node_->get_logger(), "Failed to move joint %d: %s", 
                      joint_index, result->message.c_str());
@@ -158,27 +148,21 @@ void ControlPanel::onHomeButtonClicked()
     slider->setValue(0);
   }
   
-  // TODO: Call home position service
+  // Home position is handled by setting all sliders to 0
 }
 
 void ControlPanel::onGripperButtonClicked()
 {
   RCLCPP_INFO(node_->get_logger(), "Toggling gripper");
   
-  // Check if service is available
-  if (!vacuum_client_->service_is_ready()) {
-    RCLCPP_WARN(node_->get_logger(), "Vacuum control service not available");
-    return;
-  }
-  
-  // Create request
-  auto request = std::make_shared<servo::srv::VacuumCmd::Request>();
+  // Create mock request
+  auto request = std::make_shared<mock::VacuumCmdRequest>();
   request->enable = true; // Toggle based on current state
   
-  // Send request
+  // Send mock request
   auto result_future = vacuum_client_->async_send_request(
     request,
-    [this](rclcpp::Client<servo::srv::VacuumCmd>::SharedFuture future) {
+    [this](mock::VacuumCmdClient::SharedFuture future) {
       auto result = future.get();
       if (result->success) {
         RCLCPP_INFO(node_->get_logger(), "Gripper toggled successfully");

@@ -7,9 +7,25 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <map>
 #include <serial/serial.h>
 
 namespace motor_control {
+
+// 电机类型枚举
+enum class MotorType {
+  AI_MOTOR,  // AImotor - 大臂进给电机
+  YF_MOTOR   // YF - 大臂俯仰电机
+};
+
+// 电机配置结构
+struct MotorConfig {
+  uint8_t id;
+  std::string name;
+  MotorType type;
+  int max_speed;
+  int max_acc;
+};
 
 class MotorControl
 {
@@ -35,13 +51,16 @@ public:
                   uint16_t acc = 100, uint16_t dec = 100);
   
   // 执行电机指令
-  bool executeOrder(const motor::msg::MotorOrder::SharedPtr order);
+  bool executeOrder(const std::shared_ptr<motor::msg::MotorOrder> order);
   
   // 获取电机状态
   std::string getStatus(uint8_t station_num);
   
   // 检查连接状态
   bool isConnected() const;
+
+  // 加载电机配置
+  bool loadMotorConfigs(const std::string& config_file);
 
 private:
   // 串口连接
@@ -55,11 +74,21 @@ private:
   // 连接状态
   bool connected_;
   
+  // 电机配置映射
+  std::map<uint8_t, MotorConfig> motor_configs_;
+  
   // 发送命令并等待响应
   std::string sendCommand(const std::string& command, bool wait_response = true);
   
   // 检验命令格式
   bool validateCommand(const std::string& command);
+  
+  // 根据电机类型调整参数
+  void adjustParamsByType(uint8_t station_num, int32_t& position, int16_t& velocity, 
+                         uint16_t& acc, uint16_t& dec);
+  
+  // 获取电机类型
+  MotorType getMotorType(uint8_t station_num) const;
 };
 
 } // namespace motor_control

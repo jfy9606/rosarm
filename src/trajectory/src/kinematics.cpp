@@ -249,26 +249,64 @@ void RobotKinematics::setDHParameters(
   alpha_ = alpha;
   d_ = d;
   theta_offset_ = theta_offset;
+  
+  // 更新自由度
   dof_ = static_cast<int>(a.size());
   
-  // 重置关节限制和名称，以匹配新的自由度
-  joint_limits_.resize(dof_, std::make_pair(-M_PI, M_PI));
-  joint_names_.resize(dof_);
+  // 重新调整关节限制和名称大小
+  if (static_cast<int>(joint_limits_.size()) != dof_) {
+    joint_limits_.resize(dof_, {-M_PI, M_PI});
+  }
+  
+  if (static_cast<int>(joint_names_.size()) != dof_) {
+    joint_names_.clear();
   for (int i = 0; i < dof_; ++i) {
-    joint_names_[i] = "joint" + std::to_string(i+1);
+      joint_names_.push_back("joint" + std::to_string(i+1));
+    }
   }
 }
 
 void RobotKinematics::setJointLimits(const std::vector<std::pair<double, double>>& limits)
 {
+  // 检查参数大小是否一致
   if (static_cast<int>(limits.size()) != dof_) {
     RCLCPP_ERROR(rclcpp::get_logger("kinematics"), 
-                "Joint limits array size (%zu) does not match DOF (%d)", 
+                "Joint limits array size (%zu) doesn't match DOF (%d)", 
                 limits.size(), dof_);
     return;
   }
   
+  // 更新关节限制
   joint_limits_ = limits;
+}
+
+bool RobotKinematics::setJointLimits(
+  const std::vector<double>& min_limits,
+  const std::vector<double>& max_limits)
+{
+  // 检查参数大小是否一致
+  if (static_cast<int>(min_limits.size()) != dof_ || 
+      static_cast<int>(max_limits.size()) != dof_) {
+    RCLCPP_ERROR(rclcpp::get_logger("kinematics"), 
+                "Joint limits arrays size doesn't match DOF (%d)", dof_);
+    return false;
+  }
+  
+  // 检查限制是否有效（最小值 <= 最大值）
+  for (int i = 0; i < dof_; ++i) {
+    if (min_limits[i] > max_limits[i]) {
+      RCLCPP_ERROR(rclcpp::get_logger("kinematics"), 
+                  "Invalid joint limits: min > max for joint %d", i);
+      return false;
+    }
+  }
+  
+  // 更新关节限制
+  for (int i = 0; i < dof_; ++i) {
+    joint_limits_[i] = {min_limits[i], max_limits[i]};
+  }
+  
+  return true;
 }
 
 void RobotKinematics::setJointNames(const std::vector<std::string>& names)

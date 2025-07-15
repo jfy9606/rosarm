@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.10...3.25)
 project(gui)
 
 # Default to C++14
@@ -13,6 +13,7 @@ endif()
 # Find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_components REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
@@ -22,6 +23,11 @@ find_package(motor REQUIRED)
 find_package(trajectory REQUIRED)
 
 # Include Qt resource files
+# Qt MOC 处理
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
+set(CMAKE_AUTOUIC ON)
+
 set(QT_RESOURCES_FILE
   resources/resources.qrc
 )
@@ -32,12 +38,19 @@ include_directories(
   include
 )
 
+# Header files that need MOC processing
+set(GUI_MOC_HEADERS
+  include/gui/main_window.hpp
+  include/gui/control_panel.hpp
+)
+
 # Create GUI library
 add_library(${PROJECT_NAME}
   src/main_window.cpp
   src/joint_state_publisher.cpp
   src/control_panel.cpp
   ${QT_RESOURCES}
+  ${GUI_MOC_HEADERS}
 )
 
 target_link_libraries(${PROJECT_NAME}
@@ -48,6 +61,7 @@ target_link_libraries(${PROJECT_NAME}
 
 ament_target_dependencies(${PROJECT_NAME}
   rclcpp
+  rclcpp_components
   std_msgs
   geometry_msgs
   sensor_msgs
@@ -95,6 +109,7 @@ ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME})
 ament_export_dependencies(
   rclcpp
+  rclcpp_components
   std_msgs
   geometry_msgs
   sensor_msgs

@@ -13,27 +13,101 @@
 - **gui**: 图形用户界面包，提供用户交互界面
 - **arm_bringup**: 系统启动包，包含启动整个系统的launch文件
 
+## 环境部署
+
+### 安装ROS 2 Humble（使用mamba）
+
+```bash
+# 安装Mambaforge（如果尚未安装）
+wget -O Mambaforge.sh https://github.com/conda-forge/miniforge/releases/latest/download/Mambaforge-$(uname)-$(uname -m).sh
+bash Mambaforge.sh -b -p $HOME/mambaforge
+source $HOME/mambaforge/etc/profile.d/conda.sh
+source $HOME/mambaforge/etc/profile.d/mamba.sh
+
+# 创建ROS环境
+mamba create -n ros_env
+mamba activate ros_env
+
+# 添加conda-forge频道
+conda config --env --add channels conda-forge
+# 移除defaults频道（如果存在）
+conda config --env --remove channels defaults
+
+# 添加ROS 2 Humble频道
+conda config --env --add channels robostack
+conda config --env --add channels robostack-humble
+
+# 安装ROS 2 Humble
+mamba install ros-humble-desktop
+
+# 安装构建工具
+mamba install compilers cmake pkg-config make ninja colcon-common-extensions catkin_tools rosdep ros2-for-serial-driver
+```
+
+### 初始化环境
+
+```bash
+# 添加环境激活到bashrc（可选）
+echo "source $HOME/mambaforge/etc/profile.d/conda.sh" >> ~/.bashrc
+echo "source $HOME/mambaforge/etc/profile.d/mamba.sh" >> ~/.bashrc
+echo "mamba activate ros_env" >> ~/.bashrc
+
+# 为ROS环境设置
+mamba activate ros_env
+echo "source $CONDA_PREFIX/setup.bash" >> ~/.bashrc
+
+# 初始化rosdep
+rosdep init
+rosdep update
+
+# 使配置在当前终端生效
+source ~/.bashrc
+```
+
+### 初始化Python环境
+
+```bash
+# 激活ROS环境
+mamba activate ros_env
+
+# 安装必要的Python依赖
+mamba install -y pip lark-parser numpy opencv pyyaml yaml-cpp
+```
+
 ## 安装依赖
 
 ```bash
-sudo apt update
-sudo apt install -y \
-  ros-rolling-rclcpp \
-  ros-rolling-rclpy \
-  ros-rolling-std-msgs \
-  ros-rolling-sensor-msgs \
-  ros-rolling-geometry-msgs \
-  ros-rolling-cv-bridge \
-  ros-rolling-image-transport \
-  ros-rolling-rviz2 \
-  ros-rolling-qt-gui-cpp \
-  ros-rolling-rqt-gui-cpp \
-  ros-rolling-launch-ros
+# 激活ROS环境
+mamba activate ros_env
+
+# 安装系统依赖
+mamba install -y \
+  ros-humble-rclcpp \
+  ros-humble-rclpy \
+  ros-humble-std-msgs \
+  ros-humble-sensor-msgs \
+  ros-humble-geometry-msgs \
+  ros-humble-cv-bridge \
+  ros-humble-image-transport \
+  ros-humble-rviz2 \
+  ros-humble-qt-gui-cpp \
+  ros-humble-rqt-gui-cpp \
+  ros-humble-launch-ros
+```
+
+### 串口
+
+```bash
+# 添加当前用户到dialout组以访问串口
+sudo usermod -a -G dialout $USER
 ```
 
 ## 编译
 
 ```bash
+# 在工作空间根目录下执行
+mamba activate ros_env
+source $CONDA_PREFIX/setup.bash
 colcon build --symlink-install
 ```
 
@@ -42,12 +116,21 @@ colcon build --symlink-install
 使用提供的启动脚本：
 
 ```bash
+# 在工作空间根目录下执行
+mamba activate ros_env
+source $CONDA_PREFIX/setup.bash
+source install/setup.bash  # 加载编译后的环境
 ./start.sh
 ```
 
 或者手动启动：
 
 ```bash
+# 激活环境
+mamba activate ros_env
+source $CONDA_PREFIX/setup.bash
+source install/setup.bash
+
 # 启动完整系统
 ros2 launch arm_bringup arm_control.launch.py
 
@@ -68,11 +151,30 @@ ros2 launch arm_bringup arm_control.launch.py use_gui:=false use_vision:=false u
 
 ## 系统要求
 
-- ROS 2 Rolling
-- Ubuntu 20.04或更高版本
+- ROS 2 Humble
+- 支持Conda/Mamba的Linux/macOS/Windows系统
 - Python 3.8或更高版本
 - C++14或更高版本
 
+## 常见问题
+
+### 串口权限问题
+
+如果遇到串口权限问题，请确保当前用户已添加到dialout组：
+
+```bash
+sudo usermod -a -G dialout $USER
+# 需要注销并重新登录才能生效
+```
+
+### 找不到包或节点
+
+如果遇到找不到包或节点的问题，请确保已正确加载工作空间：
+
+```bash
+source install/setup.bash
+```
+
 ## 许可证
 
-待定 
+待定

@@ -38,6 +38,7 @@ void KinematicsNode::handleForwardKinematics(
   if (request->joint_positions.empty()) {
     RCLCPP_ERROR(this->get_logger(), "Forward kinematics request contains no joint positions");
     response->success = false;
+    response->message = "No joint positions provided";
     return;
   }
   
@@ -49,12 +50,14 @@ void KinematicsNode::handleForwardKinematics(
   if (!kinematics_->isValidJointPosition(joint_positions)) {
     RCLCPP_ERROR(this->get_logger(), "Invalid joint positions in forward kinematics request");
     response->success = false;
+    response->message = "Invalid joint positions";
     return;
   }
   
   // 计算前向运动学
-  response->pose = kinematics_->forwardKinematics(joint_positions);
+  response->end_effector_pose = kinematics_->forwardKinematics(joint_positions);
   response->success = true;
+  response->message = "Forward kinematics computed successfully";
   
   RCLCPP_INFO(this->get_logger(), "Forward kinematics computed successfully");
 }
@@ -65,9 +68,23 @@ void KinematicsNode::handleInverseKinematics(
 {
   // 初始关节位置（如果提供）
   std::vector<double> joint_positions;
-  if (!request->initial_positions.empty()) {
-    joint_positions.assign(request->initial_positions.begin(), 
-                          request->initial_positions.end());
+  if (!request->seed_joint_positions.empty()) {
+    joint_positions.assign(request->seed_joint_positions.begin(), 
+                          request->seed_joint_positions.end());
+  }
+  
+  // 应用约束（如果提供）
+  std::vector<double> joint_min_limits;
+  std::vector<double> joint_max_limits;
+  
+  if (!request->joint_constraints_min.empty() && !request->joint_constraints_max.empty()) {
+    joint_min_limits = request->joint_constraints_min;
+    joint_max_limits = request->joint_constraints_max;
+    
+    // 设置关节限制（假设RobotKinematics类有这个方法）
+    if (kinematics_->setJointLimits(joint_min_limits, joint_max_limits)) {
+      RCLCPP_INFO(this->get_logger(), "Applied joint constraints to IK solver");
+    }
   }
   
   // 计算逆运动学
@@ -77,9 +94,11 @@ void KinematicsNode::handleInverseKinematics(
     // 将结果复制到响应
     response->joint_positions.assign(joint_positions.begin(), joint_positions.end());
     response->success = true;
+    response->message = "Inverse kinematics computed successfully";
     RCLCPP_INFO(this->get_logger(), "Inverse kinematics computed successfully");
   } else {
     response->success = false;
+    response->message = "Failed to compute inverse kinematics";
     RCLCPP_ERROR(this->get_logger(), "Failed to compute inverse kinematics");
   }
 }

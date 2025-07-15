@@ -12,6 +12,7 @@ def generate_launch_description():
     use_gui = LaunchConfiguration('use_gui', default='true')
     use_rviz = LaunchConfiguration('use_rviz', default='true')
     use_vision = LaunchConfiguration('use_vision', default='true')
+    hardware_config = LaunchConfiguration('hardware_config', default='config/hardware_config.yaml')
     
     # Declare launch arguments
     declare_use_gui_arg = DeclareLaunchArgument(
@@ -29,6 +30,17 @@ def generate_launch_description():
         default_value=use_vision,
         description='Whether to launch vision nodes')
     
+    declare_hardware_config_arg = DeclareLaunchArgument(
+        'hardware_config',
+        default_value=hardware_config,
+        description='Path to the hardware configuration file')
+    
+    # Get hardware config path
+    config_file = PathJoinSubstitution([
+        FindPackageShare('arm_bringup'),
+        hardware_config
+    ])
+    
     # Include motor launch
     motor_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
@@ -37,7 +49,10 @@ def generate_launch_description():
                 'launch',
                 'motor_control.launch.py'
             ])
-        ])
+        ]),
+        launch_arguments={
+            'config_file': config_file
+        }.items()
     )
     
     # Include servo launch
@@ -48,7 +63,10 @@ def generate_launch_description():
                 'launch',
                 'servo_nodes.launch.py'
             ])
-        ])
+        ]),
+        launch_arguments={
+            'config_file': config_file
+        }.items()
     )
     
     # Include trajectory launch
@@ -108,6 +126,7 @@ def generate_launch_description():
         declare_use_gui_arg,
         declare_use_rviz_arg,
         declare_use_vision_arg,
+        declare_hardware_config_arg,
         
         # Launch files
         motor_launch,

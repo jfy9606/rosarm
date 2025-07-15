@@ -8,6 +8,7 @@ def generate_launch_description():
     servo_port = LaunchConfiguration('servo_port')
     servo_baudrate = LaunchConfiguration('servo_baudrate')
     vacuum_id = LaunchConfiguration('vacuum_id')
+    config_file = LaunchConfiguration('config_file')
     
     # 声明参数
     return LaunchDescription([
@@ -30,6 +31,12 @@ def generate_launch_description():
             description='真空吸盘舵机ID'
         ),
         
+        DeclareLaunchArgument(
+            'config_file',
+            default_value='',
+            description='硬件配置文件路径'
+        ),
+        
         # 腕部舵机控制节点
         Node(
             package='servo',
@@ -38,7 +45,8 @@ def generate_launch_description():
             output='screen',
             parameters=[{
                 'port': servo_port,
-                'baudrate': servo_baudrate
+                'baudrate': servo_baudrate,
+                'config_file': config_file
             }]
         ),
         
@@ -51,7 +59,8 @@ def generate_launch_description():
             parameters=[{
                 'port': servo_port,
                 'baudrate': servo_baudrate,
-                'vacuum_id': vacuum_id
+                'vacuum_id': vacuum_id,
+                'config_file': config_file
             }]
         )
     ]) 

@@ -8,8 +8,7 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <rclcpp/rclcpp.hpp>
-#include <servo/srv/joint_control.hpp>
-#include <servo/srv/vacuum_cmd.hpp>
+#include "gui/mock_services.hpp"
 
 namespace gui {
 
@@ -29,8 +28,8 @@ private:
   rclcpp::Node::SharedPtr node_;
   
   // ROS clients
-  rclcpp::Client<servo::srv::JointControl>::SharedPtr joint_control_client_;
-  rclcpp::Client<servo::srv::VacuumCmd>::SharedPtr vacuum_client_;
+  mock::JointControlClient::SharedPtr joint_control_client_;
+  mock::VacuumCmdClient::SharedPtr vacuum_client_;
   
   // UI elements
   std::vector<QSlider*> joint_sliders_;
