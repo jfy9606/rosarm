@@ -160,10 +160,6 @@ class RobotArmGUI(QMainWindow):
         self.check_voltage_button.clicked.connect(self.check_voltage)
         status_layout.addWidget(self.check_voltage_button, 0, 2)
         
-        # 添加测试DC电机按钮
-        self.test_dc_button = QPushButton("测试DC电机")
-        self.test_dc_button.clicked.connect(self.test_dc_motors)
-        status_layout.addWidget(self.test_dc_button, 0, 3)
         
         basic_layout.addWidget(status_group)
         
@@ -238,10 +234,19 @@ class RobotArmGUI(QMainWindow):
         dc_motor_group = QGroupBox("DC电机控制")
         dc_layout = QGridLayout(dc_motor_group)
         
-        # DC电机使能控制
+        # DC电机使能控制和测试按钮
+        button_layout = QHBoxLayout()
+        
         self.dc_enable_button = QPushButton("使能DC电机")
         self.dc_enable_button.clicked.connect(self.enable_dc_motors)
-        dc_layout.addWidget(self.dc_enable_button, 0, 0, 1, 3)
+        button_layout.addWidget(self.dc_enable_button)
+        
+        # 添加测试DC电机按钮
+        self.test_dc_button = QPushButton("测试DC电机通信")
+        self.test_dc_button.clicked.connect(self.test_dc_motors)
+        button_layout.addWidget(self.test_dc_button)
+        
+        dc_layout.addLayout(button_layout, 0, 0, 1, 3)
         
         # 俯仰电机控制
         dc_layout.addWidget(QLabel("YF俯仰速度:"), 1, 0)

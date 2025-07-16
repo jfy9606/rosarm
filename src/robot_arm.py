@@ -134,6 +134,33 @@ class RobotArm:
             
             self.connected = False
             return False
+            
+    def _init_servos(self):
+        """
+        初始化舵机，设置初始速度和加速度
+        """
+        try:
+            # 检查所有舵机ID是否存在
+            for servo_id in self.joint_ids.values():
+                if not self.servo.ping(servo_id):
+                    print(f"Warning: Servo ID {servo_id} not found")
+            
+            # 设置所有舵机的初始速度和加速度
+            for joint, servo_id in self.joint_ids.items():
+                # 设置速度
+                self.servo.set_servo_speed(servo_id, self.servo_speed)
+                
+                # 设置加速度
+                self.servo.set_servo_acceleration(servo_id, self.servo_acceleration)
+                
+                print(f"Initialized servo for joint {joint} (ID: {servo_id})")
+                
+            print("All servos initialized successfully")
+            return True
+            
+        except Exception as e:
+            print(f"Error initializing servos: {e}")
+            return False
     
     def disconnect(self):
         """
