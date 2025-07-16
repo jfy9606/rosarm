@@ -71,6 +71,9 @@ class RobotArmGUI(QMainWindow):
         # 舵机信息
         self.servos = []
         
+        # 添加标志位，防止状态更新重叠导致串口冲突
+        self.is_updating_status = False
+        
         # 刷新串口列表
         self.refresh_ports()
         
@@ -455,8 +458,8 @@ class RobotArmGUI(QMainWindow):
                 self.enable_button.setText("使能舵机")
                 self.dc_enable_button.setText("使能DC电机")
                 
-                # 启动状态更新定时器
-                self.status_timer.start(1000)  # 每秒更新一次
+                # 启动状态更新定时器，降低更新频率以减少串口冲突
+                self.status_timer.start(2000)  # 每2秒更新一次（原为1秒）
             else:
                 QMessageBox.critical(self, "连接失败", "无法连接到机械臂控制器，请检查端口设置")
                 self.statusBar.showMessage("连接失败")
@@ -600,74 +603,108 @@ class RobotArmGUI(QMainWindow):
         self.robot.set_all_servo_acc(acc)
     
     def move_joint(self):
-        """移动关节"""
+        """移动单个关节"""
         if not self.connected or not self.robot:
             return
         
+        sender = self.sender()
+        if not sender:
+            return
+        
+        joint = sender.property("joint")
+        if not joint:
+            return
+        
+        position = sender.value()
+        
         try:
-            # 确定哪个滑块触发了这个事件
-            sender = self.sender()
-            if not sender:
-                return
+            # 暂停状态更新以避免串口冲突
+            old_timer_state = self.status_timer.isActive()
+            if old_timer_state:
+                self.status_timer.stop()
                 
-            joint = sender.property("joint")
-            position = sender.value()
+            self.statusBar.showMessage(f"正在移动 {joint} 到位置 {position}...")
+            success = self.robot.set_joint_position(joint, position)
             
-            # 更新标签
-            self.joint_value_labels[joint].setText(str(position))
-            
-            # 只移动单个关节，使用普通方法即可
-            self.robot.set_joint_position(joint, position, blocking=False)
+            if success:
+                self.statusBar.showMessage(f"{joint} 已移动到位置 {position}")
+                self.joint_value_labels[joint].setText(str(position))
+            else:
+                self.statusBar.showMessage(f"移动 {joint} 失败")
+                
+            # 恢复状态更新
+            if old_timer_state:
+                self.status_timer.start(2000)
         except Exception as e:
             self.statusBar.showMessage(f"移动关节出错: {e}")
-    
+
     def move_pitch(self):
-        """移动YF型号俯仰电机"""
+        """移动俯仰轴 (YF型号)"""
         if not self.connected or not self.robot:
             return
         
+        position = self.pitch_slider.value()
+        
         try:
-            # 检查电机是否已启用
-            if self.dc_enable_button.text() != "禁用DC电机":
-                self.statusBar.showMessage("请先使能DC电机")
-                return
+            # 暂停状态更新以避免串口冲突
+            old_timer_state = self.status_timer.isActive()
+            if old_timer_state:
+                self.status_timer.stop()
                 
-            position = self.pitch_slider.value()
-            self.pitch_value_label.setText(str(position))
+            self.statusBar.showMessage(f"正在移动YF俯仰电机到位置 {position}...")
             
-            # 更新状态栏
-            self.statusBar.showMessage(f"设置YF俯仰位置: {position}")
-            
-            # 确保使用适当的速度
+            # 设置俯仰速度
             speed = self.pitch_speed_slider.value()
-            self.robot.motor.set_pitch_position(position, speed)
+            self.robot.motor.set_motor_speed(pitch_speed=speed, linear_speed=None)
             
+            # 移动俯仰电机
+            success = self.robot.set_pitch_position(position)
+            
+            if success:
+                self.statusBar.showMessage(f"YF俯仰电机已移动到位置 {position}")
+                self.pitch_value_label.setText(str(position))
+            else:
+                self.statusBar.showMessage("YF俯仰电机移动失败")
+                
+            # 恢复状态更新
+            if old_timer_state:
+                self.status_timer.start(2000)
         except Exception as e:
-            self.statusBar.showMessage(f"YF俯仰电机控制出错: {e}")
-    
+            self.statusBar.showMessage(f"移动俯仰电机出错: {e}")
+
     def move_linear(self):
-        """移动AImotor型号线性电机"""
+        """移动线性轴 (AImotor型号)"""
         if not self.connected or not self.robot:
             return
         
+        position = self.linear_slider.value()
+        
         try:
-            # 检查电机是否已启用
-            if self.dc_enable_button.text() != "禁用DC电机":
-                self.statusBar.showMessage("请先使能DC电机")
-                return
+            # 暂停状态更新以避免串口冲突
+            old_timer_state = self.status_timer.isActive()
+            if old_timer_state:
+                self.status_timer.stop()
                 
-            position = self.linear_slider.value()
-            self.linear_value_label.setText(str(position))
+            self.statusBar.showMessage(f"正在移动AImotor线性电机到位置 {position}...")
             
-            # 更新状态栏
-            self.statusBar.showMessage(f"设置AImotor线性位置: {position}")
-            
-            # 确保使用适当的速度
+            # 设置线性电机速度
             speed = self.linear_speed_slider.value()
-            self.robot.motor.set_linear_position(position, speed)
+            self.robot.motor.set_motor_speed(pitch_speed=None, linear_speed=speed)
             
+            # 移动线性电机
+            success = self.robot.set_linear_position(position)
+            
+            if success:
+                self.statusBar.showMessage(f"AImotor线性电机已移动到位置 {position}")
+                self.linear_value_label.setText(str(position))
+            else:
+                self.statusBar.showMessage("AImotor线性电机移动失败")
+                
+            # 恢复状态更新
+            if old_timer_state:
+                self.status_timer.start(2000)
         except Exception as e:
-            self.statusBar.showMessage(f"AImotor线性电机控制出错: {e}")
+            self.statusBar.showMessage(f"移动线性电机出错: {e}")
     
     def move_cartesian(self):
         """基于笛卡尔坐标移动"""
@@ -1011,6 +1048,12 @@ class RobotArmGUI(QMainWindow):
         if not self.connected or not self.robot:
             return
         
+        # 如果已经在更新中，则跳过本次更新，防止串口冲突
+        if self.is_updating_status:
+            return
+            
+        self.is_updating_status = True
+        
         try:
             # 读取关节位置
             positions = self.robot.read_joint_positions()
@@ -1043,6 +1086,9 @@ class RobotArmGUI(QMainWindow):
                     self.linear_slider.blockSignals(False)
         except Exception as e:
             self.statusBar.showMessage(f"状态更新错误: {e}")
+        finally:
+            # 确保无论执行成功还是失败，都会重置标志位
+            self.is_updating_status = False
     
     def show_error(self, error_msg):
         """显示错误信息"""
@@ -1053,6 +1099,7 @@ class RobotArmGUI(QMainWindow):
         if self.connected and self.robot:
             try:
                 self.status_timer.stop()
+                self.is_updating_status = False  # 确保标志被重置
                 self.robot.stop_all()
                 self.robot.enable_torque(False)
                 self.robot.disconnect()

@@ -133,18 +133,29 @@ class FeetechServoController:
             print("Not connected to servo controller")
             return None
         
-        position, result, error = self.packet_handler.read2ByteTxRx(
-            self.port_handler, servo_id, ADDR_SCS_PRESENT_POSITION)
+        # 设置一个更短的读取超时，防止在通信问题时长时间阻塞
+        original_timeout = self.port_handler.getTimeoutMillis()
+        self.port_handler.setTimeoutMillis(100)  # 100ms超时
         
-        if result != COMM_SUCCESS:
-            print(f"Failed to read position: {self.packet_handler.getTxRxResult(result)}")
+        try:
+            position, result, error = self.packet_handler.read2ByteTxRx(
+                self.port_handler, servo_id, ADDR_SCS_PRESENT_POSITION)
+            
+            if result != COMM_SUCCESS:
+                print(f"Failed to read position: {self.packet_handler.getTxRxResult(result)}")
+                return None
+            
+            if error != 0:
+                print(f"Servo error: {self.packet_handler.getRxPacketError(error)}")
+                return None
+            
+            return position
+        except Exception as e:
+            print(f"Exception during position read: {e}")
             return None
-        
-        if error != 0:
-            print(f"Servo error: {self.packet_handler.getRxPacketError(error)}")
-            return None
-        
-        return position
+        finally:
+            # 恢复原始超时设置
+            self.port_handler.setTimeoutMillis(original_timeout)
     
     def read_speed(self, servo_id):
         """
