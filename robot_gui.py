@@ -74,6 +74,12 @@ class RobotArmGUI(QMainWindow):
         # 添加标志位，防止状态更新重叠导致串口冲突
         self.is_updating_status = False
         
+        # 电机控制器类型
+        self.motor_controller_type = "standard"
+        
+        # 调试模式
+        self.debug_mode = False
+        
         # 刷新串口列表
         self.refresh_ports()
         
@@ -153,6 +159,11 @@ class RobotArmGUI(QMainWindow):
         self.check_voltage_button = QPushButton("检查电压")
         self.check_voltage_button.clicked.connect(self.check_voltage)
         status_layout.addWidget(self.check_voltage_button, 0, 2)
+        
+        # 添加测试DC电机按钮
+        self.test_dc_button = QPushButton("测试DC电机")
+        self.test_dc_button.clicked.connect(self.test_dc_motors)
+        status_layout.addWidget(self.test_dc_button, 0, 3)
         
         basic_layout.addWidget(status_group)
         
@@ -427,6 +438,90 @@ class RobotArmGUI(QMainWindow):
         
         self.statusBar.showMessage(f"找到 {len(ports)} 个可用串口")
     
+    def set_debug_mode(self, enabled=True):
+        """设置调试模式
+        
+        Args:
+            enabled: 是否启用调试模式
+        """
+        self.debug_mode = enabled
+        
+        # 如果已连接，设置电机控制器的调试模式
+        if self.connected and self.robot and hasattr(self.robot.motor, 'debug'):
+            self.robot.motor.debug = enabled
+            
+        self.statusBar.showMessage(f"调试模式: {'已启用' if enabled else '已禁用'}")
+    
+    def auto_connect(self, servo_port, motor_port, servo_baudrate=1000000, motor_baudrate=115200, protocol_end=0):
+        """自动连接到机械臂
+        
+        Args:
+            servo_port: 舵机串口
+            motor_port: 电机串口
+            servo_baudrate: 舵机波特率
+            motor_baudrate: 电机波特率
+            protocol_end: 舵机协议结束位
+            
+        Returns:
+            bool: 如果连接成功则返回 True，否则返回 False
+        """
+        # 预选串口
+        self._preselect_ports(servo_port, motor_port, servo_baudrate, motor_baudrate)
+        
+        # 连接
+        self.statusBar.showMessage("正在自动连接...")
+        return self.connect_robot()
+        
+    def _preselect_ports(self, servo_port, motor_port, servo_baudrate=1000000, motor_baudrate=115200):
+        """预选串口和波特率
+        
+        Args:
+            servo_port: 舵机串口
+            motor_port: 电机串口
+            servo_baudrate: 舵机波特率
+            motor_baudrate: 电机波特率
+        """
+        # 设置舵机串口
+        index = self.servo_port_combo.findText(servo_port)
+        if index >= 0:
+            self.servo_port_combo.setCurrentIndex(index)
+        else:
+            # 如果找不到，添加到列表
+            self.servo_port_combo.addItem(servo_port)
+            self.servo_port_combo.setCurrentText(servo_port)
+            
+        # 设置电机串口
+        index = self.motor_port_combo.findText(motor_port)
+        if index >= 0:
+            self.motor_port_combo.setCurrentIndex(index)
+        else:
+            # 如果找不到，添加到列表
+            self.motor_port_combo.addItem(motor_port)
+            self.motor_port_combo.setCurrentText(motor_port)
+            
+        # 设置波特率
+        index = self.servo_baudrate_combo.findText(str(servo_baudrate))
+        if index >= 0:
+            self.servo_baudrate_combo.setCurrentIndex(index)
+            
+        index = self.motor_baudrate_combo.findText(str(motor_baudrate))
+        if index >= 0:
+            self.motor_baudrate_combo.setCurrentIndex(index)
+            
+    def set_motor_controller_type(self, controller_type):
+        """设置电机控制器类型
+        
+        Args:
+            controller_type: 控制器类型，可以是 'standard' 或 'custom'
+        """
+        self.motor_controller_type = controller_type
+        self.statusBar.showMessage(f"电机控制器类型: {controller_type}")
+        
+        # 如果已经连接，需要重新连接以应用新的控制器类型
+        if self.connected:
+            QMessageBox.information(self, "需要重新连接", 
+                                  "电机控制器类型已更改，请断开连接并重新连接以应用更改。")
+
     def connect_robot(self):
         """连接或断开机械臂"""
         if not self.connected:
@@ -442,6 +537,10 @@ class RobotArmGUI(QMainWindow):
             
             # 创建新的机械臂实例
             self.robot = RobotArm()
+            
+            # 设置调试模式
+            if hasattr(self.robot.motor, 'debug'):
+                self.robot.motor.debug = self.debug_mode
             
             self.statusBar.showMessage("正在连接...")
             
@@ -1220,6 +1319,49 @@ class RobotArmGUI(QMainWindow):
             self.statusBar.showMessage(f"移动出错: {e}")
             
         return success
+
+    def test_dc_motors(self):
+        """测试DC电机通信"""
+        if not self.connected or not self.robot:
+            QMessageBox.warning(self, "错误", "请先连接机械臂")
+            return
+            
+        # 暂停状态更新以避免串口冲突
+        old_timer_state = self.status_timer.isActive()
+        if old_timer_state:
+            self.status_timer.stop()
+            
+        try:
+            # 设置调试模式
+            self.robot.motor.set_debug(True)
+            
+            # 测试电机通信
+            self.statusBar.showMessage("正在测试DC电机通信...")
+            results = self.robot.motor.test_communication()
+            
+            # 显示测试结果
+            result_text = "DC电机通信测试结果:\n"
+            result_text += f"YF俯仰电机: {'成功' if results['yf_pitch'] else '失败'}\n"
+            result_text += f"AImotor进给电机: {'成功' if results['ai_linear'] else '失败'}"
+            
+            QMessageBox.information(self, "测试结果", result_text)
+            
+            if not results['yf_pitch'] and not results['ai_linear']:
+                QMessageBox.warning(self, "通信错误", 
+                    "两个电机都无法通信。请检查:\n"
+                    "1. 串口连接是否正确\n"
+                    "2. 电机电源是否接通\n"
+                    "3. 波特率设置是否正确")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "测试错误", f"测试过程中出错: {str(e)}")
+            
+        finally:
+            # 恢复状态更新
+            if old_timer_state:
+                self.status_timer.start(2000)  # 2秒更新一次
+            
+            self.statusBar.showMessage("电机测试完成")
 
 
 if __name__ == "__main__":

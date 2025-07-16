@@ -2,69 +2,65 @@
 # -*- coding: utf-8 -*-
 
 """
-机械臂控制系统
-图形用户界面程序
-
-电机配置:
-- 小臂电机：FT系列舵机，用于控制关节
-- 大臂电机：
-  - AImotor型号：大臂的进给电机（线性移动）
-  - YF型号：大臂的俯仰电机（俯仰运动）
+机械臂控制系统主程序
 """
 
 import sys
 import argparse
-import serial.tools.list_ports
 from PyQt5.QtWidgets import QApplication
 from robot_gui import RobotArmGUI
 
-
-def detect_serial_ports():
-    """
-    检测系统上可用的串行端口
+def parse_args():
+    """解析命令行参数"""
+    parser = argparse.ArgumentParser(description="机械臂控制系统")
     
-    Returns:
-        可用串行端口列表
-    """
-    ports = list(serial.tools.list_ports.comports())
+    # 串口设置
+    parser.add_argument("--servo-port", help="舵机串口，例如 'COM3'")
+    parser.add_argument("--motor-port", help="电机串口，例如 'COM4'")
+    parser.add_argument("--servo-baudrate", type=int, default=1000000, help="舵机波特率")
+    parser.add_argument("--motor-baudrate", type=int, default=115200, help="电机波特率")
     
-    available_ports = []
-    for p in ports:
-        available_ports.append(p.device)
+    # 协议设置
+    parser.add_argument("--protocol-end", type=int, default=0, choices=[0, 1], 
+                        help="舵机协议结束位 (STS/SMS=0, SCS=1)")
     
-    return available_ports
-
+    # 调试设置
+    parser.add_argument("--debug", action="store_true", help="启用调试输出")
+    parser.add_argument("--test-motors", action="store_true", help="启动后立即测试电机")
+    
+    return parser.parse_args()
 
 def main():
-    """
-    程序主函数
-    """
-    parser = argparse.ArgumentParser(description='机械臂控制系统')
-    parser.add_argument('--servo-port', dest='servo_port', help='舵机控制的串行端口')
-    parser.add_argument('--motor-port', dest='motor_port', help='电机控制的串行端口')
-    parser.add_argument('--servo-baudrate', dest='servo_baudrate', type=int, default=1000000,
-                        help='舵机通信波特率')
-    parser.add_argument('--motor-baudrate', dest='motor_baudrate', type=int, default=115200,
-                        help='电机通信波特率')
-    parser.add_argument('--protocol-end', dest='protocol_end', type=int, default=0,
-                        help='舵机协议位结束（STS/SMS=0, SCS=1）')
+    """主函数"""
+    # 解析命令行参数
+    args = parse_args()
     
-    args = parser.parse_args()
-    
-    # 启动图形界面
+    # 创建应用
     app = QApplication(sys.argv)
+    
+    # 创建主窗口
     window = RobotArmGUI()
     
-    # 如果命令行指定了端口，就预先选择它们
-    if args.servo_port and args.motor_port:
-        # 将这些参数传递给GUI进行预选
-        window.preselect_ports(args.servo_port, args.motor_port,
-                              args.servo_baudrate, args.motor_baudrate,
-                              args.protocol_end)
+    # 设置调试模式
+    if args.debug:
+        print("Debug mode enabled")
+        window.set_debug_mode(True)
     
+    # 如果指定了端口，自动连接
+    if args.servo_port and args.motor_port:
+        window.auto_connect(args.servo_port, args.motor_port, 
+                           args.servo_baudrate, args.motor_baudrate,
+                           args.protocol_end)
+        
+        # 如果需要测试电机
+        if args.test_motors:
+            window.test_dc_motors()
+    
+    # 显示窗口
     window.show()
+    
+    # 运行应用
     sys.exit(app.exec_())
-
 
 if __name__ == "__main__":
     main() 
