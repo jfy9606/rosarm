@@ -33,6 +33,8 @@ class DCMotorController:
     YF_START = 0x3E       # YF帧起始字节
     YF_FUNC = 0x01        # YF功能字节
     YF_STATION = 0x01     # YF站号/地址
+    YF_PINCH_FUNC = 0x08  # 用于pos_pinch的功能字节
+    YF_CMD_MOVE = 0xA4    # 移动命令
     
     # AImotor电机指令格式 (ModBus RTU)
     AI_STATION = 0x03     # AIMotor站号/地址
@@ -81,21 +83,26 @@ class DCMotorController:
         [0x3E,0x01,0x08,0x80,0x00,0x00,0x00,0x00,0x00,0x00,0x00]   # 关闭命令
     ]
     
-    def __init__(self, port=None, baudrate=115200, timeout=0.5):
+    def __init__(self, port=None, baudrate=115200, timeout=0.5, debug=False):
         """
-        Initialize DC motor controller
+        初始化 DC 电机控制器
         
         Args:
-            port: Serial port name. If None, needs to be connected later
-            baudrate: Baud rate for serial communication
-            timeout: Serial timeout in seconds
+            port: 串口名称。如果为 None，则需要稍后连接
+            baudrate: 串口通信的波特率
+            timeout: 串口超时（秒）
+            debug: 是否启用调试模式
         """
         self.port = port
         self.baudrate = baudrate
         self.timeout = timeout
         self.serial = None
         self.connected = False
-        self.debug = False
+        self.debug = debug
+        
+        # 如果启用调试，设置日志级别
+        if debug:
+            logger.setLevel(logging.DEBUG)
         
         # 电机参数
         self.pitch_position = 0  # YF电机位置
@@ -376,22 +383,22 @@ class DCMotorController:
             self.pitch_speed = min(255, max(0, speed))
         
         try:
-            # 基于SimpleNetwork中MOTOR_LIST[0]的格式
+            # 基于SimpleNetwork中pos_pinch方法实现
+            # maxSpeed: 1dps/LSB; angleControl: 0.01 degree/LSB
+            # SimpleNetwork发送的是 [0x3E,0x08,0xA4,0x00,maxSpeed_L,maxSpeed_H,angle_bits...]
             cmd_data = bytearray([
                 self.YF_START,      # 起始字节 0x3E
-                self.YF_FUNC,       # 功能字节 0x01
-                self.CMD_SET_PITCH, # 命令字节 0x08
-                self.CMD_ENABLE,    # 使能字节 0x81 (包含位置控制)
-                # 位置数据 (4字节)
-                (position >> 24) & 0xFF,
-                (position >> 16) & 0xFF,
-                (position >> 8) & 0xFF,
-                position & 0xFF,
-                # 速度 (1字节)
+                self.YF_STATION,    # 站号 0x01
+                0xA4,               # 功能码 0xA4 (而不是之前用的 0x08)
+                0x00,               # 预留字节
+                # 速度数据 (2字节, 小端序)
                 self.pitch_speed & 0xFF,
-                # 预留字节
-                0x00,
-                0x00
+                (self.pitch_speed >> 8) & 0xFF,
+                # 位置数据 (4字节, 小端序)
+                position & 0xFF,
+                (position >> 8) & 0xFF,
+                (position >> 16) & 0xFF,
+                (position >> 24) & 0xFF
             ])
             
             # 避免串口过度占用，添加延时
@@ -420,14 +427,14 @@ class DCMotorController:
     
     def set_linear_position(self, position, speed=None):
         """
-        Set the position of the AIMotor linear motor (using SimpleNetwork format)
+        设置 AIMotor 进给电机的位置 (遵循 SimpleNetwork 中的 pos_form 方法实现)
         
         Args:
-            position: Target position
-            speed: Optional speed parameter (0-255)
+            position: 目标位置
+            speed: 可选速度参数 (0-255)
             
         Returns:
-            bool: True if command sent successfully, False otherwise
+            bool: 命令发送成功返回 True，否则 False
         """
         if not self.is_connected():
             logger.error("Not connected to motor controller")
@@ -439,15 +446,20 @@ class DCMotorController:
         try:
             # 确保使用位置控制模式
             if self.form != 0:
-                self.set_form(self.AI_STATION, 0)
+                if not self.set_form(self.AI_STATION, 0):
+                    logger.error("Failed to set AIMotor form to position control")
+                    return False
             
-            # 先设置绝对位移模式
-            abs_mode_cmd = self.CODE_LIST[14].copy()  # 绝对位移模式
-            abs_mode_cmd.insert(0, self.AI_STATION)
-            abs_mode_response = self._send_ai_command(abs_mode_cmd)
+            # 限制位置范围，与 SimpleNetwork 中的 pos_form 一致
+            if position > 300:
+                position = 300
+                logger.warning(f"AIMotor position limited to maximum: {position}")
+            elif position < -3500:
+                position = -3500
+                logger.warning(f"AIMotor position limited to minimum: {position}")
             
             # 设置位置阈值
-            pos_thr = 10  # 位置阈值，参考SimpleNetwork
+            pos_thr = 10  # 位置阈值，参考 SimpleNetwork
             thr_cmd = [
                 self.AI_STATION,
                 0x06,  # 写寄存器
@@ -455,14 +467,15 @@ class DCMotorController:
                 (pos_thr >> 8) & 0xFF, pos_thr & 0xFF  # 位置阈值数据
             ]
             thr_response = self._send_ai_command(thr_cmd)
+            time.sleep(0.02)
             
             # 计算位置高低字
-            pos_low = position & 0xFFFF
-            pos_high = (position >> 16) & 0xFFFF
+            pos_high = position // (256*256)
+            pos_low = position % (256*256)
             if pos_high == 0 and position < 0:
                 pos_high = 0xFFFF
-                
-            # 设置位置、速度和加速度
+            
+            # 设置位置、速度和加速度，完全按照 SimpleNetwork 实现
             pos_cmd = [
                 self.AI_STATION,
                 0x10,  # 写多个寄存器
@@ -488,42 +501,113 @@ class DCMotorController:
             logger.error(f"Error setting AIMotor linear position: {e}")
             return False
     
+    def set_motor_speed(self, pitch_speed=None, linear_speed=None):
+        """
+        设置电机的速度
+        
+        Args:
+            pitch_speed: YF俯仰电机速度 (0-255)
+            linear_speed: AIMotor进给电机速度 (0-6000)
+            
+        Returns:
+            bool: 命令发送成功返回 True，否则 False
+        """
+        if not self.is_connected():
+            logger.error("Not connected to motor controller")
+            return False
+        
+        success = True
+        
+        # 设置YF电机速度 - YF电机速度通过位置命令一起设置
+        if pitch_speed is not None:
+            self.pitch_speed = min(255, max(0, pitch_speed))
+            logger.info(f"Set YF pitch speed to {self.pitch_speed}")
+        
+        # 设置AIMotor电机速度
+        if linear_speed is not None:
+            # 限制速度范围
+            if linear_speed > 6000:
+                linear_speed = 6000
+                logger.warning("AIMotor speed limited to maximum: 6000")
+            elif linear_speed < -6000:
+                linear_speed = -6000
+                logger.warning("AIMotor speed limited to minimum: -6000")
+                
+            self.linear_speed = linear_speed
+            
+            try:
+                # 确保使用速度控制模式
+                if self.form != 1:
+                    if not self.set_form(self.AI_STATION, 1):
+                        logger.error("Failed to set AIMotor form to speed control")
+                        return False
+                
+                # 基于 SimpleNetwork 中的 vel_form 方法实现
+                # 设置速度
+                vel_cmd = [
+                    self.AI_STATION,
+                    0x06,  # 写寄存器
+                    0x06, 0x03,  # 速度寄存器地址
+                    (self.linear_speed >> 8) & 0xFF, self.linear_speed & 0xFF  # 速度数据
+                ]
+                self._send_ai_command(vel_cmd)
+                time.sleep(0.02)
+                
+                # 设置加速度
+                vel_ac = 100  # 默认加速度
+                acc_cmd = [
+                    self.AI_STATION,
+                    0x06,  # 写寄存器
+                    0x06, 0x05,  # 加速度寄存器地址
+                    (vel_ac >> 8) & 0xFF, vel_ac & 0xFF  # 加速度数据
+                ]
+                self._send_ai_command(acc_cmd)
+                time.sleep(0.02)
+                
+                # 设置减速度
+                vel_de = 100  # 默认减速度
+                decel_cmd = [
+                    self.AI_STATION,
+                    0x06,  # 写寄存器
+                    0x06, 0x06,  # 减速度寄存器地址
+                    (vel_de >> 8) & 0xFF, vel_de & 0xFF  # 减速度数据
+                ]
+                self._send_ai_command(decel_cmd)
+                
+                logger.info(f"Set AIMotor linear speed to {self.linear_speed}, accel: {vel_ac}, decel: {vel_de}")
+                
+            except Exception as e:
+                logger.error(f"Error setting AIMotor linear speed: {e}")
+                success = False
+        
+        return success
+        
     def _send_stop_command(self):
         """
-        Send stop command to all motors
+        发送停止命令到所有电机
         
         Returns:
-            bool: True if command sent successfully, False otherwise
+            bool: 命令发送成功返回 True，否则 False
         """
         if not self.is_connected():
             logger.error("Not connected to motor controller")
             return False
         
         try:
-            # 停止YF电机 - 使用禁用命令
-            yf_cmd = bytearray([
-                self.YF_START,      # 起始字节 0x3E
-                self.YF_FUNC,       # 功能字节 0x01
-                self.CMD_SET_PITCH, # 命令字节 0x08
-                self.CMD_DISABLE,   # 禁用字节 0x80
-                0x00, 0x00, 0x00, 0x00,  # 位置 (不重要)
-                0x00,               # 速度 (不重要)
-                0x00, 0x00          # 预留字节
-            ])
+            # 停止YF电机 - 使用MOTOR_LIST[1]禁用命令
+            yf_cmd = bytearray(self.MOTOR_LIST[1])
             
             self._delay_if_needed()
             self.serial.write(yf_cmd)
             time.sleep(0.05)
             
-            # 停止AIMotor电机 - 禁用电机
-            ai_cmd = [
-                self.AI_STATION,
-                self.AI_FUNC_WRITE,
-                0x03, 0x03,  # 禁用寄存器地址
-                0x00, 0x00   # 禁用值
-            ]
-            self._delay_if_needed()
-            self._send_ai_command(ai_cmd)
+            # 停止AIMotor电机 - 完全按照 SimpleNetwork 的 enable_off 实现
+            # 发送使能关命令
+            self._send_ai_command([self.AI_STATION] + self.CODE_LIST[2])
+            time.sleep(0.02)
+            
+            # 发送位移使能关命令
+            self._send_ai_command([self.AI_STATION] + self.CODE_LIST[8])
             
             # 清空接收缓冲区
             if self.serial.in_waiting:
@@ -543,62 +627,13 @@ class DCMotorController:
     
     def stop_all(self):
         """
-        Stop all motors
+        停止所有电机
         
         Returns:
-            bool: True if command sent successfully, False otherwise
+            bool: 命令发送成功返回 True，否则 False
         """
         return self._send_stop_command()
-    
-    def set_motor_speed(self, pitch_speed=None, linear_speed=None):
-        """
-        Set the speed of the motors
-        
-        Args:
-            pitch_speed: Speed for YF pitch motor (0-255)
-            linear_speed: Speed for AIMotor linear motor (0-255)
-            
-        Returns:
-            bool: True if command sent successfully, False otherwise
-        """
-        if not self.is_connected():
-            logger.error("Not connected to motor controller")
-            return False
-        
-        success = True
-        
-        # 设置YF电机速度 - YF电机速度通过位置命令一起设置
-        if pitch_speed is not None:
-            self.pitch_speed = min(255, max(0, pitch_speed))
-            logger.info(f"Set YF pitch speed to {self.pitch_speed}")
-        
-        # 设置AIMotor电机速度
-        if linear_speed is not None:
-            self.linear_speed = min(255, max(0, linear_speed))
-            try:
-                # 确保使用速度控制模式
-                if self.linear_mode == 0:  # 若为位置模式
-                    # 直接更新速度值而不发送命令，下次位置命令会带上新的速度
-                    pass
-                else:  # 速度模式
-                    # 设置速度寄存器
-                    speed_cmd = [
-                        self.AI_STATION,
-                        self.AI_FUNC_WRITE,
-                        0x06, 0x03,  # 速度寄存器地址
-                        (self.linear_speed >> 8) & 0xFF, self.linear_speed & 0xFF
-                    ]
-                    self._delay_if_needed()
-                    self._send_ai_command(speed_cmd)
-                
-                logger.info(f"Set AIMotor linear speed to {self.linear_speed}")
-                
-            except Exception as e:
-                logger.error(f"Error setting AIMotor linear speed: {e}")
-                success = False
-        
-        return success
-    
+
     def enable_motors(self, enable_pitch=True, enable_linear=True):
         """
         使能或禁用电机
@@ -620,6 +655,7 @@ class DCMotorController:
         if enable_pitch != self.pitch_enabled:
             try:
                 # 使用motor_list中的命令格式
+                # 修改站号插入位置，按照SimpleNetwork中的CRC16_MudBus_pinch方法
                 cmd_data = bytearray(self.MOTOR_LIST[0 if enable_pitch else 1])
                 
                 self._delay_if_needed()
@@ -766,10 +802,17 @@ class DCMotorController:
             results["errors"].append(error_msg)
             return results
         
-        # 测试YF电机通信 - 使用MOTOR_LIST中的命令格式
+        # 测试YF电机通信 - 基于SimpleNetwork中的pos_pinch方法
         try:
-            # 使用使能命令作为测试
-            cmd_data = bytearray(self.MOTOR_LIST[0])  # 使能命令
+            # 发送读取位置命令
+            cmd_data = bytearray([
+                self.YF_START,  # 0x3E
+                self.YF_STATION, # 站号
+                0xA4,          # 功能码
+                0x00,          # 预留字节
+                0x00, 0x00,    # 速度
+                0x00, 0x00, 0x00, 0x00  # 位置
+            ])
             
             logger.info("Testing YF pitch motor communication...")
             logger.debug(f"Sending command: {' '.join(f'{b:02X}' for b in cmd_data)}")
@@ -792,8 +835,8 @@ class DCMotorController:
                 logger.info("YF pitch motor communication test: SUCCESS")
             else:
                 logger.warning("YF pitch motor communication test: FAILED (no response)")
-                # 尝试更多命令格式
-                cmd_data = bytearray(self.MOTOR_LIST[1])  # 禁用命令
+                # 尝试发送原始命令
+                cmd_data = bytearray(self.MOTOR_LIST[0])  # 使能命令
                 logger.debug(f"Trying alternate command: {' '.join(f'{b:02X}' for b in cmd_data)}")
                 
                 self.serial.reset_input_buffer()
@@ -879,3 +922,54 @@ class DCMotorController:
         }
         
         return results 
+
+    def pos_pinch(self, station_num, max_speed, angle_control):
+        """
+        设置俯仰电机位置 (与SimpleNetwork实现完全一致)
+        
+        Args:
+            station_num: 电机站号 (通常为1)
+            max_speed: 最大速度 (1dps/LSB)
+            angle_control: 角度控制 (0.01 degree/LSB)
+            
+        Returns:
+            bool: 操作是否成功
+        """
+        if not self.is_connected():
+            logger.error("Not connected to motor controller")
+            return False
+            
+        try:
+            # 完全复制SimpleNetwork中的pos_pinch方法实现
+            cmd_data = bytearray([
+                self.YF_START,  # 0x3E
+                self.YF_PINCH_FUNC,  # 0x08
+                self.YF_CMD_MOVE,  # 0xA4
+                0x00,  # 预留字节
+                max_speed & 0xFF,
+                (max_speed >> 8) & 0xFF,
+                angle_control & 0xFF,
+                (angle_control >> 8) & 0xFF,
+                (angle_control >> 16) & 0xFF,
+                (angle_control >> 24) & 0xFF
+            ])
+            
+            # 插入站号到第二个位置
+            cmd_data.insert(1, station_num)
+            
+            self._delay_if_needed()
+            self.serial.write(cmd_data)
+            time.sleep(0.05)
+            
+            # 读取响应
+            if self.serial.in_waiting:
+                response = self.serial.read(self.serial.in_waiting)
+                if self.debug:
+                    logger.debug(f"YF pinch response: {' '.join(f'{b:02X}' for b in response)}")
+            
+            logger.info(f"YF pinch motor command sent: station={station_num}, speed={max_speed}, angle={angle_control}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error in pos_pinch: {e}")
+            return False 
