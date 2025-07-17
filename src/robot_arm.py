@@ -91,6 +91,9 @@ class RobotArm:
         self.pitch_speed = 100  # YF俯仰电机速度
         self.linear_speed = 100  # AImotor进给电机速度
         
+        # 加速度参数 - 添加缺失的属性
+        self.servo_acceleration = 5  # 默认加速度值
+        
         # 连接状态
         self.connected = False
     
@@ -545,7 +548,9 @@ class RobotArm:
     
     def home(self, blocking=True, timeout=10.0):
         """
-        将机械臂移动到原位
+        将机械臂移动到初始位置
+        - 舵机回到中间位置
+        - DC 电机回到零位置
         
         Args:
             blocking: 如果为 True，等待运动完成
@@ -554,37 +559,32 @@ class RobotArm:
         Returns:
             bool: 如果成功则返回 True，否则返回 False
         """
-        # 定义所有关节的原位位置
-        home_positions = {
-            'joint1': 2048,  # 中间位置
-            'joint2': 2048,
-            'joint3': 2048,
-            'joint4': 2048
+        if not self.connected:
+            return False
+            
+        # 先使能电机
+        try:
+            # 使能大臂DC电机
+            self.motor.enable_motors(True, True)
+        except Exception as e:
+            print(f"Error enabling DC motors: {e}")
+            return False
+            
+        # 先移动 DC 电机回零位置
+        pitch_success = self.set_pitch_position(0, blocking=blocking, timeout=timeout)
+        linear_success = self.set_linear_position(0, blocking=blocking, timeout=timeout)
+        
+        # 然后移动舵机到中间位置
+        joint_positions = {
+            'joint1': 2048,  # 底座中间位置
+            'joint2': 2048,  # 肩部中间位置
+            'joint3': 2048,  # 肘部中间位置
+            'joint4': 2048   # 腕部中间位置
         }
+        servo_success = self.set_joint_positions(joint_positions, blocking=blocking, timeout=timeout)
         
-        # 将所有关节设置为原位
-        joints_success = self.set_joint_positions(home_positions, blocking=blocking, timeout=timeout)
+        return pitch_success and linear_success and servo_success
         
-        # 将 DC 电机归位
-        dc_success = self.motor.home_motors()
-        
-        if dc_success and blocking:
-            start_time = time.time()
-            while time.time() - start_time < timeout:
-                status = self.motor.get_status()
-                
-                if status is None:
-                    return False
-                
-                if not status['pitch_moving'] and not status['linear_moving']:
-                    self.current_pitch = status['pitch_position']
-                    self.current_linear = status['linear_position']
-                    break
-                    
-                time.sleep(0.05)
-        
-        return joints_success and dc_success
-    
     def calibrate(self):
         """
         执行校准程序
@@ -795,6 +795,9 @@ class RobotArm:
                 initial_pitch = status['pitch_position']
                 initial_linear = status['linear_position']
                 
+                # 测试电机使能
+                self.motor.enable_motors(True, True)
+                
                 # 测试速度设置
                 speed_result = self.motor.set_motor_speed(50, 50)
                 results["speed_setting"] = speed_result
@@ -814,47 +817,39 @@ class RobotArm:
                 
                 # 读取新状态
                 new_status = self.motor.get_status()
-                if new_status:
-                    results["pitch_actual"] = new_status['pitch_position']
-                    results["linear_actual"] = new_status['linear_position']
-                    results["pitch_moved"] = new_status['pitch_position'] != initial_pitch
-                    results["linear_moved"] = new_status['linear_position'] != initial_linear
-                    
-                # 恢复原位
-                self.motor.set_pitch_position(initial_pitch)
-                self.motor.set_linear_position(initial_linear)
                 
+                # 停止所有电机
+                self.motor.stop_all()
+                
+                if new_status:
+                    # 检查是否移动了
+                    if abs(new_status['pitch_position'] - initial_pitch) > 10:
+                        results["pitch_movement"] = True
+                    if abs(new_status['linear_position'] - initial_linear) > 10:
+                        results["linear_movement"] = True
         except Exception as e:
-            results["errors"].append(str(e))
-            
-        return results 
-
+            error_msg = str(e)
+            results["errors"].append(error_msg)
+            print(f"Error testing DC motors: {error_msg}")
+        
+        return results
+        
     def home_motors(self):
         """
-        将电机回零
+        将大臂 DC 电机归零
         
         Returns:
             bool: 如果成功则返回 True，否则返回 False
         """
         if not self.connected:
-            print("Not connected to robot arm")
             return False
-        
-        try:
-            # 尝试发送回零命令
-            success = self.motor.home()
             
-            if success:
-                print("Motors homed successfully")
-                return True
-            else:
-                print("Failed to home motors")
-                return False
-                
+        try:
+            return self.motor.home_motors()
         except Exception as e:
             print(f"Error homing motors: {e}")
             return False
-    
+
     def get_motor_positions(self):
         """
         获取电机当前位置

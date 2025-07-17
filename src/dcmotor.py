@@ -34,6 +34,18 @@ class DCMotorController:
     # AIMotor系列特定命令
     AI_HEADER = 0xAA        # AIMotor协议帧头
     AI_ADDR = 0x01          # 默认地址
+
+    # 基于SimpleNetwork实现的通信协议
+    YF_MODBUS_ADDR = 0x3E   # YF Modbus地址
+    YF_FUNC_WRITE = 0x01    # YF写入命令
+    YF_CMD_MOVE = 0x08      # YF位置控制命令
+    YF_CMD_ENABLE = 0x81    # YF使能命令
+    YF_CMD_DISABLE = 0x80   # YF禁用命令
+
+    # AIMotor ModBus命令
+    AI_MODBUS_ADDR = 0x03   # AIMotor默认地址
+    AI_WRITE_REG = 0x06     # 写寄存器
+    AI_READ_REG = 0x03      # 读寄存器
     
     def __init__(self, port=None, baudrate=115200, timeout=0.5):
         """
@@ -56,6 +68,13 @@ class DCMotorController:
         self.linear_position = 0  # AIMotor电机位置
         self.pitch_speed = 100    # YF电机速度 (0-255)
         self.linear_speed = 100   # AIMotor电机速度 (0-255)
+        
+        # 使能状态
+        self.pitch_enabled = False
+        self.linear_enabled = False
+
+        # 上次通信时间戳
+        self.last_comm_time = 0
         
         if port:
             self.connect(port, baudrate, timeout)
@@ -161,38 +180,49 @@ class DCMotorController:
             self.pitch_speed = min(255, max(0, speed))
         
         try:
-            # 使用YF系列协议发送命令
-            # 帧格式: 帧头(1B) + 地址(1B) + 命令(1B) + 数据长度(1B) + 数据(nB) + 校验和(1B)
-            cmd = self.CMD_SET_PITCH
-            data = struct.pack("<i", int(position))  # 位置为4字节整数
-            speed_data = struct.pack("<B", self.pitch_speed)  # 速度为1字节
+            # YF电机使用Modbus协议
+            # 帧格式: 帧头(1B) + 功能码(1B) + 命令长度(1B) + 命令(1B) + 数据(4B) + 校验和(2B)
+            data = [
+                self.YF_MODBUS_ADDR,  # 地址
+                self.YF_FUNC_WRITE,   # 功能码
+                0x08,                 # 命令长度
+                self.YF_CMD_MOVE,     # 命令
+                (position >> 24) & 0xFF,  # 位置 (高字节)
+                (position >> 16) & 0xFF,
+                (position >> 8) & 0xFF,
+                position & 0xFF,      # 位置 (低字节)
+                self.pitch_speed & 0xFF,  # 速度
+                0x00,                 # 预留
+                0x00                  # 预留
+            ]
             
-            data_bytes = data + speed_data
-            data_len = len(data_bytes)
+            # 计算CRC校验
+            crc = self._calculate_crc16(data, len(data))
+            data.append(crc & 0xFF)
+            data.append((crc >> 8) & 0xFF)
             
-            # 计算校验和
-            checksum = (self.YF_ADDR + cmd + data_len + sum(data_bytes)) & 0xFF
-            
-            # 组装完整命令
-            command = bytes([self.YF_HEADER, self.YF_ADDR, cmd, data_len]) + data_bytes + bytes([checksum])
+            command = bytearray(data)
             
             if self.debug:
-                logger.debug(f"Sending YF pitch command: {command.hex()}")
+                logger.debug(f"Sending YF pitch command: {' '.join(f'{b:02X}' for b in command)}")
+            
+            # 避免串口过度占用，添加延时
+            self._delay_if_needed()
             
             # 发送命令
             self.serial.write(command)
             
             # 等待响应
-            time.sleep(0.05)
+            time.sleep(0.1)
             
             # 读取响应
             if self.serial.in_waiting:
                 response = self.serial.read(self.serial.in_waiting)
                 if self.debug:
-                    logger.debug(f"Received response: {response.hex()}")
+                    logger.debug(f"Received response: {' '.join(f'{b:02X}' for b in response)}")
                 
-                # 简单检查响应是否有效
-                if len(response) >= 3 and response[0] == self.YF_HEADER:
+                # 检查响应是否有效
+                if len(response) >= 3 and response[0] == self.YF_MODBUS_ADDR:
                     self.pitch_position = position
                     return True
             
@@ -222,47 +252,108 @@ class DCMotorController:
             self.linear_speed = min(255, max(0, speed))
         
         try:
-            # 使用AIMotor系列协议发送命令
-            # 帧格式: 帧头(1B) + 地址(1B) + 命令(1B) + 数据长度(1B) + 数据(nB) + 校验和(1B)
-            cmd = self.CMD_SET_LINEAR
-            data = struct.pack("<i", int(position))  # 位置为4字节整数
-            speed_data = struct.pack("<B", self.linear_speed)  # 速度为1字节
+            # AIMotor使用标准Modbus协议
+            # 帧格式: 地址(1B) + 命令(1B) + 寄存器地址高(1B) + 寄存器地址低(1B) + 数据长度(2B) + 数据(nB) + CRC(2B)
             
-            data_bytes = data + speed_data
-            data_len = len(data_bytes)
+            # 设置绝对位置模式
+            mode_cmd = [
+                self.AI_MODBUS_ADDR,  # 地址
+                self.AI_WRITE_REG,    # 功能码: 写寄存器
+                0x11,                 # 寄存器地址高: 位置模式寄存器
+                0x04,                 # 寄存器地址低
+                0x00,                 # 数据高字节
+                0x01                  # 数据低字节: 绝对位置模式
+            ]
             
-            # 计算校验和
-            checksum = (self.AI_ADDR + cmd + data_len + sum(data_bytes)) & 0xFF
+            crc = self._calculate_crc16(mode_cmd, len(mode_cmd))
+            mode_cmd.append(crc & 0xFF)
+            mode_cmd.append((crc >> 8) & 0xFF)
             
-            # 组装完整命令
-            command = bytes([self.AI_HEADER, self.AI_ADDR, cmd, data_len]) + data_bytes + bytes([checksum])
+            # 避免串口过度占用，添加延时
+            self._delay_if_needed()
             
-            if self.debug:
-                logger.debug(f"Sending AIMotor linear command: {command.hex()}")
+            # 发送模式设置命令
+            self.serial.write(bytearray(mode_cmd))
+            time.sleep(0.05)
             
-            # 发送命令
-            self.serial.write(command)
+            # 设置速度
+            speed_cmd = [
+                self.AI_MODBUS_ADDR,  # 地址
+                self.AI_WRITE_REG,    # 功能码: 写寄存器
+                0x06,                 # 寄存器地址高: 速度寄存器
+                0x03,                 # 寄存器地址低
+                (self.linear_speed >> 8) & 0xFF,  # 速度高字节
+                self.linear_speed & 0xFF         # 速度低字节
+            ]
+            
+            crc = self._calculate_crc16(speed_cmd, len(speed_cmd))
+            speed_cmd.append(crc & 0xFF)
+            speed_cmd.append((crc >> 8) & 0xFF)
+            
+            # 发送速度设置命令
+            self._delay_if_needed()
+            self.serial.write(bytearray(speed_cmd))
+            time.sleep(0.05)
+            
+            # 设置位置
+            pos_cmd = [
+                self.AI_MODBUS_ADDR,  # 地址
+                self.AI_WRITE_REG,    # 功能码: 写寄存器
+                0x05,                 # 寄存器地址高: 位置寄存器
+                0x00,                 # 寄存器地址低
+                (position >> 8) & 0xFF,  # 位置高字节
+                position & 0xFF          # 位置低字节
+            ]
+            
+            crc = self._calculate_crc16(pos_cmd, len(pos_cmd))
+            pos_cmd.append(crc & 0xFF)
+            pos_cmd.append((crc >> 8) & 0xFF)
+            
+            # 发送位置设置命令
+            self._delay_if_needed()
+            self.serial.write(bytearray(pos_cmd))
             
             # 等待响应
-            time.sleep(0.05)
+            time.sleep(0.1)
             
             # 读取响应
             if self.serial.in_waiting:
                 response = self.serial.read(self.serial.in_waiting)
                 if self.debug:
-                    logger.debug(f"Received response: {response.hex()}")
+                    logger.debug(f"Received response: {' '.join(f'{b:02X}' for b in response)}")
                 
-                # 简单检查响应是否有效
-                if len(response) >= 3 and response[0] == self.AI_HEADER:
-                    self.linear_position = position
-                    return True
+                # 记录新的位置
+                self.linear_position = position
+                return True
             
-            logger.warning("No valid response from AIMotor")
+            logger.warning("No response from AIMotor")
             return False
             
         except Exception as e:
             logger.error(f"Error sending command to AIMotor linear motor: {e}")
             return False
+    
+    def _calculate_crc16(self, data, length):
+        """计算Modbus CRC-16校验码"""
+        crc = 0xFFFF
+        
+        for i in range(length):
+            crc ^= data[i] & 0xFF
+            
+            for _ in range(8):
+                if (crc & 0x0001) != 0:
+                    crc = (crc >> 1) ^ 0xA001
+                else:
+                    crc >>= 1
+                    
+        return crc
+    
+    def _delay_if_needed(self):
+        """添加必要的延时以避免串口通信过于频繁"""
+        current_time = time.time()
+        if current_time - self.last_comm_time < 0.02:  # 确保命令间隔至少20ms
+            time.sleep(0.02 - (current_time - self.last_comm_time))
+        self.last_comm_time = time.time()
     
     def _send_stop_command(self):
         """
@@ -275,15 +366,44 @@ class DCMotorController:
             logger.error("Not connected to motor controller")
             return False
         
+        success = True
+        
         try:
             # 发送YF电机停止命令
-            yf_cmd = bytes([self.YF_HEADER, self.YF_ADDR, self.CMD_STOP_ALL, 0, self.YF_ADDR + self.CMD_STOP_ALL])
-            self.serial.write(yf_cmd)
+            yf_cmd = [
+                self.YF_MODBUS_ADDR,  # 地址
+                self.YF_FUNC_WRITE,   # 功能码
+                0x08,                 # 命令长度
+                self.YF_CMD_DISABLE,  # 停止命令
+                0x00, 0x00, 0x00, 0x00,  # 位置 (不重要)
+                0x00,                 # 速度 (不重要)
+                0x00,                 # 预留
+                0x00                  # 预留
+            ]
+            
+            crc = self._calculate_crc16(yf_cmd, len(yf_cmd))
+            yf_cmd.append(crc & 0xFF)
+            yf_cmd.append((crc >> 8) & 0xFF)
+            
+            # 发送YF停止命令
+            self.serial.write(bytearray(yf_cmd))
             time.sleep(0.05)
             
-            # 发送AIMotor电机停止命令
-            ai_cmd = bytes([self.AI_HEADER, self.AI_ADDR, self.CMD_STOP_ALL, 0, self.AI_ADDR + self.CMD_STOP_ALL])
-            self.serial.write(ai_cmd)
+            # 发送AIMotor电机停止命令 - 通过设置速度为0
+            ai_cmd = [
+                self.AI_MODBUS_ADDR,  # 地址
+                self.AI_WRITE_REG,    # 功能码: 写寄存器
+                0x06,                 # 寄存器地址高: 速度寄存器
+                0x03,                 # 寄存器地址低
+                0x00, 0x00           # 速度为0
+            ]
+            
+            crc = self._calculate_crc16(ai_cmd, len(ai_cmd))
+            ai_cmd.append(crc & 0xFF)
+            ai_cmd.append((crc >> 8) & 0xFF)
+            
+            # 发送AIMotor停止命令
+            self.serial.write(bytearray(ai_cmd))
             time.sleep(0.05)
             
             # 清空接收缓冲区
@@ -291,7 +411,12 @@ class DCMotorController:
                 self.serial.read(self.serial.in_waiting)
             
             logger.info("Stop command sent to all motors")
-            return True
+            
+            # 更新使能状态
+            self.pitch_enabled = False
+            self.linear_enabled = False
+            
+            return success
             
         except Exception as e:
             logger.error(f"Error sending stop command: {e}")
@@ -326,68 +451,166 @@ class DCMotorController:
         # 设置YF电机速度
         if pitch_speed is not None:
             self.pitch_speed = min(255, max(0, pitch_speed))
-            
-            try:
-                # 发送YF电机速度命令
-                data = struct.pack("<B", self.pitch_speed)
-                data_len = len(data)
-                checksum = (self.YF_ADDR + self.CMD_SET_SPEED + data_len + sum(data)) & 0xFF
-                command = bytes([self.YF_HEADER, self.YF_ADDR, self.CMD_SET_SPEED, data_len]) + data + bytes([checksum])
-                
-                if self.debug:
-                    logger.debug(f"Setting YF pitch speed to {pitch_speed}: {command.hex()}")
-                
-                self.serial.write(command)
-                time.sleep(0.05)
-                
-                # 读取响应
-                if self.serial.in_waiting:
-                    response = self.serial.read(self.serial.in_waiting)
-                    if self.debug:
-                        logger.debug(f"Received response: {response.hex()}")
-                    
-                    # 检查响应
-                    if not (len(response) >= 3 and response[0] == self.YF_HEADER):
-                        logger.warning("Invalid response from YF motor for speed command")
-                        success = False
-                
-            except Exception as e:
-                logger.error(f"Error setting YF pitch speed: {e}")
-                success = False
+            logger.info(f"Set YF pitch speed to {self.pitch_speed}")
         
         # 设置AIMotor电机速度
         if linear_speed is not None:
             self.linear_speed = min(255, max(0, linear_speed))
-            
             try:
+                # 避免串口过度占用，添加延时
+                self._delay_if_needed()
+                
                 # 发送AIMotor电机速度命令
-                data = struct.pack("<B", self.linear_speed)
-                data_len = len(data)
-                checksum = (self.AI_ADDR + self.CMD_SET_SPEED + data_len + sum(data)) & 0xFF
-                command = bytes([self.AI_HEADER, self.AI_ADDR, self.CMD_SET_SPEED, data_len]) + data + bytes([checksum])
+                ai_cmd = [
+                    self.AI_MODBUS_ADDR,  # 地址
+                    self.AI_WRITE_REG,    # 功能码: 写寄存器
+                    0x06,                 # 寄存器地址高: 速度寄存器
+                    0x03,                 # 寄存器地址低
+                    (self.linear_speed >> 8) & 0xFF,  # 速度高字节
+                    self.linear_speed & 0xFF         # 速度低字节
+                ]
+                
+                crc = self._calculate_crc16(ai_cmd, len(ai_cmd))
+                ai_cmd.append(crc & 0xFF)
+                ai_cmd.append((crc >> 8) & 0xFF)
                 
                 if self.debug:
-                    logger.debug(f"Setting AIMotor linear speed to {linear_speed}: {command.hex()}")
+                    logger.debug(f"Setting AIMotor linear speed to {self.linear_speed}: {' '.join(f'{b:02X}' for b in ai_cmd)}")
                 
-                self.serial.write(command)
+                self.serial.write(bytearray(ai_cmd))
                 time.sleep(0.05)
                 
                 # 读取响应
                 if self.serial.in_waiting:
                     response = self.serial.read(self.serial.in_waiting)
                     if self.debug:
-                        logger.debug(f"Received response: {response.hex()}")
-                    
-                    # 检查响应
-                    if not (len(response) >= 3 and response[0] == self.AI_HEADER):
-                        logger.warning("Invalid response from AIMotor for speed command")
-                        success = False
+                        logger.debug(f"Received response: {' '.join(f'{b:02X}' for b in response)}")
+                
+                logger.info(f"Set AIMotor linear speed to {self.linear_speed}")
                 
             except Exception as e:
                 logger.error(f"Error setting AIMotor linear speed: {e}")
                 success = False
         
         return success
+    
+    def enable_motors(self, enable_pitch=True, enable_linear=True):
+        """
+        使能或禁用电机
+        
+        Args:
+            enable_pitch: 是否使能YF俯仰电机
+            enable_linear: 是否使能AImotor线性电机
+            
+        Returns:
+            bool: 如果操作成功则返回 True
+        """
+        if not self.is_connected():
+            logger.error("Not connected to motor controller")
+            return False
+        
+        success = True
+        
+        # 使能/禁用YF俯仰电机
+        if enable_pitch != self.pitch_enabled:
+            try:
+                yf_cmd = [
+                    self.YF_MODBUS_ADDR,  # 地址
+                    self.YF_FUNC_WRITE,   # 功能码
+                    0x08,                 # 命令长度
+                    self.YF_CMD_ENABLE if enable_pitch else self.YF_CMD_DISABLE,  # 使能/禁用命令
+                    0x00, 0x00, 0x00, 0x00,  # 位置 (不重要)
+                    0x00,                 # 速度 (不重要)
+                    0x00,                 # 预留
+                    0x00                  # 预留
+                ]
+                
+                crc = self._calculate_crc16(yf_cmd, len(yf_cmd))
+                yf_cmd.append(crc & 0xFF)
+                yf_cmd.append((crc >> 8) & 0xFF)
+                
+                # 避免串口过度占用，添加延时
+                self._delay_if_needed()
+                
+                # 发送命令
+                self.serial.write(bytearray(yf_cmd))
+                time.sleep(0.05)
+                
+                # 读取响应
+                if self.serial.in_waiting:
+                    response = self.serial.read(self.serial.in_waiting)
+                    if self.debug:
+                        logger.debug(f"Received response: {' '.join(f'{b:02X}' for b in response)}")
+                
+                self.pitch_enabled = enable_pitch
+                logger.info(f"YF pitch motor {'enabled' if enable_pitch else 'disabled'}")
+            except Exception as e:
+                logger.error(f"Error {'enabling' if enable_pitch else 'disabling'} YF pitch motor: {e}")
+                success = False
+        
+        # 使能/禁用AImotor线性电机
+        if enable_linear != self.linear_enabled:
+            try:
+                # AIMotor通过设置寄存器来使能/禁用
+                ai_cmd = [
+                    self.AI_MODBUS_ADDR,  # 地址
+                    self.AI_WRITE_REG,    # 功能码: 写寄存器
+                    0x03,                 # 寄存器地址高: 使能寄存器
+                    0x03,                 # 寄存器地址低
+                    0x00,                 # 数据高字节
+                    0x01 if enable_linear else 0x00  # 数据低字节: 使能/禁用
+                ]
+                
+                crc = self._calculate_crc16(ai_cmd, len(ai_cmd))
+                ai_cmd.append(crc & 0xFF)
+                ai_cmd.append((crc >> 8) & 0xFF)
+                
+                # 避免串口过度占用，添加延时
+                self._delay_if_needed()
+                
+                # 发送命令
+                self.serial.write(bytearray(ai_cmd))
+                time.sleep(0.05)
+                
+                # 读取响应
+                if self.serial.in_waiting:
+                    response = self.serial.read(self.serial.in_waiting)
+                    if self.debug:
+                        logger.debug(f"Received response: {' '.join(f'{b:02X}' for b in response)}")
+                
+                self.linear_enabled = enable_linear
+                logger.info(f"AImotor linear motor {'enabled' if enable_linear else 'disabled'}")
+            except Exception as e:
+                logger.error(f"Error {'enabling' if enable_linear else 'disabling'} AImotor linear motor: {e}")
+                success = False
+        
+        return success
+    
+    def get_status(self):
+        """
+        Get the status of the motors
+        
+        Returns:
+            dict: Motor status information or None if failed
+        """
+        if not self.is_connected():
+            logger.error("Not connected to motor controller")
+            return None
+        
+        # 获取YF和AImotor电机位置
+        pitch_pos, linear_pos = self.get_motor_positions()
+        
+        status = {
+            'pitch_position': pitch_pos if pitch_pos is not None else self.pitch_position,
+            'linear_position': linear_pos if linear_pos is not None else self.linear_position,
+            'pitch_speed': self.pitch_speed,
+            'linear_speed': self.linear_speed,
+            'pitch_enabled': self.pitch_enabled,
+            'linear_enabled': self.linear_enabled,
+            'connected': self.is_connected()
+        }
+        
+        return status
     
     def get_motor_positions(self):
         """
@@ -405,29 +628,37 @@ class DCMotorController:
         
         # 获取YF电机位置
         try:
-            # 发送YF电机位置查询命令
-            checksum = (self.YF_ADDR + self.CMD_GET_STATUS) & 0xFF
-            command = bytes([self.YF_HEADER, self.YF_ADDR, self.CMD_GET_STATUS, 0, checksum])
+            yf_cmd = [
+                self.YF_MODBUS_ADDR,  # 地址
+                0x02,                 # 读取指令
+                0x00, 0x00, 0x00, 0x00  # 预留
+            ]
             
-            if self.debug:
-                logger.debug(f"Querying YF pitch position: {command.hex()}")
+            crc = self._calculate_crc16(yf_cmd, len(yf_cmd))
+            yf_cmd.append(crc & 0xFF)
+            yf_cmd.append((crc >> 8) & 0xFF)
+            
+            # 避免串口过度占用，添加延时
+            self._delay_if_needed()
             
             # 清空接收缓冲区
             self.serial.reset_input_buffer()
             
             # 发送命令
-            self.serial.write(command)
+            self.serial.write(bytearray(yf_cmd))
             time.sleep(0.1)  # 等待响应
             
             # 读取响应
-            if self.serial.in_waiting >= 7:  # 预期响应长度
+            if self.serial.in_waiting >= 8:  # 预期响应长度
                 response = self.serial.read(self.serial.in_waiting)
                 if self.debug:
-                    logger.debug(f"Received YF response: {response.hex()}")
+                    logger.debug(f"Received YF response: {' '.join(f'{b:02X}' for b in response)}")
                 
                 # 解析位置数据
-                if len(response) >= 7 and response[0] == self.YF_HEADER and response[2] == self.CMD_GET_STATUS:
-                    pitch_pos = struct.unpack("<i", response[3:7])[0]
+                if len(response) >= 8 and response[0] == self.YF_MODBUS_ADDR:
+                    pitch_pos = (response[3] << 24) | (response[4] << 16) | (response[5] << 8) | response[6]
+                    if pitch_pos > 0x7FFFFFFF:  # 处理负数
+                        pitch_pos = pitch_pos - 0x100000000
                     self.pitch_position = pitch_pos
             else:
                 logger.warning("No or incomplete response from YF motor")
@@ -437,29 +668,40 @@ class DCMotorController:
         
         # 获取AIMotor电机位置
         try:
-            # 发送AIMotor电机位置查询命令
-            checksum = (self.AI_ADDR + self.CMD_GET_STATUS) & 0xFF
-            command = bytes([self.AI_HEADER, self.AI_ADDR, self.CMD_GET_STATUS, 0, checksum])
+            ai_cmd = [
+                self.AI_MODBUS_ADDR,  # 地址
+                self.AI_READ_REG,     # 功能码: 读寄存器
+                0x0B,                 # 寄存器地址高: 位置反馈寄存器
+                0x07,                 # 寄存器地址低
+                0x00,                 # 读取数量高字节
+                0x02                  # 读取数量低字节: 2个寄存器
+            ]
             
-            if self.debug:
-                logger.debug(f"Querying AIMotor linear position: {command.hex()}")
+            crc = self._calculate_crc16(ai_cmd, len(ai_cmd))
+            ai_cmd.append(crc & 0xFF)
+            ai_cmd.append((crc >> 8) & 0xFF)
+            
+            # 避免串口过度占用，添加延时
+            self._delay_if_needed()
             
             # 清空接收缓冲区
             self.serial.reset_input_buffer()
             
             # 发送命令
-            self.serial.write(command)
+            self.serial.write(bytearray(ai_cmd))
             time.sleep(0.1)  # 等待响应
             
             # 读取响应
             if self.serial.in_waiting >= 7:  # 预期响应长度
                 response = self.serial.read(self.serial.in_waiting)
                 if self.debug:
-                    logger.debug(f"Received AIMotor response: {response.hex()}")
+                    logger.debug(f"Received AIMotor response: {' '.join(f'{b:02X}' for b in response)}")
                 
                 # 解析位置数据
-                if len(response) >= 7 and response[0] == self.AI_HEADER and response[2] == self.CMD_GET_STATUS:
-                    linear_pos = struct.unpack("<i", response[3:7])[0]
+                if len(response) >= 7 and response[0] == self.AI_MODBUS_ADDR and response[1] == self.AI_READ_REG:
+                    linear_pos = (response[3] << 8) | response[4]
+                    if response[2] == 4:  # 如果数据长度为4，说明是32位整数
+                        linear_pos = (linear_pos << 16) | (response[5] << 8) | response[6]
                     self.linear_position = linear_pos
             else:
                 logger.warning("No or incomplete response from AIMotor")
@@ -469,7 +711,7 @@ class DCMotorController:
         
         return pitch_pos, linear_pos
     
-    def home(self):
+    def home_motors(self):
         """
         Home both motors (move to zero position)
         
@@ -480,61 +722,16 @@ class DCMotorController:
             logger.error("Not connected to motor controller")
             return False
         
-        success = True
+        # 使能两个电机
+        if not self.enable_motors(True, True):
+            logger.error("Failed to enable motors for homing")
+            return False
         
-        # 发送YF电机回零命令
-        try:
-            checksum = (self.YF_ADDR + self.CMD_HOME) & 0xFF
-            command = bytes([self.YF_HEADER, self.YF_ADDR, self.CMD_HOME, 0, checksum])
-            
-            if self.debug:
-                logger.debug(f"Sending YF home command: {command.hex()}")
-            
-            self.serial.write(command)
-            time.sleep(0.05)
-            
-            # 读取响应
-            if self.serial.in_waiting:
-                response = self.serial.read(self.serial.in_waiting)
-                if self.debug:
-                    logger.debug(f"Received response: {response.hex()}")
-                
-                # 检查响应
-                if not (len(response) >= 3 and response[0] == self.YF_HEADER):
-                    logger.warning("Invalid response from YF motor for home command")
-                    success = False
-            
-        except Exception as e:
-            logger.error(f"Error sending home command to YF motor: {e}")
-            success = False
+        # 将两个电机移动到零位置
+        pitch_success = self.set_pitch_position(0)
+        linear_success = self.set_linear_position(0)
         
-        # 发送AIMotor电机回零命令
-        try:
-            checksum = (self.AI_ADDR + self.CMD_HOME) & 0xFF
-            command = bytes([self.AI_HEADER, self.AI_ADDR, self.CMD_HOME, 0, checksum])
-            
-            if self.debug:
-                logger.debug(f"Sending AIMotor home command: {command.hex()}")
-            
-            self.serial.write(command)
-            time.sleep(0.05)
-            
-            # 读取响应
-            if self.serial.in_waiting:
-                response = self.serial.read(self.serial.in_waiting)
-                if self.debug:
-                    logger.debug(f"Received response: {response.hex()}")
-                
-                # 检查响应
-                if not (len(response) >= 3 and response[0] == self.AI_HEADER):
-                    logger.warning("Invalid response from AIMotor for home command")
-                    success = False
-            
-        except Exception as e:
-            logger.error(f"Error sending home command to AIMotor: {e}")
-            success = False
-        
-        return success
+        return pitch_success and linear_success
     
     def test_communication(self):
         """
@@ -554,27 +751,33 @@ class DCMotorController:
         
         # 测试YF电机通信
         try:
-            # 发送YF电机状态查询命令
-            checksum = (self.YF_ADDR + self.CMD_GET_STATUS) & 0xFF
-            command = bytes([self.YF_HEADER, self.YF_ADDR, self.CMD_GET_STATUS, 0, checksum])
+            yf_cmd = [
+                self.YF_MODBUS_ADDR,  # 地址
+                0x02,                 # 读取指令
+                0x00, 0x00, 0x00, 0x00  # 预留
+            ]
+            
+            crc = self._calculate_crc16(yf_cmd, len(yf_cmd))
+            yf_cmd.append(crc & 0xFF)
+            yf_cmd.append((crc >> 8) & 0xFF)
             
             logger.info("Testing YF pitch motor communication...")
-            logger.debug(f"Sending command: {command.hex()}")
+            logger.debug(f"Sending command: {' '.join(f'{b:02X}' for b in yf_cmd)}")
             
             # 清空接收缓冲区
             self.serial.reset_input_buffer()
             
             # 发送命令
-            self.serial.write(command)
+            self.serial.write(bytearray(yf_cmd))
             time.sleep(0.2)  # 等待响应
             
             # 读取响应
             if self.serial.in_waiting:
                 response = self.serial.read(self.serial.in_waiting)
-                logger.debug(f"Received response: {response.hex()}")
+                logger.debug(f"Received response: {' '.join(f'{b:02X}' for b in response)}")
                 
-                # 检查响应
-                if len(response) >= 3 and response[0] == self.YF_HEADER:
+                # 检查响应是否有效
+                if len(response) >= 3 and response[0] == self.YF_MODBUS_ADDR:
                     results["yf_pitch"] = True
                     logger.info("YF pitch motor communication test: SUCCESS")
                 else:
@@ -587,27 +790,36 @@ class DCMotorController:
         
         # 测试AIMotor电机通信
         try:
-            # 发送AIMotor电机状态查询命令
-            checksum = (self.AI_ADDR + self.CMD_GET_STATUS) & 0xFF
-            command = bytes([self.AI_HEADER, self.AI_ADDR, self.CMD_GET_STATUS, 0, checksum])
+            ai_cmd = [
+                self.AI_MODBUS_ADDR,  # 地址
+                self.AI_READ_REG,     # 功能码: 读寄存器
+                0x0B,                 # 寄存器地址高: 位置反馈寄存器
+                0x07,                 # 寄存器地址低
+                0x00,                 # 读取数量高字节
+                0x02                  # 读取数量低字节: 2个寄存器
+            ]
+            
+            crc = self._calculate_crc16(ai_cmd, len(ai_cmd))
+            ai_cmd.append(crc & 0xFF)
+            ai_cmd.append((crc >> 8) & 0xFF)
             
             logger.info("Testing AIMotor linear motor communication...")
-            logger.debug(f"Sending command: {command.hex()}")
+            logger.debug(f"Sending command: {' '.join(f'{b:02X}' for b in ai_cmd)}")
             
             # 清空接收缓冲区
             self.serial.reset_input_buffer()
             
             # 发送命令
-            self.serial.write(command)
+            self.serial.write(bytearray(ai_cmd))
             time.sleep(0.2)  # 等待响应
             
             # 读取响应
             if self.serial.in_waiting:
                 response = self.serial.read(self.serial.in_waiting)
-                logger.debug(f"Received response: {response.hex()}")
+                logger.debug(f"Received response: {' '.join(f'{b:02X}' for b in response)}")
                 
-                # 检查响应
-                if len(response) >= 3 and response[0] == self.AI_HEADER:
+                # 检查响应是否有效
+                if len(response) >= 3 and response[0] == self.AI_MODBUS_ADDR:
                     results["ai_linear"] = True
                     logger.info("AIMotor linear motor communication test: SUCCESS")
                 else:
