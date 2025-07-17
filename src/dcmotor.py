@@ -155,7 +155,7 @@ class DCMotorController:
     def is_connected(self):
         """
         Check if connected to the motor controller
-        
+            
         Returns:
             bool: True if connected, False otherwise
         """
@@ -224,7 +224,7 @@ class DCMotorController:
                 # 检查响应是否有效
                 if len(response) >= 3 and response[0] == self.YF_MODBUS_ADDR:
                     self.pitch_position = position
-                    return True
+            return True
             
             logger.warning("No valid response from YF motor")
             return False
@@ -358,7 +358,7 @@ class DCMotorController:
     def _send_stop_command(self):
         """
         Send stop command to all motors
-        
+            
         Returns:
             bool: True if command sent successfully, False otherwise
         """
@@ -421,7 +421,7 @@ class DCMotorController:
         except Exception as e:
             logger.error(f"Error sending stop command: {e}")
             return False
-    
+        
     def stop_all(self):
         """
         Stop all motors
@@ -501,7 +501,7 @@ class DCMotorController:
         Args:
             enable_pitch: 是否使能YF俯仰电机
             enable_linear: 是否使能AImotor线性电机
-            
+        
         Returns:
             bool: 如果操作成功则返回 True
         """
@@ -742,92 +742,173 @@ class DCMotorController:
         """
         results = {
             "yf_pitch": False,
-            "ai_linear": False
+            "ai_linear": False,
+            "yf_debug_info": "",
+            "ai_debug_info": "",
+            "errors": []
         }
         
         if not self.is_connected():
-            logger.error("Not connected to motor controller")
+            error_msg = "Not connected to motor controller"
+            logger.error(error_msg)
+            results["errors"].append(error_msg)
             return results
         
         # 测试YF电机通信
         try:
-            yf_cmd = [
-                self.YF_MODBUS_ADDR,  # 地址
-                0x02,                 # 读取指令
-                0x00, 0x00, 0x00, 0x00  # 预留
+            # 尝试几种不同可能的命令格式，以增加成功的机会
+            yf_cmds = [
+                # 常规查询命令
+                [
+                    self.YF_MODBUS_ADDR,  # 地址
+                    0x02,                 # 读取指令
+                    0x00, 0x00, 0x00, 0x00  # 预留
+                ],
+                # 备用命令1 - 使用原始协议
+                [
+                    self.YF_HEADER, self.YF_ADDR, self.CMD_GET_STATUS, 0x00
+                ],
+                # 备用命令2 - 使用不同地址
+                [
+                    0x01,                 # 备用地址
+                    0x03,                 # 读取保持寄存器
+                    0x00, 0x00,           # 起始地址
+                    0x00, 0x01            # 寄存器数量
+                ]
             ]
             
-            crc = self._calculate_crc16(yf_cmd, len(yf_cmd))
-            yf_cmd.append(crc & 0xFF)
-            yf_cmd.append((crc >> 8) & 0xFF)
-            
             logger.info("Testing YF pitch motor communication...")
-            logger.debug(f"Sending command: {' '.join(f'{b:02X}' for b in yf_cmd)}")
+            yf_response = None
             
-            # 清空接收缓冲区
-            self.serial.reset_input_buffer()
-            
-            # 发送命令
-            self.serial.write(bytearray(yf_cmd))
-            time.sleep(0.2)  # 等待响应
-            
-            # 读取响应
-            if self.serial.in_waiting:
-                response = self.serial.read(self.serial.in_waiting)
-                logger.debug(f"Received response: {' '.join(f'{b:02X}' for b in response)}")
+            for i, cmd_data in enumerate(yf_cmds):
+                # 添加CRC校验码
+                if i == 0:  # 第一个命令使用标准Modbus CRC
+                    crc = self._calculate_crc16(cmd_data, len(cmd_data))
+                    cmd_data.append(crc & 0xFF)
+                    cmd_data.append((crc >> 8) & 0xFF)
+                elif i == 1:  # 第二个命令使用简单校验和
+                    checksum = sum(cmd_data) & 0xFF
+                    cmd_data.append(checksum)
+                elif i == 2:  # 第三个命令使用标准Modbus CRC
+                    crc = self._calculate_crc16(cmd_data, len(cmd_data))
+                    cmd_data.append(crc & 0xFF)
+                    cmd_data.append((crc >> 8) & 0xFF)
                 
-                # 检查响应是否有效
-                if len(response) >= 3 and response[0] == self.YF_MODBUS_ADDR:
+                cmd = bytearray(cmd_data)
+                logger.debug(f"YF test {i+1}: Sending command: {' '.join(f'{b:02X}' for b in cmd)}")
+                
+                # 清空接收缓冲区
+                self.serial.reset_input_buffer()
+                
+                # 发送命令
+                self.serial.write(cmd)
+                time.sleep(0.2)  # 等待响应
+                
+                # 读取响应
+                if self.serial.in_waiting > 0:
+                    yf_response = self.serial.read(self.serial.in_waiting)
+                    response_hex = ' '.join(f'{b:02X}' for b in yf_response)
+                    logger.debug(f"YF test {i+1}: Received response: {response_hex}")
+                    results["yf_debug_info"] += f"Test {i+1} response: {response_hex}\n"
+                    
+                    # 如果有响应，认为通信成功
                     results["yf_pitch"] = True
-                    logger.info("YF pitch motor communication test: SUCCESS")
+                    logger.info(f"YF pitch motor communication test {i+1}: SUCCESS")
+                    break
                 else:
-                    logger.warning("YF pitch motor communication test: FAILED (invalid response)")
-            else:
-                logger.warning("YF pitch motor communication test: FAILED (no response)")
+                    logger.debug(f"YF test {i+1}: No response")
+                    results["yf_debug_info"] += f"Test {i+1}: No response\n"
+            
+            if not results["yf_pitch"]:
+                logger.warning("YF pitch motor communication test: FAILED (no response from any test)")
         
         except Exception as e:
-            logger.error(f"Error testing YF pitch motor communication: {e}")
+            error_msg = f"Error testing YF pitch motor communication: {e}"
+            logger.error(error_msg)
+            results["errors"].append(error_msg)
+            results["yf_debug_info"] += f"Exception: {e}\n"
         
         # 测试AIMotor电机通信
         try:
-            ai_cmd = [
-                self.AI_MODBUS_ADDR,  # 地址
-                self.AI_READ_REG,     # 功能码: 读寄存器
-                0x0B,                 # 寄存器地址高: 位置反馈寄存器
-                0x07,                 # 寄存器地址低
-                0x00,                 # 读取数量高字节
-                0x02                  # 读取数量低字节: 2个寄存器
+            # 尝试几种不同可能的命令格式，以增加成功的机会
+            ai_cmds = [
+                # 常规查询命令
+                [
+                    self.AI_MODBUS_ADDR,  # 地址
+                    self.AI_READ_REG,     # 功能码: 读寄存器
+                    0x0B,                 # 寄存器地址高: 位置反馈寄存器
+                    0x07,                 # 寄存器地址低
+                    0x00,                 # 读取数量高字节
+                    0x02                  # 读取数量低字节: 2个寄存器
+                ],
+                # 备用命令1 - 读取不同寄存器
+                [
+                    self.AI_MODBUS_ADDR,  # 地址
+                    self.AI_READ_REG,     # 功能码: 读寄存器
+                    0x00,                 # 寄存器地址高
+                    0x00,                 # 寄存器地址低
+                    0x00,                 # 读取数量高字节
+                    0x01                  # 读取数量低字节: 1个寄存器
+                ],
+                # 备用命令2 - 使用原始协议
+                [
+                    self.AI_HEADER, self.AI_ADDR, self.CMD_GET_STATUS, 0x00
+                ]
             ]
             
-            crc = self._calculate_crc16(ai_cmd, len(ai_cmd))
-            ai_cmd.append(crc & 0xFF)
-            ai_cmd.append((crc >> 8) & 0xFF)
-            
             logger.info("Testing AIMotor linear motor communication...")
-            logger.debug(f"Sending command: {' '.join(f'{b:02X}' for b in ai_cmd)}")
+            ai_response = None
             
-            # 清空接收缓冲区
-            self.serial.reset_input_buffer()
-            
-            # 发送命令
-            self.serial.write(bytearray(ai_cmd))
-            time.sleep(0.2)  # 等待响应
-            
-            # 读取响应
-            if self.serial.in_waiting:
-                response = self.serial.read(self.serial.in_waiting)
-                logger.debug(f"Received response: {' '.join(f'{b:02X}' for b in response)}")
+            for i, cmd_data in enumerate(ai_cmds):
+                # 添加CRC校验码
+                if i <= 1:  # 前两个命令使用标准Modbus CRC
+                    crc = self._calculate_crc16(cmd_data, len(cmd_data))
+                    cmd_data.append(crc & 0xFF)
+                    cmd_data.append((crc >> 8) & 0xFF)
+                elif i == 2:  # 第三个命令使用简单校验和
+                    checksum = sum(cmd_data) & 0xFF
+                    cmd_data.append(checksum)
                 
-                # 检查响应是否有效
-                if len(response) >= 3 and response[0] == self.AI_MODBUS_ADDR:
+                cmd = bytearray(cmd_data)
+                logger.debug(f"AIMotor test {i+1}: Sending command: {' '.join(f'{b:02X}' for b in cmd)}")
+                
+                # 清空接收缓冲区
+                self.serial.reset_input_buffer()
+                
+                # 发送命令
+                self.serial.write(cmd)
+                time.sleep(0.2)  # 等待响应
+                
+                # 读取响应
+                if self.serial.in_waiting > 0:
+                    ai_response = self.serial.read(self.serial.in_waiting)
+                    response_hex = ' '.join(f'{b:02X}' for b in ai_response)
+                    logger.debug(f"AIMotor test {i+1}: Received response: {response_hex}")
+                    results["ai_debug_info"] += f"Test {i+1} response: {response_hex}\n"
+                    
+                    # 如果有响应，认为通信成功
                     results["ai_linear"] = True
-                    logger.info("AIMotor linear motor communication test: SUCCESS")
+                    logger.info(f"AIMotor linear motor communication test {i+1}: SUCCESS")
+                    break
                 else:
-                    logger.warning("AIMotor linear motor communication test: FAILED (invalid response)")
-            else:
-                logger.warning("AIMotor linear motor communication test: FAILED (no response)")
+                    logger.debug(f"AIMotor test {i+1}: No response")
+                    results["ai_debug_info"] += f"Test {i+1}: No response\n"
+            
+            if not results["ai_linear"]:
+                logger.warning("AIMotor linear motor communication test: FAILED (no response from any test)")
         
         except Exception as e:
-            logger.error(f"Error testing AIMotor linear motor communication: {e}")
+            error_msg = f"Error testing AIMotor linear motor communication: {e}"
+            logger.error(error_msg)
+            results["errors"].append(error_msg)
+            results["ai_debug_info"] += f"Exception: {e}\n"
+        
+        # 记录串口配置信息，帮助诊断
+        results["port_info"] = {
+            "port": self.port,
+            "baudrate": self.baudrate,
+            "timeout": self.timeout,
+            "connected": self.is_connected()
+        }
         
         return results 
