@@ -61,15 +61,15 @@ bool ServoControl::init()
 
 void ServoControl::close()
 {
-  if (ft_adapter_) {
-    ft_adapter_->close();
-  }
-  
-  if (serial_.isOpen()) {
+    if (ft_adapter_) {
+      ft_adapter_->close();
+    }
+    
+    if (serial_.isOpen()) {
     serial_.close();
-  }
-  
-  connected_ = false;
+    }
+    
+    connected_ = false;
   std::cout << "Serial port closed" << std::endl;
 }
 
@@ -480,7 +480,7 @@ std::vector<uint8_t> ServoControl::readPacket()
     return response;
   } catch (const std::exception& e) {
     std::cerr << "Exception: " << e.what() << std::endl;
-    return response;
+  return response;
   }
 }
 

@@ -319,14 +319,14 @@ void FeeTechAdapter::adjustParamsByType(uint8_t id, uint16_t& position, uint16_t
     FTServoType type = servo_configs_[id].type;
     
     switch (type) {
-      case FTServoType::STS_TYPE1:
+    case FTServoType::STS_TYPE1:
         // STS 类型1舵机参数调整
         // 这里可以根据具体舵机型号调整参数
         std::cout << "Adjusting parameters for STS TYPE1 servo ID " << static_cast<int>(id) 
                   << ": position=" << position << ", time=" << time << ", speed=" << speed << std::endl;
-        break;
-        
-      case FTServoType::STS_TYPE2:
+      break;
+    
+    case FTServoType::STS_TYPE2:
         // STS 类型2舵机参数调整
         // 这里可以根据具体舵机型号调整参数
         std::cout << "Adjusting parameters for STS TYPE2 servo ID " << static_cast<int>(id) 
@@ -335,7 +335,7 @@ void FeeTechAdapter::adjustParamsByType(uint8_t id, uint16_t& position, uint16_t
         
       default:
         // 默认不做调整
-        break;
+      break;
     }
   }
 }
