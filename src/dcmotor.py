@@ -366,68 +366,7 @@ class DCMotorController:
     
     def set_pitch_position(self, position, speed=None):
         """
-        Set the position of the YF pitch motor (using SimpleNetwork format)
-        
-        Args:
-            position: Target position
-            speed: Optional speed parameter (0-255)
-            
-        Returns:
-            bool: True if command sent successfully, False otherwise
-        """
-        if not self.is_connected():
-            logger.error("Not connected to motor controller")
-            return False
-        
-        if speed is not None:
-            self.pitch_speed = min(255, max(0, speed))
-        
-        try:
-            # 基于SimpleNetwork中pos_pinch方法实现
-            # maxSpeed: 1dps/LSB; angleControl: 0.01 degree/LSB
-            # SimpleNetwork发送的是 [0x3E,0x08,0xA4,0x00,maxSpeed_L,maxSpeed_H,angle_bits...]
-            cmd_data = bytearray([
-                self.YF_START,      # 起始字节 0x3E
-                self.YF_STATION,    # 站号 0x01
-                0xA4,               # 功能码 0xA4 (而不是之前用的 0x08)
-                0x00,               # 预留字节
-                # 速度数据 (2字节, 小端序)
-                self.pitch_speed & 0xFF,
-                (self.pitch_speed >> 8) & 0xFF,
-                # 位置数据 (4字节, 小端序)
-                position & 0xFF,
-                (position >> 8) & 0xFF,
-                (position >> 16) & 0xFF,
-                (position >> 24) & 0xFF
-            ])
-            
-            # 避免串口过度占用，添加延时
-            self._delay_if_needed()
-            
-            # 发送命令
-            if self.debug:
-                logger.debug(f"Setting YF pitch position to {position}: {' '.join(f'{b:02X}' for b in cmd_data)}")
-                
-            self.serial.write(cmd_data)
-            time.sleep(0.1)  # 等待响应
-            
-            # 读取响应
-            if self.serial.in_waiting:
-                response = self.serial.read(self.serial.in_waiting)
-                if self.debug:
-                    logger.debug(f"Received response: {' '.join(f'{b:02X}' for b in response)}")
-            
-            # 更新位置值
-            self.pitch_position = position
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error sending command to YF pitch motor: {e}")
-            return False
-    
-    def set_linear_position(self, position, speed=None):
-        """
-        设置 AIMotor 进给电机的位置 (遵循 SimpleNetwork 中的 pos_form 方法实现)
+        设置 YF 俯仰电机位置
         
         Args:
             position: 目标位置
@@ -441,7 +380,72 @@ class DCMotorController:
             return False
         
         if speed is not None:
-            self.linear_speed = min(255, max(0, speed))
+            self.pitch_speed = min(255, max(0, speed))
+        
+        try:
+            # 使用与 MOTOR_LIST[0] 完全相同的命令格式
+            # [0x3E,0x01,0x08,0x81,0x00,0x00,0x00,0x00,0x00,0x00,0x00]
+            cmd_data = [
+                self.YF_START,      # 0x3E
+                self.YF_STATION,    # 0x01
+                0x08,               # 命令字节 0x08
+                0x81,               # 使能字节 0x81
+                # 位置数据 (4字节) - 全部置0，使用pos_pinch方法设置位置
+                0x00, 0x00, 0x00, 0x00,
+                # 速度 (1字节) - 使用pos_pinch方法设置速度
+                0x00,
+                # 预留字节
+                0x00, 0x00
+            ]
+            
+            # 发送命令
+            self._delay_if_needed()
+            
+            if self.debug:
+                logger.debug(f"Sending YF pitch command: {' '.join(f'{b:02X}' for b in cmd_data)}")
+                
+            self.serial.write(bytearray(cmd_data))
+            time.sleep(0.05)  # 等待响应
+            
+            # 读取响应
+            if self.serial.in_waiting:
+                response = self.serial.read(self.serial.in_waiting)
+                if self.debug:
+                    logger.debug(f"Received response: {' '.join(f'{b:02X}' for b in response)}")
+            
+            # 使用 pos_pinch 方法设置实际位置
+            # 将position转换为角度控制值 (0.01 degree/LSB)
+            angle_control = position * 100
+            # 设置最大速度 (1dps/LSB)
+            max_speed = self.pitch_speed * 10  # 转换为适当的速度单位
+            
+            self.pos_pinch(self.YF_STATION, max_speed, angle_control)
+            
+            # 更新位置值
+            self.pitch_position = position
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error sending command to YF pitch motor: {e}")
+            return False
+    
+    def set_linear_position(self, position, speed=None):
+        """
+        设置 AIMotor 进给电机的位置 (完全遵循 SimpleNetwork 中的 pos_form 方法实现)
+        
+        Args:
+            position: 目标位置
+            speed: 可选速度参数 (0-6000)
+            
+        Returns:
+            bool: 命令发送成功返回 True，否则 False
+        """
+        if not self.is_connected():
+            logger.error("Not connected to motor controller")
+            return False
+        
+        if speed is not None:
+            self.linear_speed = speed
         
         try:
             # 确保使用位置控制模式
@@ -458,42 +462,57 @@ class DCMotorController:
                 position = -3500
                 logger.warning(f"AIMotor position limited to minimum: {position}")
             
+            # 设置绝对/相对位置模式
+            pos_mode = True  # True = 绝对位置模式
+            if pos_mode:
+                # 绝对位置模式
+                self._send_ai_command([self.AI_STATION] + self.CODE_LIST[14])
+            else:
+                # 相对位置模式
+                self._send_ai_command([self.AI_STATION] + self.CODE_LIST[15])
+            time.sleep(0.02)
+            
             # 设置位置阈值
-            pos_thr = 10  # 位置阈值，参考 SimpleNetwork
-            thr_cmd = [
+            pos_thr = 10  # 位置阈值
+            code1 = [
                 self.AI_STATION,
-                0x06,  # 写寄存器
+                0x06,  # 写单个寄存器
                 0x05, 0x15,  # 寄存器地址
                 (pos_thr >> 8) & 0xFF, pos_thr & 0xFF  # 位置阈值数据
             ]
-            thr_response = self._send_ai_command(thr_cmd)
+            self._send_ai_command(code1)
             time.sleep(0.02)
             
-            # 计算位置高低字
+            # 计算位置高低字，与 SimpleNetwork 完全一致
             pos_high = position // (256*256)
             pos_low = position % (256*256)
             if pos_high == 0 and position < 0:
-                pos_high = 0xFFFF
+                pos_high = 0xffff
+            
+            # 设置速度默认值
+            vel = self.linear_speed if self.linear_speed is not None else 100
+            vel_ac = 0  # 默认加速度
             
             # 设置位置、速度和加速度，完全按照 SimpleNetwork 实现
-            pos_cmd = [
+            code2 = [
                 self.AI_STATION,
                 0x10,  # 写多个寄存器
-                0x11, 0x0C,  # 寄存器地址
+                0x11, 0x0C,  # 寄存器起始地址
                 0x00, 0x04,  # 寄存器数量
                 0x08,  # 字节数
                 (pos_low >> 8) & 0xFF, pos_low & 0xFF,  # 位置低字
                 (pos_high >> 8) & 0xFF, pos_high & 0xFF,  # 位置高字
-                (self.linear_speed >> 8) & 0xFF, self.linear_speed & 0xFF,  # 速度
-                0x00, 0x00  # 加速度 (默认)
+                (vel >> 8) & 0xFF, vel & 0xFF,  # 速度
+                (vel_ac >> 8) & 0xFF, vel_ac & 0xFF  # 加速度
             ]
-            pos_response = self._send_ai_command(pos_cmd)
+            self._send_ai_command(code2)
+            time.sleep(0.02)
             
             # 更新位置值
             self.linear_position = position
             
             if self.debug:
-                logger.debug(f"Set AIMotor linear position to {position}, speed {self.linear_speed}")
+                logger.debug(f"Set AIMotor linear position: {position}, speed: {vel}, accel: {vel_ac}, mode: {'absolute' if pos_mode else 'relative'}")
                 
             return True
             
@@ -783,10 +802,10 @@ class DCMotorController:
     
     def test_communication(self):
         """
-        Test communication with both motors
+        测试与两个电机的通信
         
         Returns:
-            dict: Test results for each motor
+            dict: 测试结果
         """
         results = {
             "yf_pitch": False,
@@ -802,16 +821,17 @@ class DCMotorController:
             results["errors"].append(error_msg)
             return results
         
-        # 测试YF电机通信 - 基于SimpleNetwork中的pos_pinch方法
+        # 测试YF电机通信 - 使用与 MOTOR_LIST[0] 完全一致的命令格式
         try:
-            # 发送读取位置命令
+            # 使用标准使能命令
             cmd_data = bytearray([
                 self.YF_START,  # 0x3E
-                self.YF_STATION, # 站号
-                0xA4,          # 功能码
-                0x00,          # 预留字节
-                0x00, 0x00,    # 速度
-                0x00, 0x00, 0x00, 0x00  # 位置
+                self.YF_STATION, # 0x01
+                0x08,          # 0x08
+                0x81,          # 0x81 使能
+                0x00, 0x00, 0x00, 0x00,  # 位置
+                0x00,          # 速度
+                0x00, 0x00     # 预留字节
             ])
             
             logger.info("Testing YF pitch motor communication...")
@@ -835,23 +855,37 @@ class DCMotorController:
                 logger.info("YF pitch motor communication test: SUCCESS")
             else:
                 logger.warning("YF pitch motor communication test: FAILED (no response)")
-                # 尝试发送原始命令
-                cmd_data = bytearray(self.MOTOR_LIST[0])  # 使能命令
-                logger.debug(f"Trying alternate command: {' '.join(f'{b:02X}' for b in cmd_data)}")
                 
-                self.serial.reset_input_buffer()
-                self.serial.write(cmd_data)
-                time.sleep(0.2)
-                
-                if self.serial.in_waiting:
-                    response = self.serial.read(self.serial.in_waiting)
-                    response_hex = ' '.join(f'{b:02X}' for b in response)
-                    logger.debug(f"Received response: {response_hex}")
-                    results["yf_debug_info"] += f"Alt response: {response_hex}\n"
+                # 尝试使用 pos_pinch 方法格式
+                try:
+                    # 尝试使用 pos_pinch 命令测试通信
+                    cmd_data = bytearray([
+                        self.YF_START,  # 0x3E
+                        self.YF_STATION, # 0x01
+                        0x08,          # 0x08
+                        0xA4,          # 0xA4 位置命令
+                        0x00,          # 预留字节
+                        0x00, 0x00,    # 速度 (小端)
+                        0x00, 0x00, 0x00, 0x00  # 位置 (小端)
+                    ])
                     
-                    results["yf_pitch"] = True
-                    logger.info("YF pitch motor communication test: SUCCESS with alternate command")
-        
+                    logger.debug(f"Trying alternate command: {' '.join(f'{b:02X}' for b in cmd_data)}")
+                    
+                    self.serial.reset_input_buffer()
+                    self.serial.write(cmd_data)
+                    time.sleep(0.2)
+                    
+                    if self.serial.in_waiting:
+                        response = self.serial.read(self.serial.in_waiting)
+                        response_hex = ' '.join(f'{b:02X}' for b in response)
+                        logger.debug(f"Received response: {response_hex}")
+                        results["yf_debug_info"] += f"Alt response: {response_hex}\n"
+                        
+                        results["yf_pitch"] = True
+                        logger.info("YF pitch motor communication test: SUCCESS with alternate command")
+                except Exception as e:
+                    logger.error(f"Error sending alternate YF command: {e}")
+                
         except Exception as e:
             error_msg = f"Error testing YF pitch motor communication: {e}"
             logger.error(error_msg)
@@ -941,24 +975,29 @@ class DCMotorController:
             
         try:
             # 完全复制SimpleNetwork中的pos_pinch方法实现
-            cmd_data = bytearray([
+            # motor_list1={0x3E,0x08,0xA4,0x00,uint8_t(maxSpeed),uint8_t(maxSpeed>>8),uint8_t(angleControl),uint8_t(angleControl>>8),uint8_t(angleControl>>16),uint8_t(angleControl>>24)};
+            cmd_data = [
                 self.YF_START,  # 0x3E
-                self.YF_PINCH_FUNC,  # 0x08
-                self.YF_CMD_MOVE,  # 0xA4
+                0x08,  # 功能码 0x08
+                0xA4,  # 命令码 0xA4
                 0x00,  # 预留字节
-                max_speed & 0xFF,
-                (max_speed >> 8) & 0xFF,
-                angle_control & 0xFF,
-                (angle_control >> 8) & 0xFF,
-                (angle_control >> 16) & 0xFF,
-                (angle_control >> 24) & 0xFF
-            ])
+                max_speed & 0xFF,  # 速度低字节
+                (max_speed >> 8) & 0xFF,  # 速度高字节
+                angle_control & 0xFF,  # 角度字节1
+                (angle_control >> 8) & 0xFF,  # 角度字节2
+                (angle_control >> 16) & 0xFF,  # 角度字节3
+                (angle_control >> 24) & 0xFF  # 角度字节4
+            ]
             
-            # 插入站号到第二个位置
+            # 在第2个位置插入station_num (索引1)
             cmd_data.insert(1, station_num)
             
             self._delay_if_needed()
-            self.serial.write(cmd_data)
+            
+            if self.debug:
+                logger.debug(f"Sending YF pos_pinch command: {' '.join(f'{b:02X}' for b in cmd_data)}")
+                
+            self.serial.write(bytearray(cmd_data))
             time.sleep(0.05)
             
             # 读取响应
