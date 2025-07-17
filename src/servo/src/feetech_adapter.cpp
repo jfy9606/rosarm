@@ -22,17 +22,17 @@ bool FeeTechAdapter::init()
     port_handler_ = std::shared_ptr<PortHandler>(new PortHandler(port_.c_str()));
     
     // 创建数据包处理器 (STS/SMS=0, SCS=1)
-    packet_handler_ = std::shared_ptr<PacketHandler>(PacketHandler(protocol_end_));
+    packet_handler_ = std::shared_ptr<PacketHandler>(new PacketHandler());
     
     // 打开端口
     if (!port_handler_->openPort()) {
-      RCLCPP_ERROR(rclcpp::get_logger("feetech_adapter"), "Failed to open port %s", port_.c_str());
+      std::cerr << "Failed to open port " << port_ << std::endl;
       return false;
     }
     
     // 设置波特率
     if (!port_handler_->setBaudRate(baud_rate_)) {
-      RCLCPP_ERROR(rclcpp::get_logger("feetech_adapter"), "Failed to set baudrate %d", baud_rate_);
+      std::cerr << "Failed to set baudrate " << baud_rate_ << std::endl;
       port_handler_->closePort();
       return false;
     }
@@ -44,13 +44,12 @@ bool FeeTechAdapter::init()
                                                   ft_address::GOAL_POSITION, 2);
     
     connected_ = true;
-    RCLCPP_INFO(rclcpp::get_logger("feetech_adapter"), 
-               "Connected to %s at %d baud", port_.c_str(), baud_rate_);
+    std::cout << "Connected to " << port_ << " at " << baud_rate_ << " baud" << std::endl;
     
     return true;
   }
   catch (const std::exception& e) {
-    RCLCPP_ERROR(rclcpp::get_logger("feetech_adapter"), "Exception: %s", e.what());
+    std::cerr << "Exception: " << e.what() << std::endl;
     connected_ = false;
     return false;
   }
@@ -70,7 +69,7 @@ void FeeTechAdapter::close()
     
     port_handler_->closePort();
     connected_ = false;
-    RCLCPP_INFO(rclcpp::get_logger("feetech_adapter"), "Port closed");
+    std::cout << "Port closed" << std::endl;
   }
 }
 
@@ -79,16 +78,16 @@ void FeeTechAdapter::loadServoConfigs(const std::vector<FTServoConfig>& configs)
   servo_configs_.clear();
   for (const auto& config : configs) {
     servo_configs_[config.id] = config;
-    RCLCPP_INFO(rclcpp::get_logger("feetech_adapter"), 
-               "Loaded config for servo ID %d, type %d, name %s", 
-               config.id, static_cast<int>(config.type), config.name.c_str());
+    std::cout << "Loaded config for servo ID " << static_cast<int>(config.id) 
+              << ", type " << static_cast<int>(config.type) 
+              << ", name " << config.name << std::endl;
   }
 }
 
 bool FeeTechAdapter::setPosition(uint8_t id, uint16_t position, uint16_t time, uint16_t speed)
 {
   if (!connected_) {
-    RCLCPP_ERROR(rclcpp::get_logger("feetech_adapter"), "Not connected to servo controller");
+    std::cerr << "Not connected to servo controller" << std::endl;
     return false;
   }
   
@@ -103,26 +102,23 @@ bool FeeTechAdapter::setPosition(uint8_t id, uint16_t position, uint16_t time, u
   int comm_result = COMM_TX_FAIL;
   uint8_t error = 0;
   
-  comm_result, error = packet_handler_->write1ByteTxRx(port_handler_.get(), id, ft_address::GOAL_ACC, acc);
+  comm_result = packet_handler_->write1ByteTxRx(port_handler_.get(), id, ft_address::GOAL_ACC, acc, &error);
   if (comm_result != COMM_SUCCESS) {
-    RCLCPP_ERROR(rclcpp::get_logger("feetech_adapter"), "Failed to set acceleration: %s", 
-                packet_handler_->getTxRxResult(comm_result));
+    std::cerr << "Failed to set acceleration: " << packet_handler_->getTxRxResult(comm_result) << std::endl;
     return false;
   }
   
   // 设置速度
-  comm_result, error = packet_handler_->write2ByteTxRx(port_handler_.get(), id, ft_address::GOAL_SPEED, speed);
+  comm_result = packet_handler_->write2ByteTxRx(port_handler_.get(), id, ft_address::GOAL_SPEED, speed, &error);
   if (comm_result != COMM_SUCCESS) {
-    RCLCPP_ERROR(rclcpp::get_logger("feetech_adapter"), "Failed to set speed: %s", 
-                packet_handler_->getTxRxResult(comm_result));
+    std::cerr << "Failed to set speed: " << packet_handler_->getTxRxResult(comm_result) << std::endl;
     return false;
   }
   
   // 设置位置
-  comm_result, error = packet_handler_->write2ByteTxRx(port_handler_.get(), id, ft_address::GOAL_POSITION, position);
+  comm_result = packet_handler_->write2ByteTxRx(port_handler_.get(), id, ft_address::GOAL_POSITION, position, &error);
   if (comm_result != COMM_SUCCESS) {
-    RCLCPP_ERROR(rclcpp::get_logger("feetech_adapter"), "Failed to set position: %s", 
-                packet_handler_->getTxRxResult(comm_result));
+    std::cerr << "Failed to set position: " << packet_handler_->getTxRxResult(comm_result) << std::endl;
     return false;
   }
   
@@ -132,17 +128,16 @@ bool FeeTechAdapter::setPosition(uint8_t id, uint16_t position, uint16_t time, u
 bool FeeTechAdapter::setSpeed(uint8_t id, int16_t speed)
 {
   if (!connected_) {
-    RCLCPP_ERROR(rclcpp::get_logger("feetech_adapter"), "Not connected to servo controller");
+    std::cerr << "Not connected to servo controller" << std::endl;
     return false;
   }
   
   int comm_result = COMM_TX_FAIL;
   uint8_t error = 0;
   
-  comm_result, error = packet_handler_->write2ByteTxRx(port_handler_.get(), id, ft_address::GOAL_SPEED, speed);
+  comm_result = packet_handler_->write2ByteTxRx(port_handler_.get(), id, ft_address::GOAL_SPEED, speed, &error);
   if (comm_result != COMM_SUCCESS) {
-    RCLCPP_ERROR(rclcpp::get_logger("feetech_adapter"), "Failed to set speed: %s", 
-                packet_handler_->getTxRxResult(comm_result));
+    std::cerr << "Failed to set speed: " << packet_handler_->getTxRxResult(comm_result) << std::endl;
     return false;
   }
   
@@ -152,7 +147,7 @@ bool FeeTechAdapter::setSpeed(uint8_t id, int16_t speed)
 int FeeTechAdapter::getPosition(uint8_t id)
 {
   if (!connected_) {
-    RCLCPP_ERROR(rclcpp::get_logger("feetech_adapter"), "Not connected to servo controller");
+    std::cerr << "Not connected to servo controller" << std::endl;
     return -1;
   }
   
@@ -160,10 +155,9 @@ int FeeTechAdapter::getPosition(uint8_t id)
   int comm_result = COMM_TX_FAIL;
   uint8_t error = 0;
   
-  position, comm_result, error = packet_handler_->read2ByteTxRx(port_handler_.get(), id, ft_address::PRESENT_POSITION);
+  comm_result = packet_handler_->read2ByteTxRx(port_handler_.get(), id, ft_address::PRESENT_POSITION, &position, &error);
   if (comm_result != COMM_SUCCESS) {
-    RCLCPP_ERROR(rclcpp::get_logger("feetech_adapter"), "Failed to get position: %s", 
-                packet_handler_->getTxRxResult(comm_result));
+    std::cerr << "Failed to get position: " << packet_handler_->getTxRxResult(comm_result) << std::endl;
     return -1;
   }
   
@@ -173,7 +167,7 @@ int FeeTechAdapter::getPosition(uint8_t id)
 int FeeTechAdapter::getTemperature(uint8_t id)
 {
   if (!connected_) {
-    RCLCPP_ERROR(rclcpp::get_logger("feetech_adapter"), "Not connected to servo controller");
+    std::cerr << "Not connected to servo controller" << std::endl;
     return -1;
   }
   
@@ -183,10 +177,9 @@ int FeeTechAdapter::getTemperature(uint8_t id)
   int comm_result = COMM_TX_FAIL;
   uint8_t error = 0;
   
-  temperature, comm_result, error = packet_handler_->read1ByteTxRx(port_handler_.get(), id, temp_addr);
+  comm_result = packet_handler_->read1ByteTxRx(port_handler_.get(), id, temp_addr, &temperature, &error);
   if (comm_result != COMM_SUCCESS) {
-    RCLCPP_ERROR(rclcpp::get_logger("feetech_adapter"), "Failed to get temperature: %s", 
-                packet_handler_->getTxRxResult(comm_result));
+    std::cerr << "Failed to get temperature: " << packet_handler_->getTxRxResult(comm_result) << std::endl;
     return -1;
   }
   
@@ -196,7 +189,7 @@ int FeeTechAdapter::getTemperature(uint8_t id)
 float FeeTechAdapter::getVoltage(uint8_t id)
 {
   if (!connected_) {
-    RCLCPP_ERROR(rclcpp::get_logger("feetech_adapter"), "Not connected to servo controller");
+    std::cerr << "Not connected to servo controller" << std::endl;
     return -1.0f;
   }
   
@@ -206,10 +199,9 @@ float FeeTechAdapter::getVoltage(uint8_t id)
   int comm_result = COMM_TX_FAIL;
   uint8_t error = 0;
   
-  voltage, comm_result, error = packet_handler_->read1ByteTxRx(port_handler_.get(), id, volt_addr);
+  comm_result = packet_handler_->read1ByteTxRx(port_handler_.get(), id, volt_addr, &voltage, &error);
   if (comm_result != COMM_SUCCESS) {
-    RCLCPP_ERROR(rclcpp::get_logger("feetech_adapter"), "Failed to get voltage: %s", 
-                packet_handler_->getTxRxResult(comm_result));
+    std::cerr << "Failed to get voltage: " << packet_handler_->getTxRxResult(comm_result) << std::endl;
     return -1.0f;
   }
   
@@ -219,17 +211,16 @@ float FeeTechAdapter::getVoltage(uint8_t id)
 bool FeeTechAdapter::setTorque(uint8_t id, bool enable)
 {
   if (!connected_) {
-    RCLCPP_ERROR(rclcpp::get_logger("feetech_adapter"), "Not connected to servo controller");
+    std::cerr << "Not connected to servo controller" << std::endl;
     return false;
   }
   
   int comm_result = COMM_TX_FAIL;
   uint8_t error = 0;
   
-  comm_result, error = packet_handler_->write1ByteTxRx(port_handler_.get(), id, ft_address::TORQUE_ENABLE, enable ? 1 : 0);
+  comm_result = packet_handler_->write1ByteTxRx(port_handler_.get(), id, ft_address::TORQUE_ENABLE, enable ? 1 : 0, &error);
   if (comm_result != COMM_SUCCESS) {
-    RCLCPP_ERROR(rclcpp::get_logger("feetech_adapter"), "Failed to set torque: %s", 
-                packet_handler_->getTxRxResult(comm_result));
+    std::cerr << "Failed to set torque: " << packet_handler_->getTxRxResult(comm_result) << std::endl;
     return false;
   }
   
@@ -246,36 +237,35 @@ std::map<uint8_t, int> FeeTechAdapter::syncReadPositions(const std::vector<uint8
   std::map<uint8_t, int> positions;
   
   if (!connected_) {
-    RCLCPP_ERROR(rclcpp::get_logger("feetech_adapter"), "Not connected to servo controller");
+    std::cerr << "Not connected to servo controller" << std::endl;
     return positions;
   }
   
   // 清除之前的参数
   sync_read_->clearParam();
   
-  // 添加舵机ID
+  // 添加所有ID
   for (auto id : ids) {
     if (!sync_read_->addParam(id)) {
-      RCLCPP_ERROR(rclcpp::get_logger("feetech_adapter"), 
-                  "Failed to add param for sync read, ID: %d", id);
+      std::cerr << "Failed to add ID " << static_cast<int>(id) << " to sync read" << std::endl;
+      return positions;
     }
   }
   
   // 执行同步读取
   int comm_result = sync_read_->txRxPacket();
   if (comm_result != COMM_SUCCESS) {
-    RCLCPP_ERROR(rclcpp::get_logger("feetech_adapter"), 
-                "Failed to sync read: %s", packet_handler_->getTxRxResult(comm_result));
+    std::cerr << "Failed to sync read positions: " << packet_handler_->getTxRxResult(comm_result) << std::endl;
     return positions;
   }
   
   // 获取每个舵机的位置
   for (auto id : ids) {
+    // 检查数据是否可用
     if (sync_read_->isAvailable(id, ft_address::PRESENT_POSITION, 2)) {
-      positions[id] = sync_read_->getData(id, ft_address::PRESENT_POSITION, 2);
+      positions[id] = sync_read_->getData16(id, ft_address::PRESENT_POSITION);
     } else {
-      RCLCPP_WARN(rclcpp::get_logger("feetech_adapter"), 
-                 "Sync read data not available for ID: %d", id);
+      std::cerr << "Position data not available for ID " << static_cast<int>(id) << std::endl;
     }
   }
   
@@ -285,34 +275,29 @@ std::map<uint8_t, int> FeeTechAdapter::syncReadPositions(const std::vector<uint8
 bool FeeTechAdapter::syncWritePositions(const std::map<uint8_t, uint16_t>& positions)
 {
   if (!connected_) {
-    RCLCPP_ERROR(rclcpp::get_logger("feetech_adapter"), "Not connected to servo controller");
+    std::cerr << "Not connected to servo controller" << std::endl;
     return false;
   }
   
   // 清除之前的参数
   sync_write_->clearParam();
   
-  // 添加每个舵机的位置
+  // 添加所有位置
   for (const auto& pos : positions) {
     uint8_t id = pos.first;
     uint16_t position = pos.second;
     
-    // 根据舵机类型调整参数
-    uint16_t time = 0;
-    uint16_t speed = 0;
-    adjustParamsByType(id, position, time, speed);
-    
     // 限制位置在舵机范围内
     position = clampPosition(id, position);
     
-    // 准备参数
+    // 准备数据
     uint8_t param[2];
     param[0] = SCS_LOBYTE(position);
     param[1] = SCS_HIBYTE(position);
     
+    // 添加参数
     if (!sync_write_->addParam(id, param)) {
-      RCLCPP_ERROR(rclcpp::get_logger("feetech_adapter"), 
-                  "Failed to add param for sync write, ID: %d", id);
+      std::cerr << "Failed to add ID " << static_cast<int>(id) << " to sync write" << std::endl;
       return false;
     }
   }
@@ -320,8 +305,7 @@ bool FeeTechAdapter::syncWritePositions(const std::map<uint8_t, uint16_t>& posit
   // 执行同步写入
   int comm_result = sync_write_->txPacket();
   if (comm_result != COMM_SUCCESS) {
-    RCLCPP_ERROR(rclcpp::get_logger("feetech_adapter"), 
-                "Failed to sync write: %s", packet_handler_->getTxRxResult(comm_result));
+    std::cerr << "Failed to sync write positions: " << packet_handler_->getTxRxResult(comm_result) << std::endl;
     return false;
   }
   
@@ -330,43 +314,45 @@ bool FeeTechAdapter::syncWritePositions(const std::map<uint8_t, uint16_t>& posit
 
 void FeeTechAdapter::adjustParamsByType(uint8_t id, uint16_t& position, uint16_t& time, uint16_t& speed)
 {
-  auto it = servo_configs_.find(id);
-  if (it == servo_configs_.end()) {
-    // 没有找到配置，使用默认值
-    return;
-  }
-  
   // 根据舵机类型调整参数
-  switch (it->second.type) {
-    case FTServoType::STS_TYPE1:
-      // 类型1舵机不需要特殊调整
-      break;
+  if (servo_configs_.find(id) != servo_configs_.end()) {
+    FTServoType type = servo_configs_[id].type;
     
-    case FTServoType::STS_TYPE2:
-      // 类型2舵机可能需要不同的参数调整
-      // 例如，不同的速度限制
-      if (speed > 1000) speed = 1000;  // 假设类型2舵机的速度上限为1000
-      break;
+    switch (type) {
+      case FTServoType::STS_TYPE1:
+        // STS 类型1舵机参数调整
+        // 这里可以根据具体舵机型号调整参数
+        std::cout << "Adjusting parameters for STS TYPE1 servo ID " << static_cast<int>(id) 
+                  << ": position=" << position << ", time=" << time << ", speed=" << speed << std::endl;
+        break;
+        
+      case FTServoType::STS_TYPE2:
+        // STS 类型2舵机参数调整
+        // 这里可以根据具体舵机型号调整参数
+        std::cout << "Adjusting parameters for STS TYPE2 servo ID " << static_cast<int>(id) 
+                  << ": position=" << position << ", time=" << time << ", speed=" << speed << std::endl;
+        break;
+        
+      default:
+        // 默认不做调整
+        break;
+    }
   }
-  
-  RCLCPP_DEBUG(rclcpp::get_logger("feetech_adapter"), 
-              "Adjusted parameters for servo ID %d (Type %d): position=%d, time=%d, speed=%d",
-              id, static_cast<int>(it->second.type), position, time, speed);
 }
 
 uint16_t FeeTechAdapter::clampPosition(uint8_t id, uint16_t position)
 {
-  auto it = servo_configs_.find(id);
-  if (it == servo_configs_.end()) {
-    // 没有找到配置，返回原始值
-    return position;
-  }
-  
-  // 限制位置在舵机范围内
-  if (position < it->second.min_position) {
-    position = it->second.min_position;
-  } else if (position > it->second.max_position) {
-    position = it->second.max_position;
+  // 检查是否有该舵机的配置
+  if (servo_configs_.find(id) != servo_configs_.end()) {
+    const auto& config = servo_configs_[id];
+    
+    // 限制在舵机允许范围内
+    if (position < config.min_position) {
+      position = config.min_position;
+    }
+    else if (position > config.max_position) {
+      position = config.max_position;
+    }
   }
   
   return position;

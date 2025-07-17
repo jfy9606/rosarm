@@ -23,7 +23,7 @@ VacuumNode::VacuumNode(const rclcpp::NodeOptions & options)
              device_port_.c_str(), baudrate_, vacuum_id_);
   
   // 创建服务
-  vacuum_cmd_srv_ = this->create_service<servo::srv::VacuumCmd>(
+  vacuum_cmd_srv_ = this->create_service<servo_interfaces::srv::VacuumCmd>(
     "vacuum/cmd",
     std::bind(&VacuumNode::vacuumCmdCallback, this,
               std::placeholders::_1, std::placeholders::_2));
@@ -70,8 +70,8 @@ VacuumNode::~VacuumNode()
 }
 
 void VacuumNode::vacuumCmdCallback(
-  const std::shared_ptr<servo::srv::VacuumCmd::Request> request,
-  std::shared_ptr<servo::srv::VacuumCmd::Response> response)
+  const std::shared_ptr<servo_interfaces::srv::VacuumCmd::Request> request,
+  std::shared_ptr<servo_interfaces::srv::VacuumCmd::Response> response)
 {
   if (!servo_control_ || !servo_control_->isConnected()) {
     RCLCPP_ERROR(this->get_logger(), "Servo control not connected");
@@ -79,8 +79,9 @@ void VacuumNode::vacuumCmdCallback(
     return;
   }
   
-  // 设置真空吸盘状态
-  response->success = setVacuumState(request->enable, request->power);
+  // 设置真空吸盘状态，只使用enable状态，power保持当前值
+  response->success = setVacuumState(request->enable, vacuum_power_);
+  response->message = response->success ? "Vacuum state set successfully" : "Failed to set vacuum state";
 }
 
 void VacuumNode::vacuumEnableCallback(const std_msgs::msg::Bool::SharedPtr msg)
@@ -210,7 +211,4 @@ bool VacuumNode::setVacuumState(bool enable, int power)
   return result;
 }
 
-} // namespace servo_control
-
-#include "rclcpp_components/register_node_macro.hpp"
-RCLCPP_COMPONENTS_REGISTER_NODE(servo_control::VacuumNode) 
+} // namespace servo_control 

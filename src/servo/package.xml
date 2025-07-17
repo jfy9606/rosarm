@@ -14,11 +14,10 @@
   <depend>rclpy</depend>
   <depend>std_msgs</depend>
   <depend>geometry_msgs</depend>
-  <depend>sensor_msgs</depend>
+  <depend>servo_interfaces</depend>
   <depend>motor</depend>
   <depend>rosidl_default_generators</depend>
   <depend>serial</depend>
-  <depend>rclcpp_components</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

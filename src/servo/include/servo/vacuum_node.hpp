@@ -4,7 +4,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include <std_msgs/msg/int16.hpp>
-#include <servo/srv/vacuum_cmd.hpp>
+#include <servo_interfaces/srv/vacuum_cmd.hpp>
 #include "servo/servo_control.hpp"
 
 namespace servo_control {
@@ -32,7 +32,7 @@ private:
   uint8_t vacuum_id_;
   
   // 服务
-  rclcpp::Service<servo::srv::VacuumCmd>::SharedPtr vacuum_cmd_srv_;
+  rclcpp::Service<servo_interfaces::srv::VacuumCmd>::SharedPtr vacuum_cmd_srv_;
   
   // 发布器
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr vacuum_state_pub_;
@@ -50,8 +50,8 @@ private:
   
   // 服务回调
   void vacuumCmdCallback(
-    const std::shared_ptr<servo::srv::VacuumCmd::Request> request,
-    std::shared_ptr<servo::srv::VacuumCmd::Response> response);
+    const std::shared_ptr<servo_interfaces::srv::VacuumCmd::Request> request,
+    std::shared_ptr<servo_interfaces::srv::VacuumCmd::Response> response);
   
   // 订阅回调
   void vacuumEnableCallback(const std_msgs::msg::Bool::SharedPtr msg);

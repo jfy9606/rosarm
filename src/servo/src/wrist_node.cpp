@@ -35,22 +35,21 @@ WristNode::WristNode(const rclcpp::NodeOptions & options)
     joint_positions_[joint.first] = 0.0;
   }
   
+  // 初始化关节状态结构体
+  current_joint_state_ = std::make_shared<JointState>();
+  
   // 创建服务
-  joint_control_srv_ = this->create_service<servo::srv::JointControl>(
+  joint_control_srv_ = this->create_service<servo_interfaces::srv::JointControl>(
     "wrist/joint_control",
     std::bind(&WristNode::jointControlCallback, this,
               std::placeholders::_1, std::placeholders::_2));
   
-  // 创建发布器
-  joint_state_pub_ = this->create_publisher<sensor_msgs::msg::JointState>(
-    "wrist/joint_states", 10);
-  
   // 创建订阅器
-  servo_control_sub_ = this->create_subscription<servo::msg::SerControl>(
+  servo_control_sub_ = this->create_subscription<servo_interfaces::msg::SerControl>(
     "wrist/control", 10,
     std::bind(&WristNode::servoControlCallback, this, std::placeholders::_1));
   
-  // 创建定时器，定期发布关节状态
+  // 创建定时器，定期更新关节状态
   timer_ = this->create_wall_timer(
     std::chrono::milliseconds(100),
     std::bind(&WristNode::timerCallback, this));
@@ -83,8 +82,8 @@ WristNode::~WristNode()
 }
 
 void WristNode::jointControlCallback(
-  const std::shared_ptr<servo::srv::JointControl::Request> request,
-  std::shared_ptr<servo::srv::JointControl::Response> response)
+  const std::shared_ptr<servo_interfaces::srv::JointControl::Request> request,
+  std::shared_ptr<servo_interfaces::srv::JointControl::Response> response)
 {
   if (!servo_control_ || !servo_control_->isConnected()) {
     RCLCPP_ERROR(this->get_logger(), "Servo control not connected");
@@ -159,7 +158,7 @@ void WristNode::jointControlCallback(
   response->message = all_success ? "All joints set successfully" : result_messages.str();
 }
 
-void WristNode::servoControlCallback(const servo::msg::SerControl::SharedPtr msg)
+void WristNode::servoControlCallback(const servo_interfaces::msg::SerControl::SharedPtr msg)
 {
   if (!servo_control_ || !servo_control_->isConnected()) {
     RCLCPP_ERROR(this->get_logger(), "Servo control not connected");
@@ -167,36 +166,36 @@ void WristNode::servoControlCallback(const servo::msg::SerControl::SharedPtr msg
   }
   
   // 检查关节ID是否在范围内
-  if (msg->servo_id < 1 || msg->servo_id > 254) {
-    RCLCPP_ERROR(this->get_logger(), "Invalid servo ID: %d", msg->servo_id);
+  if (msg->id < 1 || msg->id > 254) {
+    RCLCPP_ERROR(this->get_logger(), "Invalid servo ID: %d", msg->id);
     return;
   }
   
-  // 直接设置舵机位置，使用消息中的target_position, velocity, acceleration
+  // 直接设置舵机位置，使用消息中的position, time, speed
   bool result = servo_control_->setPosition(
-      static_cast<uint8_t>(msg->servo_id), 
-      static_cast<uint16_t>(msg->target_position),
-      0,  // 默认time=0
-      static_cast<uint16_t>(msg->velocity)  // 使用velocity作为speed
+      static_cast<uint8_t>(msg->id), 
+      static_cast<uint16_t>(msg->position),
+      static_cast<uint16_t>(msg->time),  // 使用time参数
+      static_cast<uint16_t>(msg->speed)  // 使用speed参数
   );
   
   if (result) {
     // 尝试更新已知关节的位置
     for (const auto& joint : joint_id_map_) {
-      if (joint.second == static_cast<uint8_t>(msg->servo_id)) {
+      if (joint.second == static_cast<uint8_t>(msg->id)) {
         joint_positions_[joint.first] = servoValueToAngle(
-            static_cast<uint16_t>(msg->target_position), joint.first);
+            static_cast<uint16_t>(msg->position), joint.first);
         break;
       }
     }
     
     RCLCPP_INFO(this->get_logger(), 
-               "Set servo ID %d to position %d with velocity %d",
-               msg->servo_id, msg->target_position, msg->velocity);
+               "Set servo ID %d to position %d with speed %d",
+               msg->id, msg->position, msg->speed);
   } else {
     RCLCPP_ERROR(this->get_logger(), 
                 "Failed to set servo ID %d to position %d",
-                msg->servo_id, msg->target_position);
+                msg->id, msg->position);
   }
 }
 
@@ -206,9 +205,11 @@ void WristNode::timerCallback()
     return;
   }
   
-  // 创建关节状态消息
-  auto joint_state_msg = std::make_unique<sensor_msgs::msg::JointState>();
-  joint_state_msg->header.stamp = this->now();
+  // 更新关节状态结构体
+  current_joint_state_->name.clear();
+  current_joint_state_->position.clear();
+  current_joint_state_->velocity.clear();
+  current_joint_state_->effort.clear();
   
   // 准备要读取的舵机ID列表
   std::vector<uint8_t> ids;
@@ -230,15 +231,14 @@ void WristNode::timerCallback()
       joint_positions_[joint_name] = angle;
     }
     
-    // 添加到关节状态消息
-    joint_state_msg->name.push_back(joint_name);
-    joint_state_msg->position.push_back(joint_positions_[joint_name]);
-    joint_state_msg->velocity.push_back(0.0);  // 暂不提供速度信息
-    joint_state_msg->effort.push_back(0.0);    // 暂不提供力矩信息
+    // 添加到关节状态结构体
+    current_joint_state_->name.push_back(joint_name);
+    current_joint_state_->position.push_back(joint_positions_[joint_name]);
+    current_joint_state_->velocity.push_back(0.0);  // 暂不提供速度信息
+    current_joint_state_->effort.push_back(0.0);    // 暂不提供力矩信息
   }
   
-  // 发布关节状态
-  joint_state_pub_->publish(std::move(joint_state_msg));
+  // 关节状态已更新，如需，可以通过API直接获取current_joint_state_
 }
 
 rcl_interfaces::msg::SetParametersResult WristNode::parametersCallback(
@@ -394,6 +394,3 @@ void WristNode::loadJointLimits()
 }
 
 } // namespace servo_control
-
-#include "rclcpp_components/register_node_macro.hpp"
-RCLCPP_COMPONENTS_REGISTER_NODE(servo_control::WristNode) 

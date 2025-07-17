@@ -18,11 +18,7 @@
 ### 安装ROS 2 Humble（使用mamba）
 
 ```bash
-# 安装Mambaforge（如果尚未安装）
-wget -O Mambaforge.sh https://github.com/conda-forge/miniforge/releases/latest/download/Mambaforge-$(uname)-$(uname -m).sh
-bash Mambaforge.sh -b -p $HOME/mambaforge
-source $HOME/mambaforge/etc/profile.d/conda.sh
-source $HOME/mambaforge/etc/profile.d/mamba.sh
+# 安装Anaconda
 
 # 创建ROS环境
 mamba create -n ros_env
@@ -34,7 +30,6 @@ conda config --env --add channels conda-forge
 conda config --env --remove channels defaults
 
 # 添加ROS 2 Humble频道
-conda config --env --add channels robostack
 conda config --env --add channels robostack-humble
 
 # 安装ROS 2 Humble
@@ -42,60 +37,19 @@ mamba install ros-humble-desktop
 
 # 安装构建工具
 mamba install compilers cmake pkg-config make ninja colcon-common-extensions catkin_tools rosdep ros2-for-serial-driver
+
+# Windows需要安装vs2019/vs2022，安装基于C++的图形开发环境
 ```
 
 ### 初始化环境
 
 ```bash
-# 添加环境激活到bashrc（可选）
-echo "source $HOME/mambaforge/etc/profile.d/conda.sh" >> ~/.bashrc
-echo "source $HOME/mambaforge/etc/profile.d/mamba.sh" >> ~/.bashrc
-echo "mamba activate ros_env" >> ~/.bashrc
-
 # 为ROS环境设置
+mamba deactivate
 mamba activate ros_env
-echo "source $CONDA_PREFIX/setup.bash" >> ~/.bashrc
-
-# 初始化rosdep
-rosdep init
-rosdep update
-
-# 使配置在当前终端生效
-source ~/.bashrc
 ```
 
-### 初始化Python环境
-
-```bash
-# 激活ROS环境
-mamba activate ros_env
-
-# 安装必要的Python依赖
-mamba install -y pip lark-parser numpy opencv pyyaml yaml-cpp
-```
-
-## 安装依赖
-
-```bash
-# 激活ROS环境
-mamba activate ros_env
-
-# 安装系统依赖
-mamba install -y \
-  ros-humble-rclcpp \
-  ros-humble-rclpy \
-  ros-humble-std-msgs \
-  ros-humble-sensor-msgs \
-  ros-humble-geometry-msgs \
-  ros-humble-cv-bridge \
-  ros-humble-image-transport \
-  ros-humble-rviz2 \
-  ros-humble-qt-gui-cpp \
-  ros-humble-rqt-gui-cpp \
-  ros-humble-launch-ros
-```
-
-### 串口
+## 使用串口
 
 ```bash
 # 添加当前用户到dialout组以访问串口
@@ -107,7 +61,6 @@ sudo usermod -a -G dialout $USER
 ```bash
 # 在工作空间根目录下执行
 mamba activate ros_env
-source $CONDA_PREFIX/setup.bash
 colcon build --symlink-install
 ```
 
@@ -118,8 +71,6 @@ colcon build --symlink-install
 ```bash
 # 在工作空间根目录下执行
 mamba activate ros_env
-source $CONDA_PREFIX/setup.bash
-source install/setup.bash  # 加载编译后的环境
 ./start.sh
 ```
 
@@ -128,8 +79,6 @@ source install/setup.bash  # 加载编译后的环境
 ```bash
 # 激活环境
 mamba activate ros_env
-source $CONDA_PREFIX/setup.bash
-source install/setup.bash
 
 # 启动完整系统
 ros2 launch arm_bringup arm_control.launch.py
@@ -177,4 +126,3 @@ source install/setup.bash
 
 ## 许可证
 
-待定

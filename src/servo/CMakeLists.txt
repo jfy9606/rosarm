@@ -18,37 +18,89 @@ endif()
 # 查找依赖包
 find_package(ament_cmake REQUIRED)
 find_package(serial REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(servo_interfaces REQUIRED)
+find_package(nlohmann_json REQUIRED)
 
-# 创建简单的示例程序
-add_executable(serial_example
-  src/serial_example.cpp
+# Feetech SDK 源文件
+set(FEETECH_SDK_SOURCES
+  src/feetech_sdk/port_handler.cpp
+  src/feetech_sdk/packet_handler.cpp
+  src/feetech_sdk/group_sync_read.cpp
+  src/feetech_sdk/group_sync_write.cpp
 )
-target_include_directories(serial_example PUBLIC
+
+# 添加库
+add_library(servo_control
+  src/servo_control.cpp
+  src/feetech_adapter.cpp
+  ${FEETECH_SDK_SOURCES}
+)
+
+target_include_directories(servo_control PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
   ${serial_INCLUDE_DIRS}
 )
-target_link_libraries(serial_example
+
+target_link_libraries(servo_control
   ${serial_LIBRARIES}
+  nlohmann_json::nlohmann_json
 )
 
-# 创建模拟串口示例程序
-add_executable(serial_mock
-  src/serial_mock.cpp
+# 添加ROS节点
+add_executable(wrist_node
+  src/wrist_node.cpp
+  src/wrist_node_main.cpp
 )
 
-# 创建模拟舵机控制示例程序
-add_executable(servo_mock
-  src/servo_mock.cpp
+target_include_directories(wrist_node PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
 )
 
-# 创建独立舵机控制示例程序
-add_executable(standalone_servo_control
-  src/standalone_servo_control.cpp
+target_link_libraries(wrist_node
+  servo_control
+)
+
+ament_target_dependencies(wrist_node
+  rclcpp
+  servo_interfaces
+  std_msgs
+)
+
+add_executable(vacuum_node
+  src/vacuum_node.cpp
+  src/vacuum_node_main.cpp
+)
+
+target_include_directories(vacuum_node PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+target_link_libraries(vacuum_node
+  servo_control
+)
+
+ament_target_dependencies(vacuum_node
+  rclcpp
+  servo_interfaces
+  std_msgs
 )
 
 # 安装可执行文件
 install(
-  TARGETS serial_example serial_mock servo_mock standalone_servo_control
-  DESTINATION lib/${PROJECT_NAME}
+  TARGETS servo_control wrist_node vacuum_node
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
+)
+
+# 安装头文件
+install(
+  DIRECTORY include/
+  DESTINATION include
 )
 
 ament_package()

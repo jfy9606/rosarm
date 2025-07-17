@@ -1,31 +1,18 @@
 #include "servo/servo_control.hpp"
 #include <iostream>
+#include <fstream>
+#include <sstream>
 #include <chrono>
 #include <thread>
-#include <yaml-cpp/yaml.h>
-#include <fstream>
+#include <nlohmann/json.hpp>
+
+using json = nlohmann::json;
 
 namespace servo_control {
-
-// SCServo舵机协议常量 (用于传统方式)
-namespace sc_protocol {
-  constexpr uint8_t HEADER = 0xFF;           // 包头
-  constexpr uint8_t CMD_PING = 0x01;         // PING命令
-  constexpr uint8_t CMD_READ = 0x02;         // 读命令
-  constexpr uint8_t CMD_WRITE = 0x03;        // 写命令
-  constexpr uint8_t REG_POSITION = 0x2A;     // 位置寄存器地址
-  constexpr uint8_t REG_SPEED = 0x30;        // 速度寄存器地址
-  constexpr uint8_t REG_LOAD = 0x34;         // 负载寄存器地址
-  constexpr uint8_t REG_VOLTAGE = 0x3E;      // 电压寄存器地址
-  constexpr uint8_t REG_TEMPERATURE = 0x3F;  // 温度寄存器地址
-  constexpr uint8_t REG_TORQUE_ENABLE = 0x28; // 扭矩使能寄存器地址
-}
 
 ServoControl::ServoControl(const std::string& port, int baud_rate, int timeout)
   : port_(port), baud_rate_(baud_rate), timeout_(timeout), connected_(false)
 {
-  // 创建Feetech适配器
-  ft_adapter_ = std::make_unique<FeeTechAdapter>(port, baud_rate);
 }
 
 ServoControl::~ServoControl()
@@ -36,44 +23,37 @@ ServoControl::~ServoControl()
 bool ServoControl::init()
 {
   try {
-    // 初始化Feetech适配器
+    // 尝试使用Feetech SDK初始化
+    ft_adapter_ = std::make_unique<FeeTechAdapter>(port_, baud_rate_);
+    
     if (ft_adapter_->init()) {
       connected_ = true;
-      RCLCPP_INFO(rclcpp::get_logger("servo_control"), "Connected to %s at %d baud using Feetech SDK", 
-                 port_.c_str(), baud_rate_);
-      return true;
-    }
-    
-    // 如果Feetech适配器初始化失败，尝试使用传统方式
-    RCLCPP_WARN(rclcpp::get_logger("servo_control"), 
-               "Failed to initialize with Feetech SDK, falling back to traditional method");
-    
-    // 配置串口
-    serial_.setPort(port_);
-    serial_.setBaudrate(baud_rate_);
-    serial::Timeout timeout(serial::Timeout::simpleTimeout(timeout_));
-    serial_.setTimeout(timeout);
-    
-    // 打开串口
-    serial_.open();
-    connected_ = serial_.isOpen();
-    
-    if (connected_) {
-      RCLCPP_INFO(rclcpp::get_logger("servo_control"), "Connected to %s at %d baud using traditional method", 
-                 port_.c_str(), baud_rate_);
-      
-      // 清空缓冲区
-      serial_.flush();
-      
+      std::cout << "Connected to " << port_ << " at " << baud_rate_ << " baud using Feetech SDK" << std::endl;
       return true;
     } else {
-      RCLCPP_ERROR(rclcpp::get_logger("servo_control"), "Failed to connect to %s", 
-                  port_.c_str());
+      std::cerr << "Failed to initialize with Feetech SDK, falling back to traditional serial method" << std::endl;
+      ft_adapter_.reset();
+    }
+    
+    // 尝试使用传统串口方式初始化
+    serial::Timeout to = serial::Timeout::simpleTimeout(timeout_);
+    serial_.setPort(port_);
+    serial_.setBaudrate(baud_rate_);
+    serial_.setTimeout(to);
+    
+    serial_.open();
+    
+    if (serial_.isOpen()) {
+      connected_ = true;
+      std::cout << "Connected to " << port_ << " at " << baud_rate_ << " baud using traditional method" << std::endl;
+      return true;
+    } else {
+      std::cerr << "Failed to connect to " << port_ << std::endl;
+      connected_ = false;
       return false;
     }
-  }
-  catch (const serial::IOException& e) {
-    RCLCPP_ERROR(rclcpp::get_logger("servo_control"), "Exception: %s", e.what());
+  } catch (const std::exception& e) {
+    std::cerr << "Exception: " << e.what() << std::endl;
     connected_ = false;
     return false;
   }
@@ -81,119 +61,118 @@ bool ServoControl::init()
 
 void ServoControl::close()
 {
-  if (connected_) {
-    // 尝试关闭所有舵机扭矩
-    try {
-      for (uint8_t id = 1; id <= 10; ++id) {
-        setTorque(id, false);
-      }
-    } catch(...) {
-      // 忽略异常，确保关闭串口
-    }
-    
-    // 关闭Feetech适配器
-    if (ft_adapter_) {
-      ft_adapter_->close();
-    }
-    
-    // 关闭传统串口
-    if (serial_.isOpen()) {
-      serial_.close();
-    }
-    
-    connected_ = false;
-    RCLCPP_INFO(rclcpp::get_logger("servo_control"), "Serial port closed");
+  if (ft_adapter_) {
+    ft_adapter_->close();
   }
+  
+  if (serial_.isOpen()) {
+    serial_.close();
+  }
+  
+  connected_ = false;
+  std::cout << "Serial port closed" << std::endl;
 }
 
 bool ServoControl::loadServoConfigs(const std::string& config_file)
 {
   try {
-    YAML::Node config = YAML::LoadFile(config_file);
-    
-    if (!config["servo_config"] || !config["servo_config"]["wrist_servos"]) {
-      RCLCPP_ERROR(rclcpp::get_logger("servo_control"), "Invalid config file format");
+    // 打开配置文件
+    std::ifstream file(config_file);
+    if (!file.is_open()) {
+      std::cerr << "Failed to open config file: " << config_file << std::endl;
       return false;
     }
     
-    std::vector<FTServoConfig> servo_configs;
+    // 解析JSON
+    json config_json;
+    file >> config_json;
     
-    // 解析舵机配置
-    auto servos = config["servo_config"]["wrist_servos"];
-    for (size_t i = 0; i < servos.size(); i++) {
-      auto servo = servos[i];
-      
-      FTServoConfig config;
-      config.id = servo["id"].as<uint8_t>();
-      config.name = servo["name"].as<std::string>();
-      
-      // 解析舵机类型
-      std::string type_str = servo["type"].as<std::string>();
-      if (type_str == "STS_TYPE1") {
-        config.type = FTServoType::STS_TYPE1;
-        servo_types_[config.id] = FTServoType::STS_TYPE1;
-      } else if (type_str == "STS_TYPE2") {
-        config.type = FTServoType::STS_TYPE2;
-        servo_types_[config.id] = FTServoType::STS_TYPE2;
-      } else {
-        RCLCPP_WARN(rclcpp::get_logger("servo_control"), 
-                   "Unknown servo type: %s, defaulting to STS_TYPE1", type_str.c_str());
-        config.type = FTServoType::STS_TYPE1;
-        servo_types_[config.id] = FTServoType::STS_TYPE1;
-      }
-      
-      config.min_position = servo["min_pos"].as<uint16_t>();
-      config.max_position = servo["max_pos"].as<uint16_t>();
-      
-      servo_configs.push_back(config);
-      
-      RCLCPP_INFO(rclcpp::get_logger("servo_control"), 
-                 "Loaded config for servo ID %d, name %s, type %s", 
-                 config.id, config.name.c_str(), type_str.c_str());
+    if (!config_json.is_array()) {
+      std::cerr << "Invalid config file format" << std::endl;
+      return false;
     }
     
-    // 将配置加载到Feetech适配器
+    // 清除旧配置
+    servo_types_.clear();
+    
+    // 读取舵机配置
+    std::vector<FTServoConfig> ft_configs;
+    
+    for (const auto& servo : config_json) {
+      uint8_t id = servo["id"];
+      std::string name = servo["name"];
+      std::string type_str = servo["type"];
+      
+      FTServoType type;
+      if (type_str == "STS_TYPE1") {
+        type = FTServoType::STS_TYPE1;
+      } else if (type_str == "STS_TYPE2") {
+        type = FTServoType::STS_TYPE2;
+      } else {
+        std::cerr << "Unknown servo type: " << type_str << " for ID: " << static_cast<int>(id) << std::endl;
+        continue;
+      }
+      
+      // 保存类型映射
+      servo_types_[id] = type;
+      
+      // 创建FT舵机配置
+      FTServoConfig ft_config;
+      ft_config.id = id;
+      ft_config.name = name;
+      ft_config.type = type;
+      ft_config.min_position = servo.value("min_position", 0);
+      ft_config.max_position = servo.value("max_position", 4095);
+      
+      ft_configs.push_back(ft_config);
+      
+      std::cout << "Loaded config for servo ID " << static_cast<int>(id) 
+                << ", type " << type_str 
+                << ", name " << name << std::endl;
+    }
+    
+    // 如果使用FT适配器，加载配置
     if (ft_adapter_) {
-      ft_adapter_->loadServoConfigs(servo_configs);
+      ft_adapter_->loadServoConfigs(ft_configs);
     }
     
     return true;
-  }
-  catch (const std::exception& e) {
-    RCLCPP_ERROR(rclcpp::get_logger("servo_control"), 
-                "Failed to load servo configs: %s", e.what());
+  } catch (const std::exception& e) {
+    std::cerr << "Error loading servo configs: " << e.what() << std::endl;
     return false;
   }
 }
 
 bool ServoControl::setPosition(uint8_t id, uint16_t position, uint16_t time, uint16_t speed)
 {
-  (void)speed; // 标记参数为有意未使用
-  
   if (!connected_) {
-    RCLCPP_ERROR(rclcpp::get_logger("servo_control"), "Not connected to servo controller");
+    std::cerr << "Not connected to servo controller" << std::endl;
     return false;
   }
   
-  // 尝试使用Feetech适配器
-  if (ft_adapter_ && ft_adapter_->isConnected()) {
+  // 如果使用FT适配器
+  if (ft_adapter_) {
     return ft_adapter_->setPosition(id, position, time, speed);
   }
   
-  // 传统方式
-  // 构建位置控制数据包
+  // 传统方式实现
+  // 这里需要根据具体舵机协议实现
+  // 这是一个简化的示例
   std::vector<uint8_t> packet;
-  packet.push_back(sc_protocol::HEADER);
-  packet.push_back(sc_protocol::HEADER);
-  packet.push_back(id);
-  packet.push_back(7);  // 长度: 命令(1) + 寄存器地址(1) + 位置(2) + 时间(2) + 校验和(1)
-  packet.push_back(sc_protocol::CMD_WRITE);
-  packet.push_back(sc_protocol::REG_POSITION);
-  packet.push_back(position & 0xFF);
-  packet.push_back((position >> 8) & 0xFF);
-  packet.push_back(time & 0xFF);
-  packet.push_back((time >> 8) & 0xFF);
-  packet.push_back(calculateChecksum(packet));
+  packet.push_back(0xFF);  // 头
+  packet.push_back(0xFF);  // 头
+  packet.push_back(id);    // ID
+  packet.push_back(0x07);  // 长度
+  packet.push_back(0x03);  // 写命令
+  packet.push_back(0x2A);  // 位置寄存器地址
+  packet.push_back(position & 0xFF);        // 位置低字节
+  packet.push_back((position >> 8) & 0xFF); // 位置高字节
+  packet.push_back(time & 0xFF);            // 时间低字节
+  packet.push_back((time >> 8) & 0xFF);     // 时间高字节
+  
+  // 计算校验和
+  uint8_t checksum = calculateChecksum(packet);
+  packet.push_back(checksum);
   
   return sendPacket(packet);
 }
@@ -201,27 +180,31 @@ bool ServoControl::setPosition(uint8_t id, uint16_t position, uint16_t time, uin
 bool ServoControl::setSpeed(uint8_t id, int16_t speed)
 {
   if (!connected_) {
-    RCLCPP_ERROR(rclcpp::get_logger("servo_control"), "Not connected to servo controller");
+    std::cerr << "Not connected to servo controller" << std::endl;
     return false;
   }
   
-  // 尝试使用Feetech适配器
-  if (ft_adapter_ && ft_adapter_->isConnected()) {
+  // 如果使用FT适配器
+  if (ft_adapter_) {
     return ft_adapter_->setSpeed(id, speed);
   }
   
-  // 传统方式
-  // 构建速度控制数据包
+  // 传统方式实现
+  // 这里需要根据具体舵机协议实现
+  // 这是一个简化的示例
   std::vector<uint8_t> packet;
-  packet.push_back(sc_protocol::HEADER);
-  packet.push_back(sc_protocol::HEADER);
-  packet.push_back(id);
-  packet.push_back(5);  // 长度: 命令(1) + 寄存器地址(1) + 速度(2) + 校验和(1)
-  packet.push_back(sc_protocol::CMD_WRITE);
-  packet.push_back(sc_protocol::REG_SPEED);
-  packet.push_back(speed & 0xFF);
-  packet.push_back((speed >> 8) & 0xFF);
-  packet.push_back(calculateChecksum(packet));
+  packet.push_back(0xFF);  // 头
+  packet.push_back(0xFF);  // 头
+  packet.push_back(id);    // ID
+  packet.push_back(0x05);  // 长度
+  packet.push_back(0x03);  // 写命令
+  packet.push_back(0x20);  // 速度寄存器地址
+  packet.push_back(speed & 0xFF);        // 速度低字节
+  packet.push_back((speed >> 8) & 0xFF); // 速度高字节
+  
+  // 计算校验和
+  uint8_t checksum = calculateChecksum(packet);
+  packet.push_back(checksum);
   
   return sendPacket(packet);
 }
@@ -229,150 +212,163 @@ bool ServoControl::setSpeed(uint8_t id, int16_t speed)
 int ServoControl::getPosition(uint8_t id)
 {
   if (!connected_) {
-    RCLCPP_ERROR(rclcpp::get_logger("servo_control"), "Not connected to servo controller");
+    std::cerr << "Not connected to servo controller" << std::endl;
     return -1;
   }
   
-  // 尝试使用Feetech适配器
-  if (ft_adapter_ && ft_adapter_->isConnected()) {
+  // 如果使用FT适配器
+  if (ft_adapter_) {
     return ft_adapter_->getPosition(id);
   }
   
-  // 传统方式
-  // 构建位置读取数据包
+  // 传统方式实现
+  // 这里需要根据具体舵机协议实现
+  // 这是一个简化的示例
   std::vector<uint8_t> packet;
-  packet.push_back(sc_protocol::HEADER);
-  packet.push_back(sc_protocol::HEADER);
-  packet.push_back(id);
-  packet.push_back(4);  // 长度: 命令(1) + 寄存器地址(1) + 数据长度(1) + 校验和(1)
-  packet.push_back(sc_protocol::CMD_READ);
-  packet.push_back(sc_protocol::REG_POSITION);
-  packet.push_back(2);  // 读取2个字节
-  packet.push_back(calculateChecksum(packet));
+  packet.push_back(0xFF);  // 头
+  packet.push_back(0xFF);  // 头
+  packet.push_back(id);    // ID
+  packet.push_back(0x04);  // 长度
+  packet.push_back(0x02);  // 读命令
+  packet.push_back(0x38);  // 位置寄存器地址
+  packet.push_back(0x02);  // 读取长度(2字节)
+  
+  // 计算校验和
+  uint8_t checksum = calculateChecksum(packet);
+  packet.push_back(checksum);
   
   if (!sendPacket(packet)) {
     return -1;
   }
   
-  // 等待响应并解析
+  // 读取响应
   std::vector<uint8_t> response = readPacket();
-  if (response.size() >= 8) {
-    return response[5] + (response[6] << 8);
+  if (response.size() < 8) {
+    return -1;
   }
   
-  return -1;
+  // 解析位置
+  return (response[6] | (response[7] << 8));
 }
 
 int ServoControl::getTemperature(uint8_t id)
 {
   if (!connected_) {
-    RCLCPP_ERROR(rclcpp::get_logger("servo_control"), "Not connected to servo controller");
+    std::cerr << "Not connected to servo controller" << std::endl;
     return -1;
   }
   
-  // 尝试使用Feetech适配器
-  if (ft_adapter_ && ft_adapter_->isConnected()) {
+  // 如果使用FT适配器
+  if (ft_adapter_) {
     return ft_adapter_->getTemperature(id);
   }
   
-  // 传统方式
-  // 构建温度读取数据包
+  // 传统方式实现
+  // 这里需要根据具体舵机协议实现
+  // 这是一个简化的示例
   std::vector<uint8_t> packet;
-  packet.push_back(sc_protocol::HEADER);
-  packet.push_back(sc_protocol::HEADER);
-  packet.push_back(id);
-  packet.push_back(4);  // 长度: 命令(1) + 寄存器地址(1) + 数据长度(1) + 校验和(1)
-  packet.push_back(sc_protocol::CMD_READ);
-  packet.push_back(sc_protocol::REG_TEMPERATURE);
-  packet.push_back(1);  // 读取1个字节
-  packet.push_back(calculateChecksum(packet));
+  packet.push_back(0xFF);  // 头
+  packet.push_back(0xFF);  // 头
+  packet.push_back(id);    // ID
+  packet.push_back(0x04);  // 长度
+  packet.push_back(0x02);  // 读命令
+  packet.push_back(0x2B);  // 温度寄存器地址
+  packet.push_back(0x01);  // 读取长度(1字节)
+  
+  // 计算校验和
+  uint8_t checksum = calculateChecksum(packet);
+  packet.push_back(checksum);
   
   if (!sendPacket(packet)) {
     return -1;
   }
   
-  // 等待响应并解析
+  // 读取响应
   std::vector<uint8_t> response = readPacket();
-  if (response.size() >= 7) {
-    return response[5];
+  if (response.size() < 7) {
+    return -1;
   }
   
-  return -1;
+  // 解析温度
+  return response[6];
 }
 
 float ServoControl::getVoltage(uint8_t id)
 {
   if (!connected_) {
-    RCLCPP_ERROR(rclcpp::get_logger("servo_control"), "Not connected to servo controller");
+    std::cerr << "Not connected to servo controller" << std::endl;
     return -1.0f;
   }
   
-  // 尝试使用Feetech适配器
-  if (ft_adapter_ && ft_adapter_->isConnected()) {
+  // 如果使用FT适配器
+  if (ft_adapter_) {
     return ft_adapter_->getVoltage(id);
   }
   
-  // 传统方式
-  // 构建电压读取数据包
+  // 传统方式实现
+  // 这里需要根据具体舵机协议实现
+  // 这是一个简化的示例
   std::vector<uint8_t> packet;
-  packet.push_back(sc_protocol::HEADER);
-  packet.push_back(sc_protocol::HEADER);
-  packet.push_back(id);
-  packet.push_back(4);  // 长度: 命令(1) + 寄存器地址(1) + 数据长度(1) + 校验和(1)
-  packet.push_back(sc_protocol::CMD_READ);
-  packet.push_back(sc_protocol::REG_VOLTAGE);
-  packet.push_back(1);  // 读取1个字节
-  packet.push_back(calculateChecksum(packet));
+  packet.push_back(0xFF);  // 头
+  packet.push_back(0xFF);  // 头
+  packet.push_back(id);    // ID
+  packet.push_back(0x04);  // 长度
+  packet.push_back(0x02);  // 读命令
+  packet.push_back(0x2A);  // 电压寄存器地址
+  packet.push_back(0x01);  // 读取长度(1字节)
+  
+  // 计算校验和
+  uint8_t checksum = calculateChecksum(packet);
+  packet.push_back(checksum);
   
   if (!sendPacket(packet)) {
     return -1.0f;
   }
   
-  // 等待响应并解析
+  // 读取响应
   std::vector<uint8_t> response = readPacket();
-  if (response.size() >= 7) {
-    return response[5] / 10.0f;  // 电压单位为0.1V
+  if (response.size() < 7) {
+    return -1.0f;
   }
   
-  return -1.0f;
+  // 解析电压 (假设单位为0.1V)
+  return response[6] / 10.0f;
 }
 
 bool ServoControl::setTorque(uint8_t id, bool enable)
 {
   if (!connected_) {
-    RCLCPP_ERROR(rclcpp::get_logger("servo_control"), "Not connected to servo controller");
+    std::cerr << "Not connected to servo controller" << std::endl;
     return false;
   }
   
-  // 尝试使用Feetech适配器
-  if (ft_adapter_ && ft_adapter_->isConnected()) {
+  // 如果使用FT适配器
+  if (ft_adapter_) {
     return ft_adapter_->setTorque(id, enable);
   }
   
-  // 传统方式
-  // 构建扭矩使能数据包
+  // 传统方式实现
+  // 这里需要根据具体舵机协议实现
+  // 这是一个简化的示例
   std::vector<uint8_t> packet;
-  packet.push_back(sc_protocol::HEADER);
-  packet.push_back(sc_protocol::HEADER);
-  packet.push_back(id);
-  packet.push_back(4);  // 长度: 命令(1) + 寄存器地址(1) + 使能值(1) + 校验和(1)
-  packet.push_back(sc_protocol::CMD_WRITE);
-  packet.push_back(sc_protocol::REG_TORQUE_ENABLE);
-  packet.push_back(enable ? 1 : 0);
-  packet.push_back(calculateChecksum(packet));
+  packet.push_back(0xFF);  // 头
+  packet.push_back(0xFF);  // 头
+  packet.push_back(id);    // ID
+  packet.push_back(0x04);  // 长度
+  packet.push_back(0x03);  // 写命令
+  packet.push_back(0x18);  // 扭矩使能寄存器地址
+  packet.push_back(enable ? 0x01 : 0x00);  // 使能/失能
+  
+  // 计算校验和
+  uint8_t checksum = calculateChecksum(packet);
+  packet.push_back(checksum);
   
   return sendPacket(packet);
 }
 
 bool ServoControl::isConnected() const
 {
-  // 首先检查Feetech适配器
-  if (ft_adapter_ && ft_adapter_->isConnected()) {
-    return true;
-  }
-  
-  // 然后检查传统串口
-  return connected_ && serial_.isOpen();
+  return connected_;
 }
 
 std::map<uint8_t, int> ServoControl::syncReadPositions(const std::vector<uint8_t>& ids)
@@ -380,20 +376,20 @@ std::map<uint8_t, int> ServoControl::syncReadPositions(const std::vector<uint8_t
   std::map<uint8_t, int> positions;
   
   if (!connected_) {
-    RCLCPP_ERROR(rclcpp::get_logger("servo_control"), "Not connected to servo controller");
+    std::cerr << "Not connected to servo controller" << std::endl;
     return positions;
   }
   
-  // 尝试使用Feetech适配器
-  if (ft_adapter_ && ft_adapter_->isConnected()) {
+  // 如果使用FT适配器
+  if (ft_adapter_) {
     return ft_adapter_->syncReadPositions(ids);
   }
   
-  // 传统方式不支持同步读取，使用顺序读取
+  // 传统方式实现 - 简单地循环读取每个舵机
   for (auto id : ids) {
-    int position = getPosition(id);
-    if (position >= 0) {
-      positions[id] = position;
+    int pos = getPosition(id);
+    if (pos >= 0) {
+      positions[id] = pos;
     }
   }
   
@@ -403,59 +399,48 @@ std::map<uint8_t, int> ServoControl::syncReadPositions(const std::vector<uint8_t
 bool ServoControl::syncWritePositions(const std::map<uint8_t, uint16_t>& positions)
 {
   if (!connected_) {
-    RCLCPP_ERROR(rclcpp::get_logger("servo_control"), "Not connected to servo controller");
+    std::cerr << "Not connected to servo controller" << std::endl;
     return false;
   }
   
-  // 尝试使用Feetech适配器
-  if (ft_adapter_ && ft_adapter_->isConnected()) {
+  // 如果使用FT适配器
+  if (ft_adapter_) {
     return ft_adapter_->syncWritePositions(positions);
   }
   
-  // 传统方式不支持同步写入，使用顺序写入
-  bool all_success = true;
+  // 传统方式实现 - 简单地循环设置每个舵机
   for (const auto& pos : positions) {
     if (!setPosition(pos.first, pos.second)) {
-      all_success = false;
+      return false;
     }
   }
   
-  return all_success;
+  return true;
 }
 
 bool ServoControl::sendPacket(const std::vector<uint8_t>& packet)
 {
   if (!connected_) {
-    RCLCPP_ERROR(rclcpp::get_logger("servo_control"), "Not connected to servo controller");
+    std::cerr << "Not connected to servo controller" << std::endl;
     return false;
   }
   
   try {
-    // 发送数据包
     size_t bytes_written = serial_.write(packet);
-    
     if (bytes_written != packet.size()) {
-      RCLCPP_ERROR(rclcpp::get_logger("servo_control"), 
-                  "Failed to write all bytes: %zu of %zu written", 
-                  bytes_written, packet.size());
+      std::cerr << "Failed to write all bytes: wrote " << bytes_written 
+                << " of " << packet.size() << std::endl;
       return false;
     }
-    
     return true;
-  }
-  catch (const serial::IOException& e) {
-    RCLCPP_ERROR(rclcpp::get_logger("servo_control"), 
-                "IOException: %s", e.what());
+  } catch (const serial::SerialException& e) {
+    std::cerr << "Serial exception: " << e.what() << std::endl;
     return false;
-  }
-  catch (const serial::SerialException& e) {
-    RCLCPP_ERROR(rclcpp::get_logger("servo_control"), 
-                "SerialException: %s", e.what());
+  } catch (const serial::IOException& e) {
+    std::cerr << "IO exception: " << e.what() << std::endl;
     return false;
-  }
-  catch (const std::exception& e) {
-    RCLCPP_ERROR(rclcpp::get_logger("servo_control"), 
-                "Exception: %s", e.what());
+  } catch (const std::exception& e) {
+    std::cerr << "Exception: " << e.what() << std::endl;
     return false;
   }
 }
@@ -465,39 +450,36 @@ std::vector<uint8_t> ServoControl::readPacket()
   std::vector<uint8_t> response;
   
   if (!connected_) {
-    RCLCPP_ERROR(rclcpp::get_logger("servo_control"), "Not connected to servo controller");
+    std::cerr << "Not connected to servo controller" << std::endl;
     return response;
   }
   
   try {
-    // 等待响应
-    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    // 等待数据
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
     
-    // 检查是否有数据可读
+    // 检查可用数据
     size_t bytes_available = serial_.available();
     if (bytes_available == 0) {
-      RCLCPP_WARN(rclcpp::get_logger("servo_control"), "No data available to read");
+      std::cerr << "No data available to read" << std::endl;
       return response;
     }
     
-    // 读取所有可用数据
-    response = serial_.read(bytes_available);
+    // 读取数据
+    std::string data = serial_.read(bytes_available);
+    for (char c : data) {
+      response.push_back(static_cast<uint8_t>(c));
+    }
     
     return response;
-  }
-  catch (const serial::IOException& e) {
-    RCLCPP_ERROR(rclcpp::get_logger("servo_control"), 
-                "IOException: %s", e.what());
+  } catch (const serial::SerialException& e) {
+    std::cerr << "Serial exception: " << e.what() << std::endl;
     return response;
-  }
-  catch (const serial::SerialException& e) {
-    RCLCPP_ERROR(rclcpp::get_logger("servo_control"), 
-                "SerialException: %s", e.what());
+  } catch (const serial::IOException& e) {
+    std::cerr << "IO exception: " << e.what() << std::endl;
     return response;
-  }
-  catch (const std::exception& e) {
-    RCLCPP_ERROR(rclcpp::get_logger("servo_control"), 
-                "Exception: %s", e.what());
+  } catch (const std::exception& e) {
+    std::cerr << "Exception: " << e.what() << std::endl;
     return response;
   }
 }
@@ -506,15 +488,13 @@ uint8_t ServoControl::calculateChecksum(const std::vector<uint8_t>& data)
 {
   uint8_t checksum = 0;
   
-  // 校验和计算: 从ID开始，到校验和前一个字节
-  for (size_t i = 2; i < data.size() - 1; ++i) {
+  // 从ID开始计算校验和
+  for (size_t i = 2; i < data.size(); i++) {
     checksum += data[i];
   }
   
   // 取反
-  checksum = ~checksum;
-  
-  return checksum;
+  return ~checksum;
 }
 
 } // namespace servo_control 
