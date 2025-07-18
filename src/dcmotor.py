@@ -136,15 +136,15 @@ class DCMotorController:
     
     def connect(self, port, baudrate=115200, timeout=0.5):
         """
-        Connect to the motor controller
+        连接到电机控制器
         
         Args:
-            port: Serial port name
-            baudrate: Baud rate for serial communication
-            timeout: Serial timeout in seconds
+            port: 串口名称
+            baudrate: 串口波特率
+            timeout: 串口超时（秒）
             
         Returns:
-            bool: True if connected successfully, False otherwise
+            bool: 连接成功返回 True，否则返回 False
         """
         try:
             self.port = port
@@ -154,6 +154,8 @@ class DCMotorController:
             # 关闭之前的连接
             if self.serial and self.serial.is_open:
                 self.serial.close()
+            
+            logger.info(f"尝试连接到串口 {port}，波特率 {baudrate}...")
             
             # 创建新的串口连接
             self.serial = serial.Serial(
@@ -170,15 +172,60 @@ class DCMotorController:
             self.serial.reset_output_buffer()
             
             self.connected = True
-            logger.info(f"Connected to motor controller on {port} at {baudrate} baud")
+            logger.info(f"已连接到串口 {port}")
             
-            # 初始化电机
+            # 初始化电机 - 先进行通信测试
             time.sleep(0.5)  # 等待电机控制器稳定
-            self._send_stop_command()  # 初始化时停止所有电机
             
-            return True
+            # 测试通信
+            logger.info("正在测试电机通信...")
+            test_results = self.test_communication()
+            
+            if test_results["yf_pitch"] or test_results["ai_linear"]:
+                logger.info(f"电机通信测试结果: YF俯仰电机={test_results['yf_pitch']}, AImotor进给电机={test_results['ai_linear']}")
+                
+                # 如果任一电机通信成功，则认为连接成功
+                return True
+            else:
+                logger.warning(f"电机通信测试失败: {test_results}")
+                # 尝试不同的波特率
+                alternate_baudrates = [9600, 19200, 38400, 57600, 115200]
+                if baudrate in alternate_baudrates:
+                    alternate_baudrates.remove(baudrate)
+                
+                for alt_baudrate in alternate_baudrates:
+                    logger.info(f"尝试使用备用波特率 {alt_baudrate}...")
+                    try:
+                        self.serial.close()
+                        self.serial = serial.Serial(
+                            port=port,
+                            baudrate=alt_baudrate,
+                            timeout=timeout,
+                            bytesize=serial.EIGHTBITS,
+                            parity=serial.PARITY_NONE,
+                            stopbits=serial.STOPBITS_ONE
+                        )
+                        self.baudrate = alt_baudrate
+                        
+                        # 清空缓冲区
+                        self.serial.reset_input_buffer()
+                        self.serial.reset_output_buffer()
+                        
+                        # 再次测试通信
+                        test_results = self.test_communication()
+                        if test_results["yf_pitch"] or test_results["ai_linear"]:
+                            logger.info(f"使用波特率 {alt_baudrate} 通信成功: YF={test_results['yf_pitch']}, AI={test_results['ai_linear']}")
+                            return True
+                    except Exception as e:
+                        logger.error(f"尝试波特率 {alt_baudrate} 失败: {e}")
+                
+                # 所有波特率都失败
+                logger.error("所有波特率都无法与电机通信")
+                self.connected = False
+                return False
+            
         except Exception as e:
-            logger.error(f"Failed to connect to motor controller: {e}")
+            logger.error(f"连接到电机控制器失败: {e}")
             self.connected = False
             return False
     
@@ -202,7 +249,7 @@ class DCMotorController:
     def is_connected(self):
         """
         Check if connected to the motor controller
-        
+            
         Returns:
             bool: True if connected, False otherwise
         """
@@ -234,17 +281,17 @@ class DCMotorController:
     def _send_ai_command(self, data):
         """
         发送命令到AIMotor进给电机，添加CRC校验
-
+        
         Args:
             data: 命令数据，不包含CRC
-
+            
         Returns:
             bytes: 收到的响应
         """
         if not self.is_connected():
             logger.error("Not connected to motor controller")
             return None
-            
+        
         try:
             # 添加ModBus CRC-16校验
             crc = self._modbus_crc16(data)
@@ -283,7 +330,7 @@ class DCMotorController:
         if not self.is_connected():
             logger.error("Not connected to motor controller")
             return None
-            
+        
         try:
             # 发送命令
             if self.debug:
@@ -834,27 +881,27 @@ class DCMotorController:
                 0x00, 0x00     # 预留字节
             ])
             
-            logger.info("Testing YF pitch motor communication...")
-            logger.debug(f"Sending command: {' '.join(f'{b:02X}' for b in cmd_data)}")
+            logger.info("测试YF俯仰电机通信...")
+            logger.debug(f"发送命令: {' '.join(f'{b:02X}' for b in cmd_data)}")
             
             # 清空接收缓冲区
             self.serial.reset_input_buffer()
             
             # 发送命令
             self.serial.write(cmd_data)
-            time.sleep(0.2)
+            time.sleep(0.3)  # 增加等待时间
             
             # 读取响应
             if self.serial.in_waiting:
                 response = self.serial.read(self.serial.in_waiting)
                 response_hex = ' '.join(f'{b:02X}' for b in response)
-                logger.debug(f"Received response: {response_hex}")
+                logger.debug(f"收到响应: {response_hex}")
                 results["yf_debug_info"] += f"Response: {response_hex}\n"
                 
                 results["yf_pitch"] = True
-                logger.info("YF pitch motor communication test: SUCCESS")
+                logger.info("YF俯仰电机通信测试: 成功")
             else:
-                logger.warning("YF pitch motor communication test: FAILED (no response)")
+                logger.warning("YF俯仰电机通信测试: 失败 (无响应)")
                 
                 # 尝试使用 pos_pinch 方法格式
                 try:
@@ -869,25 +916,25 @@ class DCMotorController:
                         0x00, 0x00, 0x00, 0x00  # 位置 (小端)
                     ])
                     
-                    logger.debug(f"Trying alternate command: {' '.join(f'{b:02X}' for b in cmd_data)}")
+                    logger.debug(f"尝试备用命令: {' '.join(f'{b:02X}' for b in cmd_data)}")
                     
                     self.serial.reset_input_buffer()
                     self.serial.write(cmd_data)
-                    time.sleep(0.2)
+                    time.sleep(0.3)  # 增加等待时间
                     
                     if self.serial.in_waiting:
                         response = self.serial.read(self.serial.in_waiting)
                         response_hex = ' '.join(f'{b:02X}' for b in response)
-                        logger.debug(f"Received response: {response_hex}")
+                        logger.debug(f"收到响应: {response_hex}")
                         results["yf_debug_info"] += f"Alt response: {response_hex}\n"
                         
                         results["yf_pitch"] = True
-                        logger.info("YF pitch motor communication test: SUCCESS with alternate command")
+                        logger.info("YF俯仰电机通信测试: 使用备用命令成功")
                 except Exception as e:
-                    logger.error(f"Error sending alternate YF command: {e}")
+                    logger.error(f"发送备用YF命令时出错: {e}")
                 
         except Exception as e:
-            error_msg = f"Error testing YF pitch motor communication: {e}"
+            error_msg = f"测试YF俯仰电机通信时出错: {e}"
             logger.error(error_msg)
             results["errors"].append(error_msg)
         
@@ -895,8 +942,8 @@ class DCMotorController:
         try:
             read_pos_cmd = [self.AI_STATION] + self.CODE_LIST[17]  # 读取位置命令
             
-            logger.info("Testing AIMotor linear motor communication...")
-            logger.debug(f"Sending command: {' '.join(f'{b:02X}' for b in read_pos_cmd)}")
+            logger.info("测试AIMotor进给电机通信...")
+            logger.debug(f"发送命令: {' '.join(f'{b:02X}' for b in read_pos_cmd)}")
             
             # 添加CRC校验
             crc = self._modbus_crc16(read_pos_cmd)
@@ -908,42 +955,42 @@ class DCMotorController:
             
             # 发送命令
             self.serial.write(bytearray(read_pos_cmd))
-            time.sleep(0.2)
+            time.sleep(0.3)  # 增加等待时间
             
             # 读取响应
             if self.serial.in_waiting:
                 response = self.serial.read(self.serial.in_waiting)
                 response_hex = ' '.join(f'{b:02X}' for b in response)
-                logger.debug(f"Received response: {response_hex}")
+                logger.debug(f"收到响应: {response_hex}")
                 results["ai_debug_info"] += f"Response: {response_hex}\n"
                 
                 results["ai_linear"] = True
-                logger.info("AIMotor linear motor communication test: SUCCESS")
+                logger.info("AIMotor进给电机通信测试: 成功")
             else:
-                logger.warning("AIMotor linear motor communication test: FAILED (no response)")
+                logger.warning("AIMotor进给电机通信测试: 失败 (无响应)")
                 # 尝试更多命令格式
                 read_status_cmd = [self.AI_STATION] + self.CODE_LIST[16]  # 读取速度命令
                 crc = self._modbus_crc16(read_status_cmd)
                 read_status_cmd.append(crc & 0xFF)
                 read_status_cmd.append((crc >> 8) & 0xFF)
                 
-                logger.debug(f"Trying alternate command: {' '.join(f'{b:02X}' for b in read_status_cmd)}")
+                logger.debug(f"尝试备用命令: {' '.join(f'{b:02X}' for b in read_status_cmd)}")
                 
                 self.serial.reset_input_buffer()
                 self.serial.write(bytearray(read_status_cmd))
-                time.sleep(0.2)
+                time.sleep(0.3)  # 增加等待时间
                 
                 if self.serial.in_waiting:
                     response = self.serial.read(self.serial.in_waiting)
                     response_hex = ' '.join(f'{b:02X}' for b in response)
-                    logger.debug(f"Received response: {response_hex}")
+                    logger.debug(f"收到响应: {response_hex}")
                     results["ai_debug_info"] += f"Alt response: {response_hex}\n"
                     
                     results["ai_linear"] = True
-                    logger.info("AIMotor linear motor communication test: SUCCESS with alternate command")
+                    logger.info("AIMotor进给电机通信测试: 使用备用命令成功")
         
         except Exception as e:
-            error_msg = f"Error testing AIMotor linear motor communication: {e}"
+            error_msg = f"测试AIMotor进给电机通信时出错: {e}"
             logger.error(error_msg)
             results["errors"].append(error_msg)
         
@@ -955,7 +1002,29 @@ class DCMotorController:
             "connected": self.is_connected()
         }
         
-        return results 
+        return results
+    
+    @staticmethod
+    def scan_ports():
+        """
+        扫描可用的串口
+        
+        Returns:
+            list: 可用串口列表，每个元素是一个字典，包含端口名称和描述
+        """
+        try:
+            import serial.tools.list_ports
+            ports = []
+            for port in serial.tools.list_ports.comports():
+                ports.append({
+                    "device": port.device,
+                    "description": port.description,
+                    "hwid": port.hwid
+                })
+            return ports
+        except Exception as e:
+            logger.error(f"扫描串口时出错: {e}")
+            return []
 
     def pos_pinch(self, station_num, max_speed, angle_control):
         """
@@ -1011,4 +1080,4 @@ class DCMotorController:
             
         except Exception as e:
             logger.error(f"Error in pos_pinch: {e}")
-            return False 
+            return False

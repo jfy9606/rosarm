@@ -376,14 +376,20 @@ class RobotArm:
         # 设置速度（如果提供）
         if speed is not None:
             self.pitch_speed = speed
-            self.motor.set_motor_speed(pitch_speed=speed)
+        
+        # 使用 pos_pinch 方法控制 YF 电机
+        # 将位置转换为角度控制值 (0.01 degree/LSB)
+        angle_control = position * 100
+        # 设置最大速度 (1dps/LSB)
+        max_speed = self.pitch_speed * 10  # 转换为适当的速度单位
         
         # 尝试多次发送命令，增加成功率
         success = False
         retries = 3
         
         for attempt in range(retries):
-            success = self.motor.set_pitch_position(position, self.pitch_speed)
+            # 使用 pos_pinch 方法，完全按照 SimpleNetwork 中的实现
+            success = self.motor.pos_pinch(1, max_speed, angle_control)
             if success:
                 break
             time.sleep(0.1)  # 短暂延迟后重试
