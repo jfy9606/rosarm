@@ -63,6 +63,42 @@ python demo.py --demo scan   # 扫描连接的舵机
 python demo.py --demo all    # 所有演示（默认）
 ```
 
+### 测试脚本
+
+项目包含了几个专门用于测试电机通信的脚本，位于 `test` 文件夹中：
+
+#### 测试所有电机
+
+```bash
+# 自动扫描所有可用串口并测试
+python -m test.motor_test --scan
+
+# 指定串口进行测试
+python -m test.motor_test --port COM3
+```
+
+#### 测试 YF 俯仰电机
+
+```bash
+# 使用默认串口 COM3
+python -m test.test_yf_motor
+
+# 指定串口
+python -m test.test_yf_motor --port COM4
+```
+
+#### 测试 AIMotor 进给电机
+
+```bash
+# 使用默认串口 COM3
+python -m test.test_ai_motor
+
+# 指定串口
+python -m test.test_ai_motor --port COM4
+```
+
+测试脚本会尝试与电机建立通信，并执行基本的位置控制命令，帮助诊断电机通信问题。
+
 ## 在你的项目中使用
 
 ```python
@@ -115,6 +151,10 @@ robot.disconnect()
 - `src/__init__.py` - 使包可导入
 - `demo.py` - 演示程序
 - `components/Feetech-Servo-SDK/` - Feetech官方舵机SDK
+- `test/motor_test.py` - 测试所有电机通信
+- `test/test_yf_motor.py` - 专门测试YF俯仰电机
+- `test/test_ai_motor.py` - 专门测试AIMotor进给电机
+- `test/test_utils.py` - 测试工具模块，用于正确导入src模块
 
 ## 注意事项
 
