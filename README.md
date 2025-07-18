@@ -65,7 +65,7 @@ python demo.py --demo all    # 所有演示（默认）
 
 ### 测试脚本
 
-项目包含了几个专门用于测试电机通信的脚本，位于 `test` 文件夹中：
+项目包含了几个专门用于测试电机通信的脚本，位于 `test` 文件夹中。这些测试脚本支持自动扫描可用串口和自适应波特率功能，可以帮助诊断电机通信问题：
 
 #### 测试所有电机
 
@@ -80,24 +80,24 @@ python -m test.motor_test --port COM3
 #### 测试 YF 俯仰电机
 
 ```bash
-# 使用默认串口 COM3
+# 自动扫描所有可用串口并尝试不同波特率
 python -m test.test_yf_motor
 
-# 指定串口
-python -m test.test_yf_motor --port COM4
+# 指定串口和波特率
+python -m test.test_yf_motor --port COM4 --baudrate 115200
 ```
 
 #### 测试 AIMotor 进给电机
 
 ```bash
-# 使用默认串口 COM3
+# 自动扫描所有可用串口并尝试不同波特率
 python -m test.test_ai_motor
 
-# 指定串口
-python -m test.test_ai_motor --port COM4
+# 指定串口和波特率
+python -m test.test_ai_motor --port COM4 --baudrate 115200
 ```
 
-测试脚本会尝试与电机建立通信，并执行基本的位置控制命令，帮助诊断电机通信问题。
+测试脚本会自动尝试与电机建立通信，并执行基本的位置控制命令。如果不指定串口，脚本会自动扫描所有可用串口；如果不指定波特率，脚本会尝试常用波特率（115200, 9600, 19200, 38400, 57600）。
 
 ## 在你的项目中使用
 
