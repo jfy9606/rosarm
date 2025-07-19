@@ -205,8 +205,8 @@ class DCMotorController:
         except Exception as e:
             logger.error(f"连接到电机控制器失败: {e}")
             self.connected = False
-            return False
-    
+            return False 
+
     def disconnect(self):
         """
         Disconnect from the motor controller
@@ -552,8 +552,8 @@ class DCMotorController:
             return None
         except Exception as e:
             logger.error(f"Error sending command to YF motor: {e}")
-            return None
-    
+            return None 
+
     def _delay_if_needed(self):
         """添加必要的延时以避免串口通信过于频繁"""
         current_time = time.time()
@@ -589,7 +589,7 @@ class DCMotorController:
             else:
                 logger.error(f"Invalid form input: {form_input}")
                 return False
-                
+            
             # 发送命令序列
             for i in code_order:
                 self._delay_if_needed()
@@ -653,7 +653,7 @@ class DCMotorController:
                 return True
             else:
                 return False
-            
+        
         except Exception as e:
             logger.error(f"Error setting YF pitch position: {e}")
             return False
@@ -665,7 +665,7 @@ class DCMotorController:
         Args:
             position: 目标位置
             speed: 可选速度参数 (0-6000)
-            
+        
         Returns:
             bool: 命令发送成功返回 True，否则 False
         """
@@ -703,7 +703,7 @@ class DCMotorController:
         
         Args:
             station_num: 电机站号
-            
+        
         Returns:
             int: 电机速度，失败返回None
         """
@@ -739,11 +739,11 @@ class DCMotorController:
                     return speed
             
             return None
-            
+        
         except Exception as e:
             logger.error(f"Error reading motor {station_num} speed: {e}")
             return None
-    
+        
     def read_status(self, station_num):
         """
         读取电机状态，完全匹配SimpleNetwork中的read_status方法
@@ -796,7 +796,43 @@ class DCMotorController:
                     
                     status['position'] = position
             
-            # 读取电流
+            # 读取输入端口情况
+            code = [station_num] + self.CODE_LIST[18]
+            crc_values = self.CRC16_MudBus(code)
+            code.extend(crc_values)
+            
+            self._delay_if_needed()
+            self.serial.write(bytearray(code))
+            time.sleep(0.05)
+            
+            # 读取响应
+            if self.serial.in_waiting:
+                response = self.serial.read(self.serial.in_waiting)
+                
+                # 解析输入端口情况
+                if len(response) >= 7:
+                    input_status = (response[3] << 8) | response[4]
+                    status['input_status'] = input_status
+            
+            # 读取输出端口情况
+            code = [station_num] + self.CODE_LIST[19]
+            crc_values = self.CRC16_MudBus(code)
+            code.extend(crc_values)
+            
+            self._delay_if_needed()
+            self.serial.write(bytearray(code))
+            time.sleep(0.05)
+            
+            # 读取响应
+            if self.serial.in_waiting:
+                response = self.serial.read(self.serial.in_waiting)
+                
+                # 解析输出端口情况
+                if len(response) >= 7:
+                    output_status = (response[3] << 8) | response[4]
+                    status['output_status'] = output_status
+            
+            # 读取相电流
             code = [station_num] + self.CODE_LIST[20]
             crc_values = self.CRC16_MudBus(code)
             code.extend(crc_values)
@@ -809,12 +845,17 @@ class DCMotorController:
             if self.serial.in_waiting:
                 response = self.serial.read(self.serial.in_waiting)
                 
-                # 解析电流数据
+                # 解析相电流
                 if len(response) >= 7:
                     current = (response[3] << 8) | response[4]
+                    
+                    # 处理负值
+                    if current >= 0x8000:
+                        current -= 0x10000
+                    
                     status['current'] = current
             
-            # 读取电压
+            # 读取母线电压
             code = [station_num] + self.CODE_LIST[21]
             crc_values = self.CRC16_MudBus(code)
             code.extend(crc_values)
@@ -827,12 +868,17 @@ class DCMotorController:
             if self.serial.in_waiting:
                 response = self.serial.read(self.serial.in_waiting)
                 
-                # 解析电压数据
+                # 解析母线电压
                 if len(response) >= 7:
                     voltage = (response[3] << 8) | response[4]
+                    
+                    # 处理负值
+                    if voltage >= 0x8000:
+                        voltage -= 0x10000
+                    
                     status['voltage'] = voltage
             
-            # 读取温度
+            # 读取模块温度
             code = [station_num] + self.CODE_LIST[22]
             crc_values = self.CRC16_MudBus(code)
             code.extend(crc_values)
@@ -845,105 +891,119 @@ class DCMotorController:
             if self.serial.in_waiting:
                 response = self.serial.read(self.serial.in_waiting)
                 
-                # 解析温度数据
+                # 解析模块温度
                 if len(response) >= 7:
                     temperature = (response[3] << 8) | response[4]
+                    
+                    # 处理负值
+                    if temperature >= 0x8000:
+                        temperature -= 0x10000
+                    
                     status['temperature'] = temperature
             
+            logger.info(f"Read motor {station_num} status: {status}")
             return status
-            
+        
         except Exception as e:
             logger.error(f"Error reading motor {station_num} status: {e}")
-            return None
-            
+            return None 
+
     def set_motor_speed(self, pitch_speed=None, linear_speed=None):
         """
-        设置电机的速度
+        设置电机速度
         
         Args:
             pitch_speed: YF俯仰电机速度 (0-255)
             linear_speed: AIMotor进给电机速度 (0-6000)
             
         Returns:
-            bool: 命令发送成功返回 True，否则 False
+            bool: 操作是否成功
         """
-        if not self.is_connected():
-            logger.error("Not connected to motor controller")
-            return False
-        
         success = True
         
-        # 设置YF电机速度 - YF电机速度通过位置命令一起设置
+        # 更新YF俯仰电机速度
         if pitch_speed is not None:
             self.pitch_speed = min(255, max(0, pitch_speed))
-            logger.info(f"Set YF pitch speed to {self.pitch_speed}")
+            logger.info(f"Set YF pitch motor speed to {self.pitch_speed}")
         
-        # 设置AIMotor电机速度 - 直接调用vel_form方法
+        # 更新AIMotor进给电机速度
         if linear_speed is not None:
-            # 调用vel_form方法设置速度
-            if not self.vel_form(self.AI_STATION, linear_speed):
-                logger.error("Failed to set AIMotor speed")
-                success = False
-            else:
-                logger.info(f"Set AIMotor linear speed to {linear_speed}")
+            self.linear_speed = min(6000, max(-6000, linear_speed))
+            
+            # 如果连接了AIMotor，且正在使用速度控制模式，则应用新的速度
+            if self.is_connected() and self.form == 1 and self.linear_enabled:
+                try:
+                    result = self.vel_form(self.AI_STATION, self.linear_speed)
+                    if not result:
+                        logger.warning("Failed to set AIMotor speed")
+                        success = False
+                except Exception as e:
+                    logger.error(f"Error setting AIMotor speed: {e}")
+                    success = False
+            
+            logger.info(f"Set AIMotor linear speed to {self.linear_speed}")
         
         return success
-        
+    
     def _send_stop_command(self):
         """
         发送停止命令到所有电机
         
         Returns:
-            bool: 命令发送成功返回 True，否则 False
+            bool: 操作是否成功
         """
+        success = True
+        
         if not self.is_connected():
             logger.error("Not connected to motor controller")
             return False
         
         try:
-            # 停止YF电机 - 使用MOTOR_LIST[1]禁用命令
-            yf_cmd = bytearray(self.MOTOR_LIST[1])
+            # 停止YF俯仰电机
+            if self.pitch_enabled:
+                # 发送停止命令
+                cmd = bytearray([self.YF_START, self.YF_STATION, self.YF_PINCH_FUNC, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+                self._delay_if_needed()
+                self.serial.write(cmd)
+                time.sleep(0.05)
+                
+                logger.info("Sent stop command to YF pitch motor")
             
-            self._delay_if_needed()
-            self.serial.write(yf_cmd)
-            time.sleep(0.05)
-            
-            # 停止AIMotor电机 - 完全按照 SimpleNetwork 的 enable_off 实现
-            # 发送使能关命令
-            self._send_ai_command([self.AI_STATION] + self.CODE_LIST[2])
-            time.sleep(0.02)
-            
-            # 发送位移使能关命令
-            self._send_ai_command([self.AI_STATION] + self.CODE_LIST[8])
-            
-            # 清空接收缓冲区
-            if self.serial.in_waiting:
-                self.serial.read(self.serial.in_waiting)
-            
-            logger.info("Stop command sent to all motors")
-            
-            # 更新使能状态
-            self.pitch_enabled = False
-            self.linear_enabled = False
-            
-            return True
+            # 停止AIMotor进给电机
+            if self.linear_enabled:
+                # 切换到速度控制模式
+                if self.form != 1:
+                    if not self.set_form(self.AI_STATION, 1):
+                        logger.warning("Failed to set AIMotor to velocity control mode")
+                        success = False
+                
+                # 发送速度为0的命令
+                if self.form == 1:
+                    result = self.vel_form(self.AI_STATION, 0)
+                    if not result:
+                        logger.warning("Failed to stop AIMotor")
+                        success = False
+                    else:
+                        logger.info("Sent stop command to AIMotor")
             
         except Exception as e:
             logger.error(f"Error sending stop command: {e}")
-            return False
+            success = False
+        
+        return success
     
     def stop_all(self):
         """
         停止所有电机
         
         Returns:
-            bool: 命令发送成功返回 True，否则 False
+            bool: 操作是否成功
         """
         return self._send_stop_command()
-
+    
     def enable_on(self, station_num):
         """
-        打开AIMotor电机使能，完全匹配SimpleNetwork中的enable_on方法
+        使能指定站号的电机，完全匹配SimpleNetwork中的enable_on方法
         
         Args:
             station_num: 电机站号
@@ -956,35 +1016,44 @@ class DCMotorController:
             return False
         
         try:
-            # 发送使能开命令
-            code = [station_num] + self.CODE_LIST[1]
-            crc_values = self.CRC16_MudBus(code)
-            code.extend(crc_values)
-            self._delay_if_needed()
-            self.serial.write(bytearray(code))
-            time.sleep(self.sleeptime_code)
-            
-            # 发送位移使能开命令
-            code = [station_num] + self.CODE_LIST[7]
-            crc_values = self.CRC16_MudBus(code)
-            code.extend(crc_values)
-            self._delay_if_needed()
-            self.serial.write(bytearray(code))
-            
-            # 如果是AIMotor进给电机，更新使能状态
-            if station_num == self.AI_STATION:
-                self.linear_enabled = True
+            if station_num == self.YF_STATION:
+                # 使能YF俯仰电机
+                cmd = bytearray(self.MOTOR_LIST[0])  # 使能命令
+                self._delay_if_needed()
+                self.serial.write(cmd)
+                time.sleep(0.05)
                 
-            logger.info(f"Motor {station_num} enable on")
-            return True
+                # 更新使能状态
+                self.pitch_enabled = True
+                logger.info(f"Enabled YF pitch motor (station {station_num})")
+                return True
             
+            elif station_num == self.AI_STATION:
+                # 使能AIMotor进给电机
+                code = [station_num] + self.CODE_LIST[1]  # 使能开命令
+                crc_values = self.CRC16_MudBus(code)
+                code.extend(crc_values)
+                
+                self._delay_if_needed()
+                self.serial.write(bytearray(code))
+                time.sleep(0.05)
+                
+                # 更新使能状态
+                self.linear_enabled = True
+                logger.info(f"Enabled AIMotor (station {station_num})")
+                return True
+            
+            else:
+                logger.error(f"Invalid station number: {station_num}")
+                return False
+        
         except Exception as e:
-            logger.error(f"Error in enable_on: {e}")
+            logger.error(f"Error enabling motor {station_num}: {e}")
             return False
     
     def enable_off(self, station_num):
         """
-        关闭AIMotor电机使能，完全匹配SimpleNetwork中的enable_off方法
+        禁用指定站号的电机，完全匹配SimpleNetwork中的enable_off方法
         
         Args:
             station_num: 电机站号
@@ -997,30 +1066,39 @@ class DCMotorController:
             return False
         
         try:
-            # 发送使能关命令
-            code = [station_num] + self.CODE_LIST[2]
-            crc_values = self.CRC16_MudBus(code)
-            code.extend(crc_values)
-            self._delay_if_needed()
-            self.serial.write(bytearray(code))
-            time.sleep(self.sleeptime_code)
-            
-            # 发送位移使能关命令
-            code = [station_num] + self.CODE_LIST[8]
-            crc_values = self.CRC16_MudBus(code)
-            code.extend(crc_values)
-            self._delay_if_needed()
-            self.serial.write(bytearray(code))
-            
-            # 如果是AIMotor进给电机，更新使能状态
-            if station_num == self.AI_STATION:
-                self.linear_enabled = False
+            if station_num == self.YF_STATION:
+                # 禁用YF俯仰电机
+                cmd = bytearray(self.MOTOR_LIST[1])  # 禁用命令
+                self._delay_if_needed()
+                self.serial.write(cmd)
+                time.sleep(0.05)
                 
-            logger.info(f"Motor {station_num} enable off")
-            return True
+                # 更新使能状态
+                self.pitch_enabled = False
+                logger.info(f"Disabled YF pitch motor (station {station_num})")
+                return True
             
+            elif station_num == self.AI_STATION:
+                # 禁用AIMotor进给电机
+                code = [station_num] + self.CODE_LIST[2]  # 使能关命令
+                crc_values = self.CRC16_MudBus(code)
+                code.extend(crc_values)
+                
+                self._delay_if_needed()
+                self.serial.write(bytearray(code))
+                time.sleep(0.05)
+                
+                # 更新使能状态
+                self.linear_enabled = False
+                logger.info(f"Disabled AIMotor (station {station_num})")
+                return True
+            
+            else:
+                logger.error(f"Invalid station number: {station_num}")
+                return False
+        
         except Exception as e:
-            logger.error(f"Error in enable_off: {e}")
+            logger.error(f"Error disabling motor {station_num}: {e}")
             return False
     
     def enable_motors(self, enable_pitch=True, enable_linear=True):
@@ -1029,322 +1107,212 @@ class DCMotorController:
         
         Args:
             enable_pitch: 是否使能YF俯仰电机
-            enable_linear: 是否使能AImotor线性电机
+            enable_linear: 是否使能AIMotor进给电机
             
         Returns:
-            bool: 如果操作成功则返回 True
+            bool: 操作是否成功
         """
+        success = True
+        
         if not self.is_connected():
             logger.error("Not connected to motor controller")
             return False
         
-        success = True
-        
-        # 使能/禁用YF俯仰电机
-        if enable_pitch != self.pitch_enabled:
-            try:
-                # 使用motor_list中的命令格式
-                cmd_data = bytearray(self.MOTOR_LIST[0 if enable_pitch else 1])
-                
-                self._delay_if_needed()
-                
-                # 发送命令
-                self.serial.write(cmd_data)
-                time.sleep(0.05)
-                
-                # 读取响应
-                if self.serial.in_waiting:
-                    response = self.serial.read(self.serial.in_waiting)
-                    if self.debug:
-                        logger.debug(f"Received response: {' '.join(f'{b:02X}' for b in response)}")
-                
-                self.pitch_enabled = enable_pitch
-                logger.info(f"YF pitch motor {'enabled' if enable_pitch else 'disabled'}")
-            except Exception as e:
-                logger.error(f"Error {'enabling' if enable_pitch else 'disabling'} YF pitch motor: {e}")
-                success = False
-        
-        # 使能/禁用AImotor线性电机
-        if enable_linear != self.linear_enabled:
-            try:
-                if enable_linear:
-                    # 使用enable_on方法
-                    if not self.enable_on(self.AI_STATION):
-                        logger.error("Failed to enable AIMotor")
+        try:
+            # 处理YF俯仰电机
+            if enable_pitch:
+                if not self.pitch_enabled:
+                    result = self.enable_on(self.YF_STATION)
+                    if not result:
+                        logger.warning("Failed to enable YF pitch motor")
                         success = False
-                else:
-                    # 使用enable_off方法
-                    if not self.enable_off(self.AI_STATION):
-                        logger.error("Failed to disable AIMotor")
+            else:
+                if self.pitch_enabled:
+                    result = self.enable_off(self.YF_STATION)
+                    if not result:
+                        logger.warning("Failed to disable YF pitch motor")
                         success = False
-            except Exception as e:
-                logger.error(f"Error {'enabling' if enable_linear else 'disabling'} AIMotor linear motor: {e}")
-                success = False
+            
+            # 处理AIMotor进给电机
+            if enable_linear:
+                if not self.linear_enabled:
+                    result = self.enable_on(self.AI_STATION)
+                    if not result:
+                        logger.warning("Failed to enable AIMotor")
+                        success = False
+            else:
+                if self.linear_enabled:
+                    result = self.enable_off(self.AI_STATION)
+                    if not result:
+                        logger.warning("Failed to disable AIMotor")
+                        success = False
+            
+            return success
         
-        return success
+        except Exception as e:
+            logger.error(f"Error enabling/disabling motors: {e}")
+            return False
     
     def home_motors(self):
         """
-        Home both motors (move to zero position)
+        将电机移动到初始位置
         
         Returns:
-            bool: True if command sent successfully, False otherwise
+            bool: 操作是否成功
         """
+        success = True
+        
         if not self.is_connected():
             logger.error("Not connected to motor controller")
             return False
         
-        # 使能两个电机
-        if not self.enable_motors(True, True):
-            logger.error("Failed to enable motors for homing")
+        try:
+            # 确保电机已使能
+            self.enable_motors(enable_pitch=True, enable_linear=True)
+            
+            # 将YF俯仰电机移动到0度位置
+            if self.pitch_enabled:
+                result = self.set_pitch_position(0)
+                if not result:
+                    logger.warning("Failed to home YF pitch motor")
+                    success = False
+                else:
+                    logger.info("YF pitch motor homed to position 0")
+            
+            # 将AIMotor进给电机移动到0位置
+            if self.linear_enabled:
+                result = self.set_linear_position(0)
+                if not result:
+                    logger.warning("Failed to home AIMotor")
+                    success = False
+                else:
+                    logger.info("AIMotor homed to position 0")
+            
+            return success
+        
+        except Exception as e:
+            logger.error(f"Error homing motors: {e}")
             return False
-        
-        # 将两个电机移动到零位置
-        pitch_success = self.set_pitch_position(0)
-        linear_success = self.set_linear_position(0)
-        
-        return pitch_success and linear_success
     
     def get_status(self):
         """
-        Get the status of the motors
+        获取所有电机的状态
         
         Returns:
-            dict: Motor status information or None if failed
+            dict: 包含电机状态的字典
         """
-        if not self.is_connected():
-            logger.error("Not connected to motor controller")
-            return None
-        
-        # 获取YF和AImotor电机位置
-        pitch_pos, linear_pos = self.get_motor_positions()
-        
         status = {
-            'pitch_position': pitch_pos if pitch_pos is not None else self.pitch_position,
-            'linear_position': linear_pos if linear_pos is not None else self.linear_position,
-            'pitch_speed': self.pitch_speed,
-            'linear_speed': self.linear_speed,
-            'pitch_enabled': self.pitch_enabled,
-            'linear_enabled': self.linear_enabled,
-            'connected': self.is_connected()
+            'pitch': {
+                'enabled': self.pitch_enabled,
+                'position': self.pitch_position,
+                'speed': self.pitch_speed
+            },
+            'linear': {
+                'enabled': self.linear_enabled,
+                'position': self.linear_position,
+                'speed': self.linear_speed
+            }
         }
+        
+        if self.is_connected():
+            # 读取AIMotor详细状态
+            if self.linear_enabled:
+                ai_status = self.read_status(self.AI_STATION)
+                if ai_status:
+                    status['linear'].update(ai_status)
         
         return status
     
     def get_motor_positions(self):
         """
-        获取两个电机的当前位置
+        获取电机位置
         
         Returns:
-            tuple: (pitch_position, linear_position) 或失败时返回 (None, None)
+            tuple: (pitch_position, linear_position)
         """
-        if not self.is_connected():
-            logger.error("Not connected to motor controller")
-            return None, None
-        
-        pitch_pos = None
-        linear_pos = None
-        
-        # 获取YF电机位置
-        # YF电机没有提供读取位置的直接命令，使用最后设置的位置
         pitch_pos = self.pitch_position
+        linear_pos = self.linear_position
         
-        # 获取AIMotor电机位置 - 与SimpleNetwork中的read_pos完全一致
-        try:
-            # 使用CODE_LIST[17]读取位置命令
-            code = [self.AI_STATION] + self.CODE_LIST[17]
-            crc_values = self.CRC16_MudBus(code)
-            code.extend(crc_values)
-            
-            self._delay_if_needed()
-            self.serial.write(bytearray(code))
-            time.sleep(0.05)
-            
-            # 读取响应
-            if self.serial.in_waiting:
-                response = self.serial.read(self.serial.in_waiting)
-                
-                # 解析位置数据
-                if len(response) >= 7:
-                    # AIMotor位置是32位数据
-                    if len(response) >= 9:
-                        pos_low = (response[3] << 8) | response[4]
-                        pos_high = (response[5] << 8) | response[6]
-                        linear_pos = pos_low + (pos_high << 16)
-                        
-                        # 处理负值
-                        if linear_pos >= 0x80000000:
-                            linear_pos -= 0x100000000
-                    else:
-                        # 16位数据
-                        linear_pos = (response[3] << 8) | response[4]
-                        
-                    # 更新存储的位置
-                    self.linear_position = linear_pos
-                    
-                    if self.debug:
-                        logger.debug(f"Read AIMotor position: {linear_pos}")
-        except Exception as e:
-            logger.error(f"Error reading AIMotor position: {e}")
+        if self.is_connected():
+            try:
+                # 尝试读取AIMotor位置
+                if self.linear_enabled:
+                    ai_status = self.read_status(self.AI_STATION)
+                    if ai_status and 'position' in ai_status:
+                        linear_pos = ai_status['position']
+                        self.linear_position = linear_pos
+            except Exception as e:
+                logger.error(f"Error reading motor positions: {e}")
         
-        return pitch_pos, linear_pos
+        return (pitch_pos, linear_pos)
     
     def test_communication(self):
         """
-        测试与两个电机的通信
+        测试与电机的通信
         
         Returns:
-            dict: 测试结果
+            dict: 包含测试结果的字典
         """
         results = {
-            "yf_pitch": False,
-            "ai_linear": False,
-            "yf_debug_info": "",
-            "ai_debug_info": "",
-            "errors": []
+            'yf_pitch': False,
+            'ai_linear': False
         }
         
         if not self.is_connected():
-            error_msg = "Not connected to motor controller"
-            logger.error(error_msg)
-            results["errors"].append(error_msg)
+            logger.error("Not connected to motor controller")
             return results
         
-        # 测试YF电机通信 - 使用与 MOTOR_LIST[0] 完全一致的命令格式
         try:
-            # 使用标准使能命令
-            cmd_data = bytearray([
-                self.YF_START,  # 0x3E
-                self.YF_STATION, # 0x01
-                0x08,          # 0x08
-                0x81,          # 0x81 使能
-                0x00, 0x00, 0x00, 0x00,  # 位置
-                0x00,          # 速度
-                0x00, 0x00     # 预留字节
-            ])
-            
-            logger.info("测试YF俯仰电机通信...")
-            logger.debug(f"发送命令: {' '.join(f'{b:02X}' for b in cmd_data)}")
-            
-            # 清空接收缓冲区
-            self.serial.reset_input_buffer()
-            
-            # 发送命令
-            self.serial.write(cmd_data)
-            time.sleep(0.3)  # 增加等待时间
-            
-            # 读取响应
-            if self.serial.in_waiting:
-                response = self.serial.read(self.serial.in_waiting)
-                response_hex = ' '.join(f'{b:02X}' for b in response)
-                logger.debug(f"收到响应: {response_hex}")
-                results["yf_debug_info"] += f"Response: {response_hex}\n"
+            # 测试YF俯仰电机通信
+            try:
+                # 发送查询命令
+                cmd = bytearray([self.YF_START, self.YF_STATION, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+                self._delay_if_needed()
+                self.serial.write(cmd)
+                time.sleep(0.1)
                 
-                results["yf_pitch"] = True
-                logger.info("YF俯仰电机通信测试: 成功")
-            else:
-                logger.warning("YF俯仰电机通信测试: 失败 (无响应)")
-                
-                # 尝试使用 pos_pinch 方法格式
-                try:
-                    # 尝试使用 pos_pinch 命令测试通信
-                    cmd_data = bytearray([
-                        self.YF_START,  # 0x3E
-                        self.YF_STATION, # 0x01
-                        0x08,          # 0x08
-                        0xA4,          # 0xA4 位置命令
-                        0x00,          # 预留字节
-                        0x00, 0x00,    # 速度 (小端)
-                        0x00, 0x00, 0x00, 0x00  # 位置 (小端)
-                    ])
-                    
-                    logger.debug(f"尝试备用命令: {' '.join(f'{b:02X}' for b in cmd_data)}")
-                    
-                    self.serial.reset_input_buffer()
-                    self.serial.write(cmd_data)
-                    time.sleep(0.3)  # 增加等待时间
-                    
-                    if self.serial.in_waiting:
-                        response = self.serial.read(self.serial.in_waiting)
-                        response_hex = ' '.join(f'{b:02X}' for b in response)
-                        logger.debug(f"收到响应: {response_hex}")
-                        results["yf_debug_info"] += f"Alt response: {response_hex}\n"
-                        
-                        results["yf_pitch"] = True
-                        logger.info("YF俯仰电机通信测试: 使用备用命令成功")
-                except Exception as e:
-                    logger.error(f"发送备用YF命令时出错: {e}")
-                
-        except Exception as e:
-            error_msg = f"测试YF俯仰电机通信时出错: {e}"
-            logger.error(error_msg)
-            results["errors"].append(error_msg)
-        
-        # 测试AIMotor电机通信 - 使用CODE_LIST中的读取位置命令
-        try:
-            read_pos_cmd = [self.AI_STATION] + self.CODE_LIST[17]  # 读取位置命令
-            
-            logger.info("测试AIMotor进给电机通信...")
-            logger.debug(f"发送命令: {' '.join(f'{b:02X}' for b in read_pos_cmd)}")
-            
-            # 添加CRC校验
-            crc = self._modbus_crc16(read_pos_cmd)
-            read_pos_cmd.append(crc & 0xFF)
-            read_pos_cmd.append((crc >> 8) & 0xFF)
-            
-            # 清空接收缓冲区
-            self.serial.reset_input_buffer()
-            
-            # 发送命令
-            self.serial.write(bytearray(read_pos_cmd))
-            time.sleep(0.3)  # 增加等待时间
-            
-            # 读取响应
-            if self.serial.in_waiting:
-                response = self.serial.read(self.serial.in_waiting)
-                response_hex = ' '.join(f'{b:02X}' for b in response)
-                logger.debug(f"收到响应: {response_hex}")
-                results["ai_debug_info"] += f"Response: {response_hex}\n"
-                
-                results["ai_linear"] = True
-                logger.info("AIMotor进给电机通信测试: 成功")
-            else:
-                logger.warning("AIMotor进给电机通信测试: 失败 (无响应)")
-                # 尝试更多命令格式
-                read_status_cmd = [self.AI_STATION] + self.CODE_LIST[16]  # 读取速度命令
-                crc = self._modbus_crc16(read_status_cmd)
-                read_status_cmd.append(crc & 0xFF)
-                read_status_cmd.append((crc >> 8) & 0xFF)
-                
-                logger.debug(f"尝试备用命令: {' '.join(f'{b:02X}' for b in read_status_cmd)}")
-                
-                self.serial.reset_input_buffer()
-                self.serial.write(bytearray(read_status_cmd))
-                time.sleep(0.3)  # 增加等待时间
-                
+                # 读取响应
                 if self.serial.in_waiting:
                     response = self.serial.read(self.serial.in_waiting)
-                    response_hex = ' '.join(f'{b:02X}' for b in response)
-                    logger.debug(f"收到响应: {response_hex}")
-                    results["ai_debug_info"] += f"Alt response: {response_hex}\n"
-                    
-                    results["ai_linear"] = True
-                    logger.info("AIMotor进给电机通信测试: 使用备用命令成功")
+                    if len(response) > 0:
+                        results['yf_pitch'] = True
+                        logger.info("YF pitch motor communication test passed")
+                    else:
+                        logger.warning("YF pitch motor did not respond")
+                else:
+                    logger.warning("No response from YF pitch motor")
+            except Exception as e:
+                logger.error(f"Error testing YF pitch motor: {e}")
+            
+            # 测试AIMotor进给电机通信
+            try:
+                # 读取状态寄存器
+                code = [self.AI_STATION] + self.CODE_LIST[18]
+                crc_values = self.CRC16_MudBus(code)
+                code.extend(crc_values)
+                
+                self._delay_if_needed()
+                self.serial.write(bytearray(code))
+                time.sleep(0.1)
+                
+                # 读取响应
+                if self.serial.in_waiting:
+                    response = self.serial.read(self.serial.in_waiting)
+                    if len(response) >= 5 and response[0] == self.AI_STATION:
+                        results['ai_linear'] = True
+                        logger.info("AIMotor communication test passed")
+                    else:
+                        logger.warning("AIMotor response invalid")
+                else:
+                    logger.warning("No response from AIMotor")
+            except Exception as e:
+                logger.error(f"Error testing AIMotor: {e}")
+            
+            return results
         
         except Exception as e:
-            error_msg = f"测试AIMotor进给电机通信时出错: {e}"
-            logger.error(error_msg)
-            results["errors"].append(error_msg)
-        
-        # 记录串口配置信息，帮助诊断
-        results["port_info"] = {
-            "port": self.port,
-            "baudrate": self.baudrate,
-            "timeout": self.timeout,
-            "connected": self.is_connected()
-        }
-        
-        return results
+            logger.error(f"Error in communication test: {e}")
+            return results
     
     @staticmethod
     def scan_ports():
@@ -1352,30 +1320,25 @@ class DCMotorController:
         扫描可用的串口
         
         Returns:
-            list: 可用串口列表，每个元素是一个字典，包含端口名称和描述
+            list: 可用串口列表
         """
+        ports = []
         try:
-            import serial.tools.list_ports
-            ports = []
-            for port in serial.tools.list_ports.comports():
-                ports.append({
-                    "device": port.device,
-                    "description": port.description,
-                    "hwid": port.hwid
-                })
-            return ports
+            ports = [port.device for port in serial.tools.list_ports.comports()]
+            logger.info(f"Available ports: {ports}")
         except Exception as e:
-            logger.error(f"扫描串口时出错: {e}")
-            return []
-
+            logger.error(f"Error scanning ports: {e}")
+        
+        return ports
+    
     def pos_pinch(self, station_num, max_speed, angle_control):
         """
-        设置YF俯仰电机位置 (与SimpleNetwork实现完全一致)
+        控制YF俯仰电机位置，完全匹配SimpleNetwork中的pos_pinch方法
         
         Args:
-            station_num: 电机站号 (通常为1)
-            max_speed: 最大速度 (1dps/LSB)
-            angle_control: 角度控制 (0.01 degree/LSB)
+            station_num: 电机站号
+            max_speed: 最大速度
+            angle_control: 角度控制值
             
         Returns:
             bool: 操作是否成功
@@ -1383,47 +1346,32 @@ class DCMotorController:
         if not self.is_connected():
             logger.error("Not connected to motor controller")
             return False
-            
+        
         try:
-            # 完全复制SimpleNetwork中的pos_pinch方法实现
-            # 在SimpleNetwork中，pos_pinch命令格式如下:
-            # 0x3E(起始) + station_num + 0x08(功能码) + 0xA4(命令码) + 0x00(预留字节) +
-            # max_speed低字节 + max_speed高字节 +
-            # 角度控制4字节(小端序)
+            # 构造命令
+            cmd = [
+                self.YF_START,
+                station_num,
+                self.YF_PINCH_FUNC,
+                self.YF_CMD_MOVE,
+                (max_speed >> 8) & 0xFF,
+                max_speed & 0xFF,
+                (angle_control >> 24) & 0xFF,
+                (angle_control >> 16) & 0xFF,
+                (angle_control >> 8) & 0xFF,
+                angle_control & 0xFF,
+                0x00  # 校验位，YF电机不使用
+            ]
             
-            cmd_data = bytearray([
-                self.YF_START,  # 0x3E
-                station_num,    # 站号
-                0x08,           # 功能码 0x08
-                0xA4,           # 命令码 0xA4 (移动命令)
-                0x00,           # 预留字节
-                max_speed & 0xFF,               # 速度低字节
-                (max_speed >> 8) & 0xFF,        # 速度高字节
-                angle_control & 0xFF,           # 角度字节1 (最低字节)
-                (angle_control >> 8) & 0xFF,    # 角度字节2
-                (angle_control >> 16) & 0xFF,   # 角度字节3
-                (angle_control >> 24) & 0xFF    # 角度字节4 (最高字节)
-            ])
-            
-            # YF电机协议不需要添加CRC校验
-            
+            # 发送命令
             self._delay_if_needed()
+            self.serial.write(bytearray(cmd))
             
             if self.debug:
-                logger.debug(f"YF pos_pinch command: {' '.join(f'{b:02X}' for b in cmd_data)}")
-                
-            self.serial.write(cmd_data)
-            time.sleep(0.05)  # 等待响应
+                logger.debug(f"Sent YF position command: max_speed={max_speed}, angle_control={angle_control}")
             
-            # 读取响应
-            if self.serial.in_waiting:
-                response = self.serial.read(self.serial.in_waiting)
-                if self.debug:
-                    logger.debug(f"YF pinch response: {' '.join(f'{b:02X}' for b in response)}")
-            
-            logger.info(f"YF pinch motor position set: station={station_num}, speed={max_speed}, angle={angle_control}")
             return True
-            
+        
         except Exception as e:
             logger.error(f"Error in pos_pinch: {e}")
-            return False
+            return False 

@@ -28,6 +28,8 @@ class RobotArm:
     - 大臂电机：
       - AImotor型号：大臂的进给电机（线性移动）
       - YF型号：大臂的俯仰电机（俯仰运动）
+    
+    支持仅连接小臂舵机或大臂电机的功能
     """
     
     # 默认关节 ID
@@ -95,17 +97,17 @@ class RobotArm:
         self.servo_acceleration = 5  # 默认加速度值
         
         # 连接状态
+        self.servo_connected = False
+        self.motor_connected = False
         self.connected = False
-    
-    def connect(self, servo_port, motor_port, servo_baudrate=1000000, motor_baudrate=115200, protocol_end=0):
+        
+    def connect_servo(self, servo_port, servo_baudrate=1000000, protocol_end=0):
         """
-        连接到机械臂控制器
+        仅连接舵机控制器
         
         Args:
             servo_port: 舵机串口名称
-            motor_port: 电机串口名称
             servo_baudrate: 舵机波特率
-            motor_baudrate: 电机波特率
             protocol_end: 舵机协议结束位 (STS/SMS=0, SCS=1)
             
         Returns:
@@ -114,27 +116,79 @@ class RobotArm:
         # 连接到舵机控制器
         servo_success = self.servo.connect(servo_port, servo_baudrate, protocol_end)
         
-        # 连接到电机控制器
-        motor_success = self.motor.connect(motor_port, motor_baudrate)
-        
-        # 如果两者都成功，则设置为已连接
-        if servo_success and motor_success:
-            self.connected = True
-            print(f"Connected to robot arm controllers: servos on {servo_port}, motors on {motor_port}")
+        if servo_success:
+            self.servo_connected = True
+            print(f"Connected to servo controller on {servo_port}")
             
-            # 初始化舵机和电机
+            # 初始化舵机
             self._init_servos()
+            
+            # 至少有一个控制器连接成功，设置connected为True
+            self.connected = True
             
             return True
         else:
-            # 如果有一个失败，断开另一个
-            if servo_success and not motor_success:
-                print("Failed to connect to motor controller, disconnecting servo controller")
-                self.servo.disconnect()
-            elif motor_success and not servo_success:
-                print("Failed to connect to servo controller, disconnecting motor controller")
-                self.motor.disconnect()
+            print(f"Failed to connect to servo controller on {servo_port}")
+            self.servo_connected = False
+            return False
+    
+    def connect_motor(self, motor_port, motor_baudrate=115200):
+        """
+        仅连接DC电机控制器
+        
+        Args:
+            motor_port: 电机串口名称
+            motor_baudrate: 电机波特率
             
+        Returns:
+            bool: 如果连接成功则返回 True，否则返回 False
+        """
+        # 连接到电机控制器
+        motor_success = self.motor.connect(motor_port, motor_baudrate)
+        
+        if motor_success:
+            self.motor_connected = True
+            print(f"Connected to motor controller on {motor_port}")
+            
+            # 至少有一个控制器连接成功，设置connected为True
+            self.connected = True
+            
+            return True
+        else:
+            print(f"Failed to connect to motor controller on {motor_port}")
+            self.motor_connected = False
+            return False
+    
+    def connect(self, servo_port=None, motor_port=None, servo_baudrate=1000000, motor_baudrate=115200, protocol_end=0):
+        """
+        连接到机械臂控制器
+        
+        Args:
+            servo_port: 舵机串口名称，如果为None则不连接舵机
+            motor_port: 电机串口名称，如果为None则不连接电机
+            servo_baudrate: 舵机波特率
+            motor_baudrate: 电机波特率
+            protocol_end: 舵机协议结束位 (STS/SMS=0, SCS=1)
+            
+        Returns:
+            bool: 如果至少有一个控制器连接成功则返回 True，否则返回 False
+        """
+        servo_success = False
+        motor_success = False
+        
+        # 连接到舵机控制器（如果提供了端口）
+        if servo_port:
+            servo_success = self.connect_servo(servo_port, servo_baudrate, protocol_end)
+        
+        # 连接到电机控制器（如果提供了端口）
+        if motor_port:
+            motor_success = self.connect_motor(motor_port, motor_baudrate)
+        
+        # 如果至少有一个连接成功，则认为连接成功
+        if servo_success or motor_success:
+            self.connected = True
+            return True
+        else:
             self.connected = False
             return False
             
@@ -142,6 +196,10 @@ class RobotArm:
         """
         初始化舵机，设置初始速度和加速度
         """
+        if not self.servo_connected:
+            print("Servo controller not connected")
+            return False
+            
         try:
             # 检查所有舵机ID是否存在
             for servo_id in self.joint_ids.values():
@@ -169,8 +227,15 @@ class RobotArm:
         """
         断开与两个控制器的连接
         """
-        self.servo.disconnect()
-        self.motor.disconnect()
+        if self.servo_connected:
+            self.servo.disconnect()
+            self.servo_connected = False
+            
+        if self.motor_connected:
+            self.motor.disconnect()
+            self.motor_connected = False
+            
+        self.connected = False
     
     def enable_torque(self, enable=True):
         """
@@ -182,6 +247,10 @@ class RobotArm:
         Returns:
             bool: 如果所有舵机都成功则返回 True，否则返回 False
         """
+        if not self.servo_connected:
+            print("Servo controller not connected")
+            return False
+            
         success = True
         for joint, servo_id in self.joint_ids.items():
             if not self.servo.set_torque_enable(servo_id, enable):
@@ -243,243 +312,274 @@ class RobotArm:
     
     def read_motor_status(self):
         """
-        读取两个 DC 电机的状态
+        读取DC电机状态
         
         Returns:
-            dict: 电机状态字典，如果出错则返回 None
+            dict: 电机状态字典，如果未连接则返回空字典
         """
-        status = self.motor.get_status()
-        if status:
-            self.current_pitch = status['pitch_position']
-            self.current_linear = status['linear_position']
+        status = {}
         
-        return status
+        if not self.motor_connected:
+            return status
+            
+        try:
+            # 获取电机状态
+            motor_status = self.motor.get_status()
+            if motor_status:
+                status.update(motor_status)
+            
+            # 获取位置
+            pitch_pos, linear_pos = self.motor.get_motor_positions()
+            if pitch_pos is not None:
+                status['pitch_position'] = pitch_pos
+                self.current_pitch = pitch_pos
+                
+            if linear_pos is not None:
+                status['linear_position'] = linear_pos
+                self.current_linear = linear_pos
+                
+            return status
+        except Exception as e:
+            print(f"Error reading motor status: {e}")
+            return {}
     
     def set_joint_position(self, joint, position, blocking=False, timeout=5.0):
         """
-        设置特定关节的位置
+        设置单个关节位置
         
         Args:
-            joint: 关节名称
+            joint: 关节名称或ID
             position: 目标位置
-            blocking: 如果为 True，等待运动完成
-            timeout: 如果 blocking 为 True，最大等待时间（秒）
+            blocking: 是否阻塞等待完成
+            timeout: 最大等待时间（秒）
             
         Returns:
-            bool: 如果成功则返回 True，否则返回 False
+            bool: 如果命令发送成功则返回 True
         """
-        if joint not in self.joint_ids:
-            print(f"未知关节: {joint}")
+        if not self.servo_connected:
+            print("Servo controller not connected")
+            return False
+            
+        # 检查是否是已知关节
+        servo_id = None
+        if isinstance(joint, str):
+            if joint in self.joint_ids:
+                servo_id = self.joint_ids[joint]
+            else:
+                print(f"Unknown joint: {joint}")
+                return False
+        else:
+            # 假设joint是ID
+            servo_id = joint
+        
+        # 限制位置范围
+        if isinstance(joint, str) and joint in self.joint_limits:
+            position = self._clamp_joint_position(joint, position)
+        
+        # 设置位置
+        if not self.servo.write_position(servo_id, position):
+            print(f"Failed to set position for joint {joint}")
             return False
         
-        servo_id = self.joint_ids[joint]
-        position = self._clamp_joint_position(joint, position)
+        # 更新当前位置
+        if isinstance(joint, str):
+            self.current_positions[joint] = position
         
-        success = self.servo.write_position(servo_id, position, self.servo_speed)
-        
-        if success and blocking:
+        # 如果需要阻塞等待
+        if blocking:
             start_time = time.time()
             while time.time() - start_time < timeout:
+                # 读取当前位置
                 current_pos = self.servo.read_position(servo_id)
                 if current_pos is None:
+                    print(f"Failed to read position for joint {joint}")
                     return False
                 
-                # 检查位置是否足够接近
-                if abs(current_pos - position) < 10:
-                    break
+                # 检查是否到达目标位置
+                if abs(current_pos - position) <= 10:  # 允许10个单位的误差
+                    return True
                 
-                time.sleep(0.05)
-        
-        if success:
-            self.current_positions[joint] = position
+                time.sleep(0.1)
             
-        return success
+            print(f"Timeout waiting for joint {joint} to reach position {position}")
+            return False
+        
+        return True
     
     def set_joint_positions(self, positions, blocking=False, timeout=5.0):
         """
-        设置多个关节的位置
+        同时设置多个关节位置
         
         Args:
-            positions: {joint: position} 格式的字典
-            blocking: 如果为 True，等待所有运动完成
-            timeout: 如果 blocking 为 True，最大等待时间（秒）
+            positions: 关节名称到位置的映射字典
+            blocking: 是否阻塞等待完成
+            timeout: 最大等待时间（秒）
             
         Returns:
-            bool: 如果成功则返回 True，否则返回 False
+            bool: 如果命令发送成功则返回 True
         """
-        # 将关节名称转换为舵机 ID，并限制位置
-        servo_positions = {}
-        times = {} if self.servo_speed > 0 else None
-        
-        for joint, position in positions.items():
-            if joint in self.joint_ids:
-                servo_id = self.joint_ids[joint]
-                clamped_position = self._clamp_joint_position(joint, position)
-                servo_positions[servo_id] = clamped_position
-                if times is not None:
-                    times[servo_id] = self.servo_speed
-            else:
-                print(f"未知关节: {joint}")
-        
-        if not servo_positions:
+        if not self.servo_connected:
+            print("Servo controller not connected")
             return False
+            
+        # 检查所有关节
+        for joint, position in positions.items():
+            if joint not in self.joint_ids:
+                print(f"Unknown joint: {joint}")
+                return False
         
-        # 使用同步写入同时设置位置
-        success = self.servo.sync_write_position(servo_positions, times)
+        # 设置所有关节位置
+        for joint, position in positions.items():
+            # 获取舵机ID
+            servo_id = self.joint_ids[joint]
+            
+            # 限制位置范围
+            position = self._clamp_joint_position(joint, position)
+            
+            # 设置位置
+            if not self.servo.write_position(servo_id, position):
+                print(f"Failed to set position for joint {joint}")
+                return False
+            
+            # 更新当前位置
+            self.current_positions[joint] = position
         
-        if success and blocking:
+        # 如果需要阻塞等待
+        if blocking:
             start_time = time.time()
             while time.time() - start_time < timeout:
+                # 检查所有关节是否到达目标位置
                 all_reached = True
-                
-                for joint, position in positions.items():
-                    if joint in self.joint_ids:
-                        servo_id = self.joint_ids[joint]
-                        current_pos = self.servo.read_position(servo_id)
-                        
-                        if current_pos is None:
-                            return False
-                        
-                        # 检查位置是否足够接近
-                        if abs(current_pos - servo_positions[servo_id]) >= 10:
-                            all_reached = False
-                            break
+                for joint, target_pos in positions.items():
+                    servo_id = self.joint_ids[joint]
+                    current_pos = self.servo.read_position(servo_id)
+                    if current_pos is None:
+                        print(f"Failed to read position for joint {joint}")
+                        return False
+                    
+                    if abs(current_pos - target_pos) > 10:  # 允许10个单位的误差
+                        all_reached = False
+                        break
                 
                 if all_reached:
-                    break
-                    
-                time.sleep(0.05)
+                    return True
+                
+                time.sleep(0.1)
+            
+            print(f"Timeout waiting for joints to reach target positions")
+            return False
         
-        if success:
-            for joint, position in positions.items():
-                if joint in self.joint_ids:
-                    self.current_positions[joint] = self._clamp_joint_position(joint, position)
-        
-        return success
+        return True
     
     def set_pitch_position(self, position, speed=None, blocking=False, timeout=5.0):
         """
         设置YF俯仰电机位置
         
         Args:
-            position: 目标位置
-            speed: 可选的速度参数（0-255）
+            position: 目标位置（角度）
+            speed: 可选速度参数
             blocking: 是否阻塞等待完成
-            timeout: 阻塞等待的超时时间（秒）
+            timeout: 最大等待时间（秒）
             
         Returns:
-            bool: 如果成功则返回 True，否则返回 False
+            bool: 如果命令发送成功则返回 True
         """
-        # 限制位置在范围内
-        position = self._clamp_motor_position('pitch', position)
+        if not self.motor_connected:
+            print("DC motor controller not connected")
+            return False
+            
+        # 限制位置范围
+        min_pos, max_pos = self.pitch_limits
+        position = max(min_pos, min(max_pos, position))
         
-        # 设置速度（如果提供）
+        # 设置速度（如果指定）
         if speed is not None:
             self.pitch_speed = speed
         
-        # 使用 pos_pinch 方法控制 YF 电机
-        # 将位置转换为角度控制值 (0.01 degree/LSB)
-        angle_control = position * 100
-        # 设置最大速度 (1dps/LSB)
-        max_speed = self.pitch_speed * 10  # 转换为适当的速度单位
-        
-        # 尝试多次发送命令，增加成功率
-        success = False
-        retries = 3
-        
-        for attempt in range(retries):
-            # 使用 pos_pinch 方法，完全按照 SimpleNetwork 中的实现
-            success = self.motor.pos_pinch(1, max_speed, angle_control)
-            if success:
-                break
-            time.sleep(0.1)  # 短暂延迟后重试
-        
-        if not success:
-            print(f"Failed to set pitch position after {retries} attempts")
+        # 发送位置命令
+        if not self.motor.set_pitch_position(position, self.pitch_speed):
+            print("Failed to set pitch position")
             return False
         
-        # 如果需要阻塞等待完成
-        if blocking and success:
+        # 更新当前位置
+        self.current_pitch = position
+        
+        # 如果需要阻塞等待
+        if blocking:
             start_time = time.time()
             while time.time() - start_time < timeout:
                 # 获取当前位置
                 pitch_pos, _ = self.motor.get_motor_positions()
                 
-                # 如果获取位置失败，继续尝试
+                # 如果无法读取位置，使用last known position
                 if pitch_pos is None:
-                    time.sleep(0.1)
-                    continue
+                    pitch_pos = self.current_pitch
                 
-                # 检查是否到达目标位置附近
-                if abs(pitch_pos - position) < 10:  # 允许误差范围
+                # 检查是否到达目标位置
+                if abs(pitch_pos - position) <= 5:  # 允许5度误差
                     return True
                 
                 time.sleep(0.1)
             
-            # 超时
             print(f"Timeout waiting for pitch motor to reach position {position}")
             return False
         
-        return success
+        return True
     
     def set_linear_position(self, position, speed=None, blocking=False, timeout=5.0):
         """
-        设置AImotor进给电机位置
+        设置AIMotor进给电机位置
         
         Args:
             position: 目标位置
-            speed: 可选的速度参数（0-255）
+            speed: 可选速度参数
             blocking: 是否阻塞等待完成
-            timeout: 阻塞等待的超时时间（秒）
+            timeout: 最大等待时间（秒）
             
         Returns:
-            bool: 如果成功则返回 True，否则返回 False
+            bool: 如果命令发送成功则返回 True
         """
-        # 限制位置在范围内
-        position = self._clamp_motor_position('linear', position)
+        if not self.motor_connected:
+            print("DC motor controller not connected")
+            return False
+            
+        # 限制位置范围
+        min_pos, max_pos = self.linear_limits
+        position = max(min_pos, min(max_pos, position))
         
-        # 设置速度（如果提供）
+        # 设置速度（如果指定）
         if speed is not None:
             self.linear_speed = speed
-            self.motor.set_motor_speed(linear_speed=speed)
         
-        # 尝试多次发送命令，增加成功率
-        success = False
-        retries = 3
-        
-        for attempt in range(retries):
-            success = self.motor.set_linear_position(position, self.linear_speed)
-            if success:
-                break
-            time.sleep(0.1)  # 短暂延迟后重试
-        
-        if not success:
-            print(f"Failed to set linear position after {retries} attempts")
+        # 发送位置命令
+        if not self.motor.set_linear_position(position, self.linear_speed):
+            print("Failed to set linear position")
             return False
         
-        # 如果需要阻塞等待完成
-        if blocking and success:
+        # 更新当前位置
+        self.current_linear = position
+        
+        # 如果需要阻塞等待
+        if blocking:
             start_time = time.time()
             while time.time() - start_time < timeout:
                 # 获取当前位置
                 _, linear_pos = self.motor.get_motor_positions()
                 
-                # 如果获取位置失败，继续尝试
+                # 如果无法读取位置，使用last known position
                 if linear_pos is None:
-                    time.sleep(0.1)
-                    continue
+                    linear_pos = self.current_linear
                 
-                # 检查是否到达目标位置附近
-                if abs(linear_pos - position) < 10:  # 允许误差范围
+                # 检查是否到达目标位置
+                if abs(linear_pos - position) <= 10:  # 允许10单位误差
                     return True
                 
                 time.sleep(0.1)
             
-            # 超时
             print(f"Timeout waiting for linear motor to reach position {position}")
             return False
         
-        return success
+        return True
     
     def set_speeds(self, servo_speed=None, pitch_speed=None, linear_speed=None):
         """
@@ -540,57 +640,71 @@ class RobotArm:
     
     def stop_all(self):
         """
-        立即停止所有电机
+        停止所有电机和舵机
         
         Returns:
-            bool: 如果成功则返回 True，否则返回 False
+            bool: 如果成功则返回 True
         """
-        dc_success = self.motor.stop_all()
+        success = True
         
-        # 对于舵机，我们禁用力矩，这会有效地停止它们
-        servo_success = self.enable_torque(False)
+        # 停止舵机
+        if self.servo_connected:
+            # 设置所有舵机的速度为0
+            for servo_id in self.joint_ids.values():
+                if not self.servo.write_speed(servo_id, 1000):  # 设置为非常慢的速度
+                    success = False
         
-        return dc_success and servo_success
+        # 停止DC电机
+        if self.motor_connected:
+            if not self.motor.stop_all():
+                success = False
+        
+        return success
     
     def home(self, blocking=True, timeout=10.0):
         """
-        将机械臂移动到初始位置
-        - 舵机回到中间位置
-        - DC 电机回到零位置
+        将机械臂移动到home位置
         
         Args:
-            blocking: 如果为 True，等待运动完成
-            timeout: 如果 blocking 为 True，最大等待时间（秒）
+            blocking: 是否阻塞等待完成
+            timeout: 最大等待时间（秒）
             
         Returns:
-            bool: 如果成功则返回 True，否则返回 False
+            bool: 如果成功则返回True
         """
-        if not self.connected:
-            return False
+        success = True
+        
+        # Home舵机（如果已连接）
+        if self.servo_connected:
+            # 设置所有舵机的home位置
+            home_positions = {
+                'joint1': 2048,  # 中间位置
+                'joint2': 2048,
+                'joint3': 2048,
+                'joint4': 2048,
+                'joint5': 2048,
+                'joint6': 2048
+            }
             
-        # 先使能电机
-        try:
-            # 使能大臂DC电机
-            self.motor.enable_motors(True, True)
-        except Exception as e:
-            print(f"Error enabling DC motors: {e}")
-            return False
-            
-        # 先移动 DC 电机回零位置
-        pitch_success = self.set_pitch_position(0, blocking=blocking, timeout=timeout)
-        linear_success = self.set_linear_position(0, blocking=blocking, timeout=timeout)
+            # 只设置存在的关节
+            positions_to_set = {}
+            for joint in self.joint_ids:
+                if joint in home_positions:
+                    positions_to_set[joint] = home_positions[joint]
+                    
+            if positions_to_set:
+                if not self.set_joint_positions(positions_to_set, blocking=blocking, timeout=timeout):
+                    print("Failed to home servo joints")
+                    success = False
         
-        # 然后移动舵机到中间位置
-        joint_positions = {
-            'joint1': 2048,  # 底座中间位置
-            'joint2': 2048,  # 肩部中间位置
-            'joint3': 2048,  # 肘部中间位置
-            'joint4': 2048   # 腕部中间位置
-        }
-        servo_success = self.set_joint_positions(joint_positions, blocking=blocking, timeout=timeout)
-        
-        return pitch_success and linear_success and servo_success
-        
+        # Home DC电机（如果已连接）
+        if self.motor_connected:
+            if not self.home_motors(blocking=blocking, timeout=timeout):
+                print("Failed to home DC motors")
+                success = False
+                
+        return success
+    
     def calibrate(self):
         """
         执行校准程序
@@ -840,35 +954,56 @@ class RobotArm:
         
         return results
         
-    def home_motors(self):
+    def home_motors(self, blocking=True, timeout=10.0):
         """
-        将大臂 DC 电机归零
+        将DC电机移动到home位置
         
+        Args:
+            blocking: 是否阻塞等待完成
+            timeout: 最大等待时间（秒）
+            
         Returns:
-            bool: 如果成功则返回 True，否则返回 False
+            bool: 如果成功则返回True
         """
-        if not self.connected:
+        if not self.motor_connected:
+            print("DC motor controller not connected")
             return False
             
         try:
-            return self.motor.home_motors()
+            # 确保电机已使能
+            self.motor.enable_motors(enable_pitch=True, enable_linear=True)
+            
+            # 将YF俯仰电机回到0位置
+            success_pitch = self.set_pitch_position(0, blocking=blocking, timeout=timeout)
+            
+            # 将AIMotor进给电机回到0位置
+            success_linear = self.set_linear_position(0, blocking=blocking, timeout=timeout)
+            
+            return success_pitch and success_linear
         except Exception as e:
             print(f"Error homing motors: {e}")
             return False
-
+            
     def get_motor_positions(self):
         """
-        获取电机当前位置
+        获取DC电机的当前位置
         
         Returns:
-            tuple: (pitch_position, linear_position) 或者如果失败则为 (None, None)
+            tuple: (pitch_position, linear_position)，如果未连接则返回(None, None)
         """
-        if not self.connected:
-            print("Not connected to robot arm")
+        if not self.motor_connected:
             return None, None
-        
+            
         try:
-            return self.motor.get_motor_positions()
+            pitch_pos, linear_pos = self.motor.get_motor_positions()
+            
+            # 更新存储的位置
+            if pitch_pos is not None:
+                self.current_pitch = pitch_pos
+            if linear_pos is not None:
+                self.current_linear = linear_pos
+                
+            return pitch_pos, linear_pos
         except Exception as e:
             print(f"Error getting motor positions: {e}")
             return None, None 

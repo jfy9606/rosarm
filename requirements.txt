@@ -1,3 +1,7 @@
-pyserial>=3.5 
-PyQt5>=5.15.0 
-PyQt5-sip>=12.7.0
+pyserial>=3.5
+# Tkinter通常与Python一起安装，不需要额外安装
+# 对于Windows用户，如果需要额外安装或升级：
+# pip install tk
+opencv-python>=4.5.0
+numpy>=1.19.0
+pillow>=8.0.0  # 用于PIL/ImageTk
