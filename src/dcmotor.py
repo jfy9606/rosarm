@@ -161,46 +161,44 @@ class DCMotorController:
             
             if test_results["yf_pitch"] or test_results["ai_linear"]:
                 logger.info(f"电机通信测试结果: YF俯仰电机={test_results['yf_pitch']}, AImotor进给电机={test_results['ai_linear']}")
+                return True
                 
-                # 如果任一电机通信成功，则认为连接成功
-            return True
-            else:
-                logger.warning(f"电机通信测试失败: {test_results}")
-                # 尝试不同的波特率
-                alternate_baudrates = [9600, 19200, 38400, 57600, 115200]
-                if baudrate in alternate_baudrates:
-                    alternate_baudrates.remove(baudrate)
-                
-                for alt_baudrate in alternate_baudrates:
-                    logger.info(f"尝试使用备用波特率 {alt_baudrate}...")
-                    try:
-                        self.serial.close()
-                        self.serial = serial.Serial(
-                            port=port,
-                            baudrate=alt_baudrate,
-                            timeout=timeout,
-                            bytesize=serial.EIGHTBITS,
-                            parity=serial.PARITY_NONE,
-                            stopbits=serial.STOPBITS_ONE
-                        )
-                        self.baudrate = alt_baudrate
-                        
-                        # 清空缓冲区
-                        self.serial.reset_input_buffer()
-                        self.serial.reset_output_buffer()
-                        
-                        # 再次测试通信
-                        test_results = self.test_communication()
-                        if test_results["yf_pitch"] or test_results["ai_linear"]:
-                            logger.info(f"使用波特率 {alt_baudrate} 通信成功: YF={test_results['yf_pitch']}, AI={test_results['ai_linear']}")
-                            return True
-                    except Exception as e:
-                        logger.error(f"尝试波特率 {alt_baudrate} 失败: {e}")
-                
-                # 所有波特率都失败
-                logger.error("所有波特率都无法与电机通信")
-                self.connected = False
-                return False
+            logger.warning(f"电机通信测试失败: {test_results}")
+            # 尝试不同的波特率
+            alternate_baudrates = [9600, 19200, 38400, 57600, 115200]
+            if baudrate in alternate_baudrates:
+                alternate_baudrates.remove(baudrate)
+            
+            for alt_baudrate in alternate_baudrates:
+                logger.info(f"尝试使用备用波特率 {alt_baudrate}...")
+                try:
+                    self.serial.close()
+                    self.serial = serial.Serial(
+                        port=port,
+                        baudrate=alt_baudrate,
+                        timeout=timeout,
+                        bytesize=serial.EIGHTBITS,
+                        parity=serial.PARITY_NONE,
+                        stopbits=serial.STOPBITS_ONE
+                    )
+                    self.baudrate = alt_baudrate
+                    
+                    # 清空缓冲区
+                    self.serial.reset_input_buffer()
+                    self.serial.reset_output_buffer()
+                    
+                    # 再次测试通信
+                    test_results = self.test_communication()
+                    if test_results["yf_pitch"] or test_results["ai_linear"]:
+                        logger.info(f"使用波特率 {alt_baudrate} 通信成功: YF={test_results['yf_pitch']}, AI={test_results['ai_linear']}")
+                        return True
+                except Exception as e:
+                    logger.error(f"尝试波特率 {alt_baudrate} 失败: {e}")
+            
+            # 所有波特率都失败
+            logger.error("所有波特率都无法与电机通信")
+            self.connected = False
+            return False
             
         except Exception as e:
             logger.error(f"连接到电机控制器失败: {e}")
@@ -588,8 +586,8 @@ class DCMotorController:
                 code_order = [4, 0, 2, 6, 8, 9, 10, 11, 12, 13]
             else:
                 logger.error(f"Invalid form input: {form_input}")
-            return False
-        
+                return False
+            
             # 发送命令序列
             for i in code_order:
                 self._delay_if_needed()
@@ -652,7 +650,7 @@ class DCMotorController:
                 self.pitch_position = position
                 return True
             else:
-            return False
+                return False
         
         except Exception as e:
             logger.error(f"Error setting YF pitch position: {e}")
@@ -902,8 +900,8 @@ class DCMotorController:
                     status['temperature'] = temperature
             
             logger.info(f"Read motor {station_num} status: {status}")
-        return status
-    
+            return status
+        
         except Exception as e:
             logger.error(f"Error reading motor {station_num} status: {e}")
             return None 
@@ -1045,7 +1043,7 @@ class DCMotorController:
             
             else:
                 logger.error(f"Invalid station number: {station_num}")
-            return False
+                return False
         
         except Exception as e:
             logger.error(f"Error enabling motor {station_num}: {e}")
