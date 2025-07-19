@@ -18,6 +18,8 @@ import queue
 import cv2
 from PIL import Image, ImageTk
 import numpy as np # Added for numpy
+import torch
+from ultralytics import YOLO
 
 # 添加src目录到路径
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
@@ -79,14 +81,49 @@ class ServoScanTask(AsyncTask):
 
 
 class VideoCapture:
-    """视频捕获类，用于处理OpenCV视频流"""
-    def __init__(self, camera_index=0):
+    """视频捕获类，用于处理OpenCV视频流和YOLO物体检测"""
+    def __init__(self, camera_index=0, stereo_mode=False):
         self.camera_index = camera_index
+        self.stereo_mode = stereo_mode
         self.cap = None
         self.running = False
         self.frame_queue = queue.Queue(maxsize=1)
         self.thread = None
         
+        # YOLO模型
+        self.yolo_model = None
+        self.yolo_enabled = False
+        self.detection_results = []
+        self.confidence_threshold = 0.5
+        
+        # 双目相机参数
+        self.stereo_width = 3840  # 默认分辨率宽度
+        self.stereo_height = 1080  # 默认分辨率高度
+        self.left_frame = None
+        self.right_frame = None
+        
+        # 加载YOLO模型的线程
+        self.model_loading_thread = None
+        
+    def load_yolo_model(self, model_path=None):
+        """异步加载YOLO模型"""
+        def _load_model():
+            try:
+                if model_path and os.path.exists(model_path):
+                    self.yolo_model = YOLO(model_path)
+                else:
+                    # 如果没有指定模型路径，使用预训练的YOLOv8n模型
+                    self.yolo_model = YOLO('yolov8n.pt')
+                print("YOLO模型加载完成")
+            except Exception as e:
+                print(f"加载YOLO模型时出错: {e}")
+                self.yolo_model = None
+        
+        if self.model_loading_thread is None or not self.model_loading_thread.is_alive():
+            self.model_loading_thread = threading.Thread(target=_load_model)
+            self.model_loading_thread.daemon = True
+            self.model_loading_thread.start()
+    
     def start(self):
         """启动视频捕获"""
         if self.running:
@@ -96,13 +133,25 @@ class VideoCapture:
             self.cap = cv2.VideoCapture(self.camera_index)
             if not self.cap.isOpened():
                 return False
+            
+            # 如果是双目模式，设置适当的分辨率
+            if self.stereo_mode:
+                # 设置为双目相机支持的分辨率
+                self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.stereo_width)
+                self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.stereo_height)
                 
             self.running = True
             self.thread = threading.Thread(target=self._capture_loop)
             self.thread.daemon = True
             self.thread.start()
+            
+            # 加载YOLO模型
+            if self.yolo_enabled and self.yolo_model is None:
+                self.load_yolo_model()
+                
             return True
-        except Exception:
+        except Exception as e:
+            print(f"启动视频捕获时出错: {e}")
             self.stop()
             return False
             
@@ -124,6 +173,33 @@ class VideoCapture:
             ret, frame = self.cap.read()
             if not ret:
                 break
+            
+            # 处理双目相机图像
+            if self.stereo_mode and frame is not None:
+                # 分割左右图像
+                h, w = frame.shape[:2]
+                mid = w // 2
+                self.left_frame = frame[:, :mid]
+                self.right_frame = frame[:, mid:]
+                
+                # 进行物体检测
+                if self.yolo_enabled and self.yolo_model is not None:
+                    try:
+                        # 在左图上进行检测
+                        results = self.yolo_model(self.left_frame, verbose=False)
+                        self.detection_results = results[0]  # 保存检测结果
+                    except Exception as e:
+                        print(f"YOLO检测出错: {e}")
+                        self.detection_results = []
+            else:
+                # 单目模式
+                if self.yolo_enabled and self.yolo_model is not None:
+                    try:
+                        results = self.yolo_model(frame, verbose=False)
+                        self.detection_results = results[0]  # 保存检测结果
+                    except Exception as e:
+                        print(f"YOLO检测出错: {e}")
+                        self.detection_results = []
                 
             # 如果队列已满，先清空队列
             if self.frame_queue.full():
@@ -149,10 +225,43 @@ class VideoCapture:
             return self.frame_queue.get(block=False)
         except queue.Empty:
             return None
-            
+    
+    def get_stereo_frames(self):
+        """获取双目相机的左右帧"""
+        if not self.running or not self.stereo_mode:
+            return None, None
+        return self.left_frame, self.right_frame
+    
+    def get_detection_results(self):
+        """获取最新的检测结果"""
+        return self.detection_results
+    
+    def set_yolo_enabled(self, enabled):
+        """启用或禁用YOLO检测"""
+        self.yolo_enabled = enabled
+        if enabled and self.yolo_model is None:
+            self.load_yolo_model()
+    
+    def set_confidence_threshold(self, threshold):
+        """设置置信度阈值"""
+        self.confidence_threshold = max(0.1, min(1.0, threshold))
+    
     def is_running(self):
         """检查捕获是否正在运行"""
-        return self.running 
+        return self.running
+        
+    def set_stereo_mode(self, enabled, width=3840, height=1080):
+        """设置是否使用双目模式"""
+        was_running = self.running
+        if was_running:
+            self.stop()
+            
+        self.stereo_mode = enabled
+        self.stereo_width = width
+        self.stereo_height = height
+        
+        if was_running:
+            self.start()
 
 
 class RobotArmGUI:
@@ -185,6 +294,24 @@ class RobotArmGUI:
         self.video_enabled = False
         self.video_update_ms = 50  # 视频更新间隔(毫秒)
         self.video_frame = None
+        
+        # 双目相机设置
+        self.stereo_mode = False
+        self.camera_resolutions = [
+            "1280x480 (30FPS)",
+            "1920x1080 (30FPS)",
+            "2160x1080 (30FPS)",
+            "2560x720 (30FPS)",
+            "3840x1080 (30FPS)",
+            "3840x1520 (10FPS)"
+        ]
+        self.selected_resolution = tk.StringVar(value=self.camera_resolutions[0])
+        
+        # YOLO物体检测设置
+        self.yolo_enabled = False
+        self.yolo_model_path = ""
+        self.detection_class_names = []  # 检测到的类别名称
+        self.confidence_threshold = tk.DoubleVar(value=0.5)  # 置信度阈值
         
         # 视觉处理参数
         self.vision_processing_enabled = False
@@ -357,11 +484,84 @@ class RobotArmGUI:
         self.camera_btn = ttk.Button(video_control_frame, text="开启摄像头", command=self.toggle_camera)
         self.camera_btn.pack(fill=tk.X, padx=5, pady=5)
         
+        # 双目相机模式选择
+        stereo_frame = ttk.Frame(video_control_frame)
+        stereo_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        self.stereo_var = tk.BooleanVar(value=False)
+        self.stereo_check = ttk.Checkbutton(
+            stereo_frame, 
+            text="双目相机模式",
+            variable=self.stereo_var,
+            command=self.toggle_stereo_mode
+        )
+        self.stereo_check.pack(side=tk.LEFT, padx=5)
+        
+        # 分辨率选择
+        resolution_frame = ttk.Frame(video_control_frame)
+        resolution_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Label(resolution_frame, text="分辨率:").pack(side=tk.LEFT, padx=5)
+        resolution_combo = ttk.Combobox(
+            resolution_frame, 
+            textvariable=self.selected_resolution,
+            values=self.camera_resolutions,
+            state="readonly",
+            width=15
+        )
+        resolution_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        resolution_combo.bind("<<ComboboxSelected>>", self.on_resolution_change)
+        
+        # YOLO物体检测控制
+        yolo_frame = ttk.LabelFrame(control_frame, text="YOLO物体检测")
+        yolo_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        # YOLO启用开关
+        yolo_enable_var = tk.BooleanVar(value=False)
+        self.yolo_enable_check = ttk.Checkbutton(
+            yolo_frame, 
+            text="启用YOLO检测",
+            variable=yolo_enable_var,
+            command=lambda: self.toggle_yolo_detection(yolo_enable_var.get())
+        )
+        self.yolo_enable_check.pack(fill=tk.X, padx=5, pady=5)
+        
+        # 置信度阈值控制
+        conf_frame = ttk.Frame(yolo_frame)
+        conf_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Label(conf_frame, text="置信度阈值:").pack(side=tk.LEFT, padx=5)
+        conf_slider = ttk.Scale(
+            conf_frame,
+            from_=0.1,
+            to=1.0,
+            orient=tk.HORIZONTAL,
+            variable=self.confidence_threshold,
+            command=self.update_confidence_threshold
+        )
+        conf_slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        
+        conf_label = ttk.Label(conf_frame, text="0.5")
+        conf_label.pack(side=tk.LEFT, padx=5)
+        
+        # 更新置信度标签的回调
+        def update_conf_label(*args):
+            conf_label.config(text=f"{self.confidence_threshold.get():.1f}")
+        
+        self.confidence_threshold.trace_add("write", update_conf_label)
+        
+        # 加载自定义模型按钮
+        ttk.Button(
+            yolo_frame,
+            text="加载自定义模型",
+            command=self.load_custom_yolo_model
+        ).pack(fill=tk.X, padx=5, pady=5)
+        
         # 视觉处理开关
         vision_enable_var = tk.BooleanVar(value=False)
         self.vision_enable_check = ttk.Checkbutton(
             video_control_frame, 
-            text="启用视觉处理",
+            text="启用HSV过滤",
             variable=vision_enable_var,
             command=lambda: self.toggle_vision_processing(vision_enable_var.get())
         )
@@ -1600,6 +1800,87 @@ class RobotArmGUI:
                 self.log("无法开启摄像头")
                 messagebox.showerror("错误", "无法开启摄像头，请检查摄像头连接")
     
+    def toggle_stereo_mode(self):
+        """切换双目相机模式"""
+        stereo_enabled = self.stereo_var.get()
+        
+        # 如果摄像头正在运行，需要先停止
+        was_running = self.video_enabled
+        if was_running:
+            self.video.stop()
+            self.video_enabled = False
+        
+        # 解析当前选择的分辨率
+        resolution_str = self.selected_resolution.get().split(" ")[0]  # 例如 "3840x1080 (30FPS)" -> "3840x1080"
+        width, height = map(int, resolution_str.split("x"))
+        
+        # 设置双目模式
+        self.stereo_mode = stereo_enabled
+        self.video.set_stereo_mode(stereo_enabled, width, height)
+        
+        # 如果之前在运行，重新启动摄像头
+        if was_running:
+            self.toggle_camera()
+        
+        self.log(f"双目相机模式: {'已启用' if stereo_enabled else '已禁用'}")
+    
+    def on_resolution_change(self, event):
+        """处理分辨率变化"""
+        if not self.stereo_mode:
+            return
+            
+        # 解析新的分辨率
+        resolution_str = self.selected_resolution.get().split(" ")[0]
+        width, height = map(int, resolution_str.split("x"))
+        
+        # 如果摄像头正在运行，需要先停止
+        was_running = self.video_enabled
+        if was_running:
+            self.video.stop()
+            self.video_enabled = False
+        
+        # 更新分辨率
+        self.video.set_stereo_mode(True, width, height)
+        
+        # 如果之前在运行，重新启动摄像头
+        if was_running:
+            self.toggle_camera()
+        
+        self.log(f"分辨率已设置为 {width}x{height}")
+    
+    def toggle_yolo_detection(self, enabled):
+        """启用或禁用YOLO物体检测"""
+        self.yolo_enabled = enabled
+        self.video.set_yolo_enabled(enabled)
+        
+        if enabled and self.video_enabled:
+            self.log("正在加载YOLO模型，请稍候...")
+        else:
+            self.log(f"YOLO物体检测: {'已启用' if enabled else '已禁用'}")
+    
+    def update_confidence_threshold(self, value):
+        """更新置信度阈值"""
+        threshold = float(value)
+        self.video.set_confidence_threshold(threshold)
+    
+    def load_custom_yolo_model(self):
+        """加载自定义YOLO模型"""
+        from tkinter import filedialog
+        
+        model_path = filedialog.askopenfilename(
+            title="选择YOLO模型文件",
+            filetypes=[("PyTorch模型", "*.pt"), ("ONNX模型", "*.onnx"), ("所有文件", "*.*")]
+        )
+        
+        if model_path:
+            self.yolo_model_path = model_path
+            self.log(f"正在加载自定义模型: {os.path.basename(model_path)}")
+            self.video.load_yolo_model(model_path)
+            
+            # 自动启用YOLO检测
+            self.yolo_enable_check.state(['selected'])
+            self.toggle_yolo_detection(True)
+    
     def update_video_frame(self):
         """更新视频帧"""
         if not self.video_enabled:
@@ -1610,18 +1891,41 @@ class RobotArmGUI:
             frame = self.video.get_frame()
             
             if frame is not None:
-                # 如果启用了视觉处理，应用HSV过滤
-                if self.vision_processing_enabled:
-                    frame = self.process_frame(frame)
+                display_frame = frame.copy()
                 
-                # 调整大小
-                frame = cv2.resize(frame, (640, 480))
+                # 处理双目模式
+                if self.stereo_mode:
+                    left_frame, right_frame = self.video.get_stereo_frames()
+                    
+                    if left_frame is not None and right_frame is not None:
+                        # 在左帧上绘制检测结果
+                        if self.yolo_enabled:
+                            display_frame = self.draw_detection_results(left_frame.copy())
+                        elif self.vision_processing_enabled:
+                            display_frame = self.process_frame(left_frame.copy())
+                            
+                        # 将左右帧并排显示
+                        h, w = left_frame.shape[:2]
+                        combined_frame = np.zeros((h, w*2, 3), dtype=np.uint8)
+                        combined_frame[:, :w] = display_frame
+                        combined_frame[:, w:] = right_frame
+                        
+                        display_frame = combined_frame
+                else:
+                    # 单目模式
+                    if self.yolo_enabled:
+                        display_frame = self.draw_detection_results(frame)
+                    elif self.vision_processing_enabled:
+                        display_frame = self.process_frame(frame)
+                
+                # 调整大小以适应显示
+                display_frame = cv2.resize(display_frame, (800, 600))
                 
                 # 转换颜色空间
-                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                display_frame = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
                 
                 # 转换为PhotoImage
-                image = Image.fromarray(frame)
+                image = Image.fromarray(display_frame)
                 photo = ImageTk.PhotoImage(image=image)
                 
                 # 更新标签
@@ -1634,52 +1938,47 @@ class RobotArmGUI:
         if self.video_enabled:
             self.root.after(self.video_update_ms, self.update_video_frame)
     
-    def process_frame(self, frame):
-        """处理视频帧，应用HSV过滤"""
+    def draw_detection_results(self, frame):
+        """在帧上绘制YOLO检测结果"""
+        if not self.yolo_enabled:
+            return frame
+            
+        results = self.video.get_detection_results()
+        if results is None:
+            return frame
+            
         try:
-            # 转换到HSV颜色空间
-            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+            # 获取检测框和类别
+            boxes = results.boxes
             
-            # 创建掩码
-            lower_bound = np.array([
-                int(self.vision_params['hue_low']),
-                int(self.vision_params['sat_low']),
-                int(self.vision_params['val_low'])
-            ])
-            
-            upper_bound = np.array([
-                int(self.vision_params['hue_high']),
-                int(self.vision_params['sat_high']),
-                int(self.vision_params['val_high'])
-            ])
-            
-            # 应用掩码
-            mask = cv2.inRange(hsv, lower_bound, upper_bound)
-            result = cv2.bitwise_and(frame, frame, mask=mask)
-            
-            # 查找轮廓
-            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            
-            # 绘制轮廓
-            cv2.drawContours(frame, contours, -1, (0, 255, 0), 2)
-            
-            # 找到最大轮廓
-            if contours:
-                largest_contour = max(contours, key=cv2.contourArea)
+            # 遍历所有检测结果
+            for i, box in enumerate(boxes):
+                # 获取置信度
+                conf = float(box.conf)
                 
-                # 计算中心点
-                M = cv2.moments(largest_contour)
-                if M["m00"] != 0:
-                    cx = int(M["m10"] / M["m00"])
-                    cy = int(M["m01"] / M["m00"])
+                # 如果置信度低于阈值，跳过
+                if conf < self.confidence_threshold.get():
+                    continue
                     
-                    # 绘制中心点
-                    cv2.circle(frame, (cx, cy), 5, (0, 0, 255), -1)
-            
-            return frame
+                # 获取边界框坐标
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                
+                # 获取类别ID和名称
+                cls_id = int(box.cls[0])
+                cls_name = results.names[cls_id]
+                
+                # 绘制边界框
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                
+                # 绘制类别名称和置信度
+                label = f"{cls_name} {conf:.2f}"
+                (label_width, label_height), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+                cv2.rectangle(frame, (x1, y1-label_height-5), (x1+label_width, y1), (0, 255, 0), -1)
+                cv2.putText(frame, label, (x1, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
         except Exception as e:
-            self.log(f"处理视频帧时出错: {e}")
-            return frame
+            print(f"绘制检测结果时出错: {e}")
+            
+        return frame
     
     def toggle_vision_processing(self, enabled):
         """开启/关闭视觉处理"""
@@ -1745,49 +2044,145 @@ class RobotArmGUI:
             command=settings_window.destroy
         ).pack(pady=10)
     
+    def process_frame(self, frame):
+        """处理视频帧，应用HSV过滤"""
+        try:
+            # 转换到HSV颜色空间
+            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+            
+            # 创建掩码
+            lower_bound = np.array([
+                int(self.vision_params['hue_low']),
+                int(self.vision_params['sat_low']),
+                int(self.vision_params['val_low'])
+            ])
+            
+            upper_bound = np.array([
+                int(self.vision_params['hue_high']),
+                int(self.vision_params['sat_high']),
+                int(self.vision_params['val_high'])
+            ])
+                
+            # 应用掩码
+            mask = cv2.inRange(hsv, lower_bound, upper_bound)
+            result = cv2.bitwise_and(frame, frame, mask=mask)
+                
+            # 查找轮廓
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            # 绘制轮廓
+            cv2.drawContours(frame, contours, -1, (0, 255, 0), 2)
+                
+            # 找到最大轮廓
+            if contours:
+                largest_contour = max(contours, key=cv2.contourArea)
+                
+                # 计算中心点
+                M = cv2.moments(largest_contour)
+                if M["m00"] != 0:
+                    cx = int(M["m10"] / M["m00"])
+                    cy = int(M["m01"] / M["m00"])
+                    
+                    # 绘制中心点
+                    cv2.circle(frame, (cx, cy), 5, (0, 0, 255), -1)
+            
+            return frame
+        except Exception as e:
+            self.log(f"处理视频帧时出错: {e}")
+            return frame
+    
     def run_object_detection(self):
         """运行物体检测"""
         if not self.video_enabled:
-            self.log("请先开启摄像头")
+            messagebox.showinfo("提示", "请先开启摄像头")
             return
             
-        # 启用视觉处理
-        self.vision_processing_enabled = True
-        
-        # 更新复选框状态
-        self.vision_enable_check.state(['selected'])
-        
+        # 启用YOLO检测
+        self.yolo_enable_check.state(['selected'])
+        self.toggle_yolo_detection(True)
         self.log("已启动物体检测")
     
     def track_object(self):
         """跟踪检测到的物体"""
-        if not self.video_enabled or not self.vision_processing_enabled:
-            self.log("请先开启摄像头并启用视觉处理")
+        if not self.video_enabled or not self.yolo_enabled:
+            messagebox.showinfo("提示", "请先开启摄像头并启用YOLO检测")
             return
             
-        if not self.servo_connected or not self.motor_connected:
-            self.log("请先连接舵机和电机控制器")
+        # 获取当前检测结果
+        results = self.video.get_detection_results()
+        if results is None or len(results.boxes) == 0:
+            self.log("未检测到物体，无法跟踪")
             return
             
-        self.log("开始跟踪物体...")
+        # 找到置信度最高的物体
+        boxes = results.boxes
+        best_box = None
+        best_conf = 0
         
-        # 实际应用中，这里应该启动一个线程来处理跟踪逻辑
-        messagebox.showinfo("跟踪", "物体跟踪功能需要结合具体应用场景进行开发")
+        for box in boxes:
+            conf = float(box.conf)
+            if conf > best_conf and conf >= self.confidence_threshold.get():
+                best_conf = conf
+                best_box = box
+        
+        if best_box is None:
+            self.log("未找到符合置信度要求的物体")
+            return
+            
+        # 获取物体位置
+        x1, y1, x2, y2 = map(int, best_box.xyxy[0])
+        center_x = (x1 + x2) // 2
+        center_y = (y1 + y2) // 2
+        
+        # 获取物体类别
+        cls_id = int(best_box.cls[0])
+        cls_name = results.names[cls_id]
+        
+        self.log(f"正在跟踪物体: {cls_name}, 位置: ({center_x}, {center_y})")
+        
+        # TODO: 实现物体跟踪逻辑
+        # 这里可以添加控制机械臂移动到物体位置的代码
     
     def grab_detected_object(self):
         """抓取检测到的物体"""
-        if not self.video_enabled or not self.vision_processing_enabled:
-            self.log("请先开启摄像头并启用视觉处理")
+        if not self.video_enabled or not self.yolo_enabled:
+            messagebox.showinfo("提示", "请先开启摄像头并启用YOLO检测")
             return
             
-        if not self.servo_connected or not self.motor_connected:
-            self.log("请先连接舵机和电机控制器")
+        # 获取当前检测结果
+        results = self.video.get_detection_results()
+        if results is None or len(results.boxes) == 0:
+            self.log("未检测到物体，无法抓取")
             return
             
-        self.log("开始抓取检测到的物体...")
+        # 找到置信度最高的物体
+        boxes = results.boxes
+        best_box = None
+        best_conf = 0
         
-        # 实际应用中，这里应该启动一个线程来处理抓取逻辑
-        messagebox.showinfo("抓取", "物体抓取功能需要结合具体应用场景进行开发")
+        for box in boxes:
+            conf = float(box.conf)
+            if conf > best_conf and conf >= self.confidence_threshold.get():
+                best_conf = conf
+                best_box = box
+        
+        if best_box is None:
+            self.log("未找到符合置信度要求的物体")
+            return
+            
+        # 获取物体位置
+        x1, y1, x2, y2 = map(int, best_box.xyxy[0])
+        center_x = (x1 + x2) // 2
+        center_y = (y1 + y2) // 2
+        
+        # 获取物体类别
+        cls_id = int(best_box.cls[0])
+        cls_name = results.names[cls_id]
+        
+        self.log(f"正在抓取物体: {cls_name}, 位置: ({center_x}, {center_y})")
+        
+        # TODO: 实现物体抓取逻辑
+        # 这里可以添加控制机械臂移动到物体位置并抓取的代码
     
     def show_about(self):
         """显示关于信息"""

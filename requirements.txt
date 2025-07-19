@@ -5,3 +5,6 @@ pyserial>=3.5
 opencv-python>=4.5.0
 numpy>=1.19.0
 pillow>=8.0.0  # For PIL/ImageTk
+ultralytics>=8.1.0  # For YOLOv11n
+torch>=2.0.0
+torchvision>=0.15.0

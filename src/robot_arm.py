@@ -228,11 +228,11 @@ class RobotArm:
         断开与两个控制器的连接
         """
         if self.servo_connected:
-            self.servo.disconnect()
+        self.servo.disconnect()
             self.servo_connected = False
             
         if self.motor_connected:
-            self.motor.disconnect()
+        self.motor.disconnect()
             self.motor_connected = False
             
         self.connected = False
@@ -337,8 +337,8 @@ class RobotArm:
             if linear_pos is not None:
                 status['linear_position'] = linear_pos
                 self.current_linear = linear_pos
-                
-            return status
+        
+        return status
         except Exception as e:
             print(f"Error reading motor status: {e}")
             return {}
@@ -359,12 +359,12 @@ class RobotArm:
         if not self.servo_connected:
             print("Servo controller not connected")
             return False
-            
+        
         # 检查是否是已知关节
         servo_id = None
         if isinstance(joint, str):
             if joint in self.joint_ids:
-                servo_id = self.joint_ids[joint]
+        servo_id = self.joint_ids[joint]
             else:
                 print(f"Unknown joint: {joint}")
                 return False
@@ -374,7 +374,7 @@ class RobotArm:
         
         # 限制位置范围
         if isinstance(joint, str) and joint in self.joint_limits:
-            position = self._clamp_joint_position(joint, position)
+        position = self._clamp_joint_position(joint, position)
         
         # 设置位置
         if not self.servo.write_position(servo_id, position):
@@ -400,10 +400,10 @@ class RobotArm:
                     return True
                 
                 time.sleep(0.1)
-            
+        
             print(f"Timeout waiting for joint {joint} to reach position {position}")
             return False
-        
+            
         return True
     
     def set_joint_positions(self, positions, blocking=False, timeout=5.0):
@@ -431,7 +431,7 @@ class RobotArm:
         # 设置所有关节位置
         for joint, position in positions.items():
             # 获取舵机ID
-            servo_id = self.joint_ids[joint]
+                servo_id = self.joint_ids[joint]
             
             # 限制位置范围
             position = self._clamp_joint_position(joint, position)
@@ -439,8 +439,8 @@ class RobotArm:
             # 设置位置
             if not self.servo.write_position(servo_id, position):
                 print(f"Failed to set position for joint {joint}")
-                return False
-            
+            return False
+        
             # 更新当前位置
             self.current_positions[joint] = position
         
@@ -451,15 +451,15 @@ class RobotArm:
                 # 检查所有关节是否到达目标位置
                 all_reached = True
                 for joint, target_pos in positions.items():
-                    servo_id = self.joint_ids[joint]
-                    current_pos = self.servo.read_position(servo_id)
-                    if current_pos is None:
+                        servo_id = self.joint_ids[joint]
+                        current_pos = self.servo.read_position(servo_id)
+                        if current_pos is None:
                         print(f"Failed to read position for joint {joint}")
-                        return False
-                    
+                            return False
+                        
                     if abs(current_pos - target_pos) > 10:  # 允许10个单位的误差
-                        all_reached = False
-                        break
+                            all_reached = False
+                            break
                 
                 if all_reached:
                     return True
@@ -518,7 +518,7 @@ class RobotArm:
                 # 检查是否到达目标位置
                 if abs(pitch_pos - position) <= 5:  # 允许5度误差
                     return True
-                
+                    
                 time.sleep(0.1)
             
             print(f"Timeout waiting for pitch motor to reach position {position}")
@@ -573,7 +573,7 @@ class RobotArm:
                 # 检查是否到达目标位置
                 if abs(linear_pos - position) <= 10:  # 允许10单位误差
                     return True
-                
+                    
                 time.sleep(0.1)
             
             print(f"Timeout waiting for linear motor to reach position {position}")
@@ -677,15 +677,15 @@ class RobotArm:
         # Home舵机（如果已连接）
         if self.servo_connected:
             # 设置所有舵机的home位置
-            home_positions = {
-                'joint1': 2048,  # 中间位置
-                'joint2': 2048,
-                'joint3': 2048,
+        home_positions = {
+            'joint1': 2048,  # 中间位置
+            'joint2': 2048,
+            'joint3': 2048,
                 'joint4': 2048,
                 'joint5': 2048,
                 'joint6': 2048
-            }
-            
+        }
+        
             # 只设置存在的关节
             positions_to_set = {}
             for joint in self.joint_ids:

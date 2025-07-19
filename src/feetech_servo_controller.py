@@ -134,8 +134,7 @@ class FeetechServoController:
             return None
         
         # 设置一个更短的读取超时，防止在通信问题时长时间阻塞
-        original_timeout = self.port_handler.getTimeoutMillis()
-        self.port_handler.setTimeoutMillis(100)  # 100ms超时
+        self.port_handler.setPacketTimeoutMillis(100)  # 100ms超时
         
         try:
             position, result, error = self.packet_handler.read2ByteTxRx(
@@ -154,8 +153,7 @@ class FeetechServoController:
             print(f"Exception during position read: {e}")
             return None
         finally:
-            # 恢复原始超时设置
-            self.port_handler.setTimeoutMillis(original_timeout)
+            self.port_handler.setPacketTimeoutMillis(250)  # 设置回默认超时值
     
     def read_speed(self, servo_id):
         """
