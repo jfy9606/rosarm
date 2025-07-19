@@ -29,11 +29,11 @@ find_package(motor REQUIRED)
 find_package(trajectory REQUIRED)
 find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
 
-# 检查Python版本
+# 检查Python版本 - 需要 3.11+
 if(Python3_VERSION VERSION_LESS 3.11)
-  message(WARNING "Python 3.11 or newer recommended (found: ${Python3_VERSION})")
+  message(FATAL_ERROR "Python 3.11 或更高版本是必需的。当前版本: ${Python3_VERSION}")
 else()
-  message(STATUS "Using Python ${Python3_VERSION}")
+  message(STATUS "使用 Python ${Python3_VERSION}")
 endif()
 
 # 包含目录
