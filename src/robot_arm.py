@@ -15,6 +15,8 @@ import time
 import math
 import sys
 import os
+import numpy as np
+import cv2  # 添加OpenCV库用于图像处理
 
 # 导入 Feetech-Servo-SDK 中的 COMM_SUCCESS
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'components', 'Feetech-Servo-SDK'))
@@ -101,6 +103,37 @@ class RobotArm:
         self.motor_connected = False
         self.connected = False
         
+        # 机械臂DH参数（用于运动学计算）
+        self.dh_params = {
+            # 默认值，实际使用时应根据机械臂尺寸调整
+            'a': [0, 0.25, 0.25, 0],  # 连杆长度(m)
+            'd': [0.1, 0, 0, 0],      # 连杆偏移(m)
+            'alpha': [np.pi/2, 0, 0, -np.pi/2]  # 连杆扭转角度(rad)
+        }
+        
+        # 笛卡尔坐标系中末端执行器的位置和姿态
+        self.end_effector_pose = {
+            'position': np.array([0.0, 0.0, 0.0]),  # [x, y, z] in meters
+            'orientation': np.array([0.0, 0.0, 0.0])  # [roll, pitch, yaw] in radians
+        }
+        
+        # 连接的舵机IDs列表
+        self.connected_servos = set()
+        
+        # 未连接舵机的默认位置值
+        self.default_servo_positions = {}
+        
+        # 添加坐标系转换矩阵
+        # 大臂电机坐标系到机械臂基座坐标系的转换矩阵
+        self.T_base_to_dcmotor = np.eye(4)
+        # 默认设置大臂电机位于基座正上方10cm处
+        self.T_base_to_dcmotor[2, 3] = 0.10
+        
+        # 双目相机状态
+        self.cameras_initialized = False
+        self.left_camera = None
+        self.right_camera = None
+    
     def connect_servo(self, servo_port, servo_baudrate=1000000, protocol_end=0):
         """
         仅连接舵机控制器
@@ -440,3 +473,936 @@ class RobotArm:
         except Exception as e:
             print(f"检查电压时出错: {e}")
             return False, 0 
+
+    def detect_connected_servos(self):
+        """
+        检测哪些舵机实际连接并可通信
+        
+        Returns:
+            set: 已连接舵机ID的集合
+        """
+        if not self.servo_connected:
+            print("舵机控制器未连接")
+            return set()
+            
+        connected = set()
+        for joint, servo_id in self.joint_ids.items():
+            try:
+                # 尝试ping舵机
+                model_number, comm_result, error = self.servo.ping(servo_id)
+                if model_number > 0 and comm_result == 0:  # 通信成功且返回了型号
+                    connected.add(servo_id)
+                    print(f"舵机 {joint} (ID: {servo_id}) 已连接")
+                else:
+                    print(f"舵机 {joint} (ID: {servo_id}) 未连接或通信错误")
+            except Exception as e:
+                print(f"检测舵机 {joint} (ID: {servo_id}) 时发生错误: {e}")
+                
+        self.connected_servos = connected
+        return connected
+    
+    def calibrate_servos(self):
+        """
+        检测未连接的舵机并设置校准参数
+        
+        Returns:
+            dict: 校准参数
+        """
+        # 首先检测已连接舵机
+        self.detect_connected_servos()
+        
+        # 为未连接舵机设置默认位置
+        for joint, servo_id in self.joint_ids.items():
+            if servo_id not in self.connected_servos:
+                # 使用中点位置作为默认值
+                if joint in self.joint_limits:
+                    min_pos, max_pos = self.joint_limits[joint]
+                    default_pos = (min_pos + max_pos) // 2
+                    self.default_servo_positions[servo_id] = default_pos
+                    print(f"舵机 {joint} (ID: {servo_id}) 未连接，使用默认位置: {default_pos}")
+                    
+        return self.default_servo_positions
+    
+    def dh_transform(self, a, d, alpha, theta):
+        """
+        计算单个DH变换矩阵
+        
+        Args:
+            a: 连杆长度
+            d: 连杆偏移
+            alpha: 连杆扭转角度
+            theta: 关节角度
+            
+        Returns:
+            numpy.ndarray: 4x4变换矩阵
+        """
+        cos_theta = np.cos(theta)
+        sin_theta = np.sin(theta)
+        cos_alpha = np.cos(alpha)
+        sin_alpha = np.sin(alpha)
+        
+        T = np.array([
+            [cos_theta, -sin_theta * cos_alpha, sin_theta * sin_alpha, a * cos_theta],
+            [sin_theta, cos_theta * cos_alpha, -cos_theta * sin_alpha, a * sin_theta],
+            [0, sin_alpha, cos_alpha, d],
+            [0, 0, 0, 1]
+        ])
+        
+        return T
+    
+    def forward_kinematics(self, joint_angles=None):
+        """
+        计算正向运动学，获取机械臂末端执行器的位置和姿态
+        
+        Args:
+            joint_angles: 关节角度列表(弧度)，如果为None则使用当前关节角度
+            
+        Returns:
+            dict: 末端执行器的位置和姿态
+                'position': [x, y, z] 位置(m)
+                'orientation': [roll, pitch, yaw] 姿态(rad)
+                'matrix': 4x4变换矩阵
+        """
+        # 如果未提供关节角度，则读取当前关节角度
+        if joint_angles is None:
+            joint_angles = self.get_current_joint_angles()
+            
+        if not joint_angles or len(joint_angles) < 4:
+            print("缺少关节角度信息")
+            return None
+        
+        # 获取DH参数
+        a = self.dh_params['a']
+        d = self.dh_params['d']
+        alpha = self.dh_params['alpha']
+        
+        # 计算总变换矩阵
+        T = np.eye(4)
+        for i in range(len(joint_angles)):
+            Ti = self.dh_transform(a[i], d[i], alpha[i], joint_angles[i])
+            T = np.matmul(T, Ti)
+        
+        # 提取位置和姿态
+        position = T[0:3, 3]
+        
+        # 从旋转矩阵提取欧拉角(roll, pitch, yaw)
+        sy = np.sqrt(T[0, 0] * T[0, 0] + T[1, 0] * T[1, 0])
+        singular = sy < 1e-6
+        
+        if not singular:
+            roll = np.arctan2(T[2, 1], T[2, 2])
+            pitch = np.arctan2(-T[2, 0], sy)
+            yaw = np.arctan2(T[1, 0], T[0, 0])
+        else:
+            roll = np.arctan2(-T[1, 2], T[1, 1])
+            pitch = np.arctan2(-T[2, 0], sy)
+            yaw = 0
+        
+        orientation = np.array([roll, pitch, yaw])
+        
+        # 更新末端执行器位姿
+        self.end_effector_pose = {
+            'position': position,
+            'orientation': orientation,
+            'matrix': T
+        }
+        
+        return self.end_effector_pose
+    
+    def get_current_joint_angles(self):
+        """
+        获取当前关节角度(弧度)
+        
+        Returns:
+            list: 关节角度列表(弧度)
+        """
+        # 读取当前舵机位置
+        positions = self.read_joint_positions()
+        if not positions:
+            print("无法读取关节位置")
+            return None
+        
+        # 将舵机位置(0-4095)转换为关节角度(弧度)
+        angles = []
+        for joint in ['joint1', 'joint2', 'joint3', 'joint4']:
+            if joint in positions:
+                # 舵机位置到角度的转换
+                pos = positions[joint]
+                min_pos, max_pos = self.joint_limits[joint]
+                angle = (pos - min_pos) / (max_pos - min_pos) * np.pi - np.pi/2
+                angles.append(angle)
+            elif joint in self.joint_ids:
+                # 使用未连接舵机的默认位置
+                servo_id = self.joint_ids[joint]
+                if servo_id in self.default_servo_positions:
+                    pos = self.default_servo_positions[servo_id]
+                    min_pos, max_pos = self.joint_limits[joint]
+                    angle = (pos - min_pos) / (max_pos - min_pos) * np.pi - np.pi/2
+                    angles.append(angle)
+                else:
+                    # 没有默认位置，使用中点
+                    min_pos, max_pos = self.joint_limits[joint]
+                    pos = (min_pos + max_pos) // 2
+                    angle = (pos - min_pos) / (max_pos - min_pos) * np.pi - np.pi/2
+                    angles.append(angle)
+        
+        return angles
+    
+    def inverse_kinematics(self, target_position, target_orientation=None, max_iterations=100, tolerance=0.001):
+        """
+        计算逆向运动学，求解到达指定位置和姿态所需的关节角度
+        采用迭代法（雅可比矩阵）
+        
+        Args:
+            target_position: 目标位置 [x, y, z]
+            target_orientation: 目标姿态 [roll, pitch, yaw]，如果为None则仅考虑位置
+            max_iterations: 最大迭代次数
+            tolerance: 位置误差容忍度(m)
+            
+        Returns:
+            tuple: (是否成功, 关节角度列表)
+        """
+        # 获取当前关节角度作为初始猜测值
+        joint_angles = self.get_current_joint_angles()
+        if not joint_angles:
+            print("无法获取当前关节角度作为初始值")
+            return False, None
+        
+        # 转换为numpy数组
+        joint_angles = np.array(joint_angles)
+        target_position = np.array(target_position)
+        
+        # 创建目标位姿矩阵
+        target_pose = np.eye(4)
+        target_pose[0:3, 3] = target_position
+        
+        if target_orientation is not None:
+            # 如果提供了姿态，则设置旋转矩阵部分
+            roll, pitch, yaw = target_orientation
+            
+            # 计算旋转矩阵
+            Rx = np.array([
+                [1, 0, 0],
+                [0, np.cos(roll), -np.sin(roll)],
+                [0, np.sin(roll), np.cos(roll)]
+            ])
+            
+            Ry = np.array([
+                [np.cos(pitch), 0, np.sin(pitch)],
+                [0, 1, 0],
+                [-np.sin(pitch), 0, np.cos(pitch)]
+            ])
+            
+            Rz = np.array([
+                [np.cos(yaw), -np.sin(yaw), 0],
+                [np.sin(yaw), np.cos(yaw), 0],
+                [0, 0, 1]
+            ])
+            
+            R = np.matmul(np.matmul(Rz, Ry), Rx)
+            target_pose[0:3, 0:3] = R
+        
+        # 迭代求解
+        for iteration in range(max_iterations):
+            # 计算当前位姿
+            current_pose = self.forward_kinematics(joint_angles)
+            if current_pose is None:
+                return False, None
+            
+            current_position = current_pose['position']
+            
+            # 计算位置误差
+            position_error = target_position - current_position
+            error_magnitude = np.linalg.norm(position_error)
+            
+            # 如果误差小于容忍度，则认为找到解
+            if error_magnitude < tolerance:
+                # 将关节角度转换回舵机位置值
+                servo_positions = {}
+                for i, joint in enumerate(['joint1', 'joint2', 'joint3', 'joint4']):
+                    if i < len(joint_angles):
+                        angle = joint_angles[i]
+                        min_pos, max_pos = self.joint_limits[joint]
+                        # 将角度(-pi/2到pi/2)转换为舵机位置(min_pos到max_pos)
+                        pos = int((angle + np.pi/2) / np.pi * (max_pos - min_pos) + min_pos)
+                        servo_positions[joint] = pos
+                
+                return True, servo_positions
+            
+            # 计算雅可比矩阵（数值微分法）
+            J = np.zeros((3, len(joint_angles)))
+            delta = 0.01  # 微小变化量
+            
+            for i in range(len(joint_angles)):
+                # 增加一个微小变化
+                joint_angles_plus = joint_angles.copy()
+                joint_angles_plus[i] += delta
+                
+                # 计算新位置
+                pose_plus = self.forward_kinematics(joint_angles_plus)
+                if pose_plus is None:
+                    continue
+                
+                position_plus = pose_plus['position']
+                
+                # 计算雅可比矩阵的一列
+                J[:, i] = (position_plus - current_position) / delta
+            
+            # 计算关节角度的更新量（使用雅可比矩阵的伪逆）
+            try:
+                J_inv = np.linalg.pinv(J)
+                delta_theta = np.matmul(J_inv, position_error)
+                
+                # 更新关节角度
+                joint_angles += delta_theta * 0.5  # 添加阻尼因子以提高稳定性
+                
+                # 限制关节角度在有效范围内
+                for i in range(len(joint_angles)):
+                    joint_angles[i] = max(-np.pi/2, min(np.pi/2, joint_angles[i]))
+                    
+            except np.linalg.LinAlgError:
+                print("雅可比矩阵求逆失败")
+                return False, None
+        
+        print(f"逆运动学迭代未收敛，最终误差: {error_magnitude:.4f}m")
+        return False, None
+    
+    def move_to_cartesian_position(self, x, y, z, roll=None, pitch=None, yaw=None, blocking=False, timeout=10.0):
+        """
+        移动末端执行器到指定的笛卡尔坐标位置和姿态
+        
+        Args:
+            x, y, z: 目标位置坐标(m)
+            roll, pitch, yaw: 目标姿态欧拉角(rad)，如果为None则仅控制位置
+            blocking: 是否阻塞等待动作完成
+            timeout: 最大等待时间(秒)
+            
+        Returns:
+            bool: 如果规划成功并开始执行则返回True
+        """
+        if not self.connected:
+            print("控制器未连接")
+            return False
+        
+        # 创建目标位置数组
+        target_position = np.array([x, y, z])
+        
+        # 创建目标姿态数组(如果有提供)
+        target_orientation = None
+        if roll is not None and pitch is not None and yaw is not None:
+            target_orientation = np.array([roll, pitch, yaw])
+        
+        # 计算逆运动学
+        success, joint_positions = self.inverse_kinematics(target_position, target_orientation)
+        
+        if not success:
+            print("无法求解逆运动学，无法到达目标位置")
+            return False
+        
+        # 设置关节位置
+        for joint, position in joint_positions.items():
+            if joint in self.joint_ids:
+                servo_id = self.joint_ids[joint]
+                if not self.set_joint_position(joint, position):
+                    print(f"设置关节 {joint} 位置失败")
+                    return False
+        
+        # 如果需要阻塞等待
+        if blocking:
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                # 计算当前末端位置
+                current_pose = self.forward_kinematics()
+                if current_pose is None:
+                    time.sleep(0.1)
+                    continue
+                
+                current_position = current_pose['position']
+                
+                # 计算位置误差
+                error = np.linalg.norm(target_position - current_position)
+                
+                # 如果误差小于阈值，认为到达目标
+                if error < 0.01:  # 1cm误差
+                    return True
+                
+                time.sleep(0.1)
+            
+            print("等待机械臂到达目标位置超时")
+            return False
+        
+        return True
+    
+    def get_current_cartesian_position(self):
+        """
+        获取当前末端执行器的笛卡尔坐标位置和姿态
+        
+        Returns:
+            dict: 包含位置和姿态的字典，如果计算失败则返回None
+        """
+        return self.forward_kinematics() 
+
+    def set_motor_position(self, motor_type, position, speed=None, blocking=False, timeout=5.0):
+        """
+        设置DC电机位置
+        
+        Args:
+            motor_type: 'pitch' 或 'linear'
+            position: 目标位置
+            speed: 速度，如果为None则使用默认速度
+            blocking: 是否阻塞等待完成
+            timeout: 最大等待时间（秒）
+            
+        Returns:
+            bool: 如果命令发送成功则返回 True
+        """
+        if not self.motor_connected:
+            print("电机控制器未连接")
+            return False
+        
+        # 限制位置范围
+        position = self._clamp_motor_position(motor_type, position)
+        
+        try:
+            if motor_type == 'pitch':
+                # 设置YF俯仰电机位置
+                speed = speed if speed is not None else self.pitch_speed
+                if not self.motor.set_pitch_position(position, speed):
+                    print(f"设置俯仰电机位置失败: {position}")
+                    return False
+                self.current_pitch = position
+            elif motor_type == 'linear':
+                # 设置AImotor进给电机位置
+                speed = speed if speed is not None else self.linear_speed
+                if not self.motor.set_linear_position(position, speed):
+                    print(f"设置进给电机位置失败: {position}")
+                    return False
+                self.current_linear = position
+            else:
+                print(f"未知电机类型: {motor_type}")
+                return False
+            
+            # 如果需要阻塞等待
+            if blocking:
+                start_time = time.time()
+                while time.time() - start_time < timeout:
+                    # 读取电机状态
+                    status = self.read_motor_status()
+                    if not status:
+                        time.sleep(0.1)
+                        continue
+                    
+                    # 获取当前位置
+                    if motor_type == 'pitch' and 'pitch_position' in status:
+                        current_pos = status['pitch_position']
+                    elif motor_type == 'linear' and 'linear_position' in status:
+                        current_pos = status['linear_position']
+                    else:
+                        time.sleep(0.1)
+                        continue
+                    
+                    # 检查是否到达目标位置
+                    if abs(current_pos - position) <= 10:  # 允许10个单位的误差
+                        return True
+                    
+                    time.sleep(0.1)
+                    
+                print(f"等待电机 {motor_type} 到达位置 {position} 超时")
+                return False
+                
+            return True
+            
+        except Exception as e:
+            print(f"设置电机 {motor_type} 位置时发生错误: {e}")
+            return False
+    
+    def move_to_cartesian_with_motors(self, x, y, z, pitch_pos=None, linear_pos=None, roll=None, pitch=None, yaw=None, blocking=False, timeout=10.0):
+        """
+        综合控制大臂电机和小臂舵机，移动末端执行器到指定的笛卡尔坐标位置
+        
+        Args:
+            x, y, z: 目标位置坐标(m)
+            pitch_pos: 大臂俯仰电机位置，如果为None则保持当前位置
+            linear_pos: 大臂进给电机位置，如果为None则保持当前位置
+            roll, pitch, yaw: 目标姿态欧拉角(rad)，如果为None则仅控制位置
+            blocking: 是否阻塞等待动作完成
+            timeout: 最大等待时间(秒)
+            
+        Returns:
+            bool: 如果规划成功并开始执行则返回True
+        """
+        # 先设置大臂电机位置（如果提供）
+        motors_success = True
+        if self.motor_connected:
+            # 设置大臂俯仰电机位置
+            if pitch_pos is not None:
+                motor_success = self.set_motor_position('pitch', pitch_pos, blocking=False)
+                motors_success = motors_success and motor_success
+            
+            # 设置大臂进给电机位置
+            if linear_pos is not None:
+                motor_success = self.set_motor_position('linear', linear_pos, blocking=False)
+                motors_success = motors_success and motor_success
+        
+        # 然后设置舵机位置以到达笛卡尔目标
+        servos_success = True
+        if self.servo_connected:
+            # 笛卡尔坐标考虑大臂电机的位置
+            # 计算大臂电机坐标系中的目标位置
+            target_in_base = np.array([x, y, z, 1])
+            
+            # 将目标转换为小臂舵机坐标系中的目标
+            # 注意：这里我们假设小臂舵机的坐标系原点在大臂电机位置
+            servos_success = self.move_to_cartesian_position(x, y, z, roll, pitch, yaw, blocking=False)
+        
+        # 如果需要阻塞等待
+        if blocking and (motors_success or servos_success):
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                # 检查大臂电机是否到位
+                motors_done = True
+                if self.motor_connected:
+                    status = self.read_motor_status()
+                    if not status:
+                        motors_done = False
+                    else:
+                        if pitch_pos is not None and 'pitch_position' in status:
+                            if abs(status['pitch_position'] - pitch_pos) > 10:
+                                motors_done = False
+                        
+                        if linear_pos is not None and 'linear_position' in status:
+                            if abs(status['linear_position'] - linear_pos) > 10:
+                                motors_done = False
+                
+                # 检查小臂舵机是否到位
+                servos_done = True
+                if self.servo_connected:
+                    # 获取当前末端执行器位置
+                    current_pose = self.get_current_cartesian_position()
+                    if current_pose is None:
+                        servos_done = False
+                    else:
+                        current_pos = current_pose['position']
+                        # 计算位置误差
+                        error = np.linalg.norm(np.array([x, y, z]) - current_pos)
+                        if error > 0.01:  # 1cm误差
+                            servos_done = False
+                
+                if motors_done and servos_done:
+                    return True
+                
+                time.sleep(0.1)
+            
+            print("等待机械臂到达目标位置超时")
+            return False
+        
+        return motors_success or servos_success
+        
+    def coordinate_to_motors(self, x, y, z):
+        """
+        将笛卡尔坐标转换为大臂电机的位置值
+        
+        Args:
+            x, y, z: 目标位置坐标(m)
+            
+        Returns:
+            tuple: (pitch_pos, linear_pos) 大臂俯仰电机和进给电机的位置值
+        """
+        # 简化模型：y 主要由底座旋转舵机控制
+        # x, z 则由大臂电机和小臂舵机共同控制
+        
+        # 计算到原点的距离（在xz平面）
+        distance_xz = np.sqrt(x**2 + z**2)
+        
+        # 简单映射: 距离越大，进给电机位置越大
+        # 这里假设进给电机位置与距离成正比
+        linear_scale = 5000  # 比例系数，需要根据实际机械臂调整
+        linear_pos = int(distance_xz * linear_scale)
+        
+        # 限制在有效范围内
+        linear_pos = max(self.linear_limits[0], min(self.linear_limits[1], linear_pos))
+        
+        # 计算俯仰角度（相对于z轴）
+        if z != 0:
+            pitch_angle = np.arctan2(x, z)  # 弧度
+        else:
+            pitch_angle = np.pi/2 if x > 0 else -np.pi/2
+            
+        # 将角度转换为俯仰电机位置
+        # 这里假设俯仰电机位置与角度成正比
+        pitch_scale = 1000  # 比例系数，需要根据实际机械臂调整
+        pitch_pos = int(pitch_angle * pitch_scale)
+        
+        # 限制在有效范围内
+        pitch_pos = max(self.pitch_limits[0], min(self.pitch_limits[1], pitch_pos))
+        
+        return pitch_pos, linear_pos
+        
+    #--------------------------------------------------------------------------
+    # 视觉系统集成部分
+    #--------------------------------------------------------------------------
+    
+    def init_stereo_cameras(self, left_camera_id=0, right_camera_id=1):
+        """
+        初始化双目相机
+        
+        Args:
+            left_camera_id: 左相机ID
+            right_camera_id: 右相机ID
+            
+        Returns:
+            bool: 如果成功初始化双目相机则返回True
+        """
+        try:
+            # 初始化左右相机
+            self.left_camera = cv2.VideoCapture(left_camera_id)
+            self.right_camera = cv2.VideoCapture(right_camera_id)
+            
+            # 检查相机是否成功打开
+            if not self.left_camera.isOpened() or not self.right_camera.isOpened():
+                print("无法打开双目相机")
+                return False
+                
+            # 设置相机分辨率
+            self.left_camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            self.left_camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            self.right_camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            self.right_camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            
+            # 相机标定参数（这些参数需要通过相机标定获得）
+            # 实际使用时请替换为实际标定得到的参数
+            self.camera_matrix_left = np.array([
+                [500, 0, 320],
+                [0, 500, 240],
+                [0, 0, 1]
+            ])
+            self.camera_matrix_right = np.array([
+                [500, 0, 320],
+                [0, 500, 240],
+                [0, 0, 1]
+            ])
+            self.dist_coeffs_left = np.zeros((5, 1))
+            self.dist_coeffs_right = np.zeros((5, 1))
+            
+            # 双目相机参数
+            self.baseline = 0.1  # 基线距离(m)
+            self.focal_length = 500  # 焦距(像素)
+            
+            # 标记相机已初始化
+            self.cameras_initialized = True
+            
+            print("双目相机初始化成功")
+            return True
+            
+        except Exception as e:
+            print(f"初始化双目相机时发生错误: {e}")
+            self.cameras_initialized = False
+            return False
+    
+    def capture_stereo_images(self):
+        """
+        同时捕获左右相机的图像
+        
+        Returns:
+            tuple: (left_frame, right_frame) 或 (None, None)表示失败
+        """
+        if not hasattr(self, 'cameras_initialized') or not self.cameras_initialized:
+            print("双目相机未初始化")
+            return None, None
+            
+        try:
+            # 捕获左右相机图像
+            ret_left, left_frame = self.left_camera.read()
+            ret_right, right_frame = self.right_camera.read()
+            
+            if not ret_left or not ret_right:
+                print("无法捕获双目相机图像")
+                return None, None
+                
+            return left_frame, right_frame
+            
+        except Exception as e:
+            print(f"捕获双目图像时发生错误: {e}")
+            return None, None
+    
+    def detect_object(self, frame, object_name="target"):
+        """
+        在图像中检测指定物体
+        
+        Args:
+            frame: 输入图像帧
+            object_name: 目标物体名称
+            
+        Returns:
+            tuple: (x, y, w, h) 物体在图像中的边界框，或 None表示未检测到
+        """
+        try:
+            # 这里使用简单的颜色检测作为示例
+            # 实际应用中应替换为更复杂的物体检测算法(如YOLO, SSD等)
+            
+            # 转换为HSV颜色空间
+            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+            
+            # 根据物体名称选择颜色阈值
+            if object_name.lower() == "red":
+                # 红色物体的HSV阈值
+                lower_color = np.array([0, 100, 100])
+                upper_color = np.array([10, 255, 255])
+            elif object_name.lower() == "blue":
+                # 蓝色物体的HSV阈值
+                lower_color = np.array([100, 100, 100])
+                upper_color = np.array([140, 255, 255])
+            elif object_name.lower() == "green":
+                # 绿色物体的HSV阈值
+                lower_color = np.array([40, 100, 100])
+                upper_color = np.array([80, 255, 255])
+            else:
+                # 默认为红色
+                lower_color = np.array([0, 100, 100])
+                upper_color = np.array([10, 255, 255])
+            
+            # 创建掩码
+            mask = cv2.inRange(hsv, lower_color, upper_color)
+            
+            # 形态学操作去除噪点
+            kernel = np.ones((5, 5), np.uint8)
+            mask = cv2.erode(mask, kernel, iterations=1)
+            mask = cv2.dilate(mask, kernel, iterations=2)
+            
+            # 寻找轮廓
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            # 选择最大的轮廓
+            if contours:
+                largest_contour = max(contours, key=cv2.contourArea)
+                area = cv2.contourArea(largest_contour)
+                
+                # 如果面积太小，认为是噪声
+                if area < 100:
+                    return None
+                    
+                # 获取边界框
+                x, y, w, h = cv2.boundingRect(largest_contour)
+                return (x, y, w, h)
+            
+            return None
+            
+        except Exception as e:
+            print(f"物体检测错误: {e}")
+            return None
+    
+    def calculate_distance(self, left_frame, right_frame, object_name="target"):
+        """
+        使用双目立体视觉计算物体到相机的距离
+        
+        Args:
+            left_frame: 左相机图像
+            right_frame: 右相机图像
+            object_name: 要检测的物体名称
+            
+        Returns:
+            tuple: (x, y, z, bbox) 物体的3D坐标(m)和边界框，或 None表示失败
+        """
+        try:
+            # 在左右图像中检测物体
+            left_bbox = self.detect_object(left_frame, object_name)
+            right_bbox = self.detect_object(right_frame, object_name)
+            
+            if left_bbox is None or right_bbox is None:
+                print(f"在双目图像中未检测到物体: {object_name}")
+                return None
+                
+            # 获取物体中心点
+            left_x = left_bbox[0] + left_bbox[2] // 2
+            left_y = left_bbox[1] + left_bbox[3] // 2
+            right_x = right_bbox[0] + right_bbox[2] // 2
+            right_y = right_bbox[1] + right_bbox[3] // 2
+            
+            # 计算视差
+            disparity = left_x - right_x
+            
+            # 避免除零错误
+            if disparity <= 0:
+                print("视差为零或负值，无法计算距离")
+                return None
+                
+            # 计算距离(m)
+            z = (self.baseline * self.focal_length) / disparity
+            
+            # 计算3D坐标
+            x = (left_x - 320) * z / self.focal_length
+            y = (left_y - 240) * z / self.focal_length
+            
+            print(f"检测到物体 {object_name} 位置: X={x:.3f}m, Y={y:.3f}m, Z={z:.3f}m")
+            return (x, y, z, left_bbox)
+            
+        except Exception as e:
+            print(f"距离计算错误: {e}")
+            return None
+    
+    def grab_object_with_vision(self, object_name="target", grab_distance=0.05, blocking=True, timeout=20.0):
+        """
+        使用视觉系统自动抓取物体
+        
+        Args:
+            object_name: 要抓取的物体名称
+            grab_distance: 抓取距离(m)，最终抓取位置会比检测到的物体位置稍微靠前
+            blocking: 是否阻塞等待动作完成
+            timeout: 最大等待时间(秒)
+            
+        Returns:
+            bool: 如果抓取成功则返回True
+        """
+        if not hasattr(self, 'cameras_initialized') or not self.cameras_initialized:
+            print("双目相机未初始化")
+            return False
+            
+        try:
+            # 捕获双目图像
+            left_frame, right_frame = self.capture_stereo_images()
+            if left_frame is None or right_frame is None:
+                print("无法获取双目图像")
+                return False
+                
+            # 计算物体3D位置
+            result = self.calculate_distance(left_frame, right_frame, object_name)
+            if result is None:
+                print(f"无法定位物体: {object_name}")
+                return False
+                
+            x, y, z, bbox = result
+            
+            # 计算抓取位置（稍微靠前一点）
+            grab_z = z - grab_distance
+            
+            # 将相机坐标系中的坐标转换为机械臂坐标系中的坐标
+            # 注意：这里需要根据实际相机安装位置和机械臂坐标系进行调整
+            # 这里假设相机坐标系与机械臂末端坐标系重合
+            arm_x = x
+            arm_y = y
+            arm_z = grab_z
+            
+            # 获取大臂电机位置
+            pitch_pos, linear_pos = self.coordinate_to_motors(arm_x, arm_y, arm_z)
+            
+            print(f"移动到抓取位置: X={arm_x:.3f}m, Y={arm_y:.3f}m, Z={arm_z:.3f}m")
+            print(f"大臂电机位置: 俯仰={pitch_pos}, 进给={linear_pos}")
+            
+            # 移动到预抓取位置（先到物体上方）
+            pre_grab_z = arm_z + 0.1  # 比目标高10cm
+            success = self.move_to_cartesian_with_motors(
+                arm_x, arm_y, pre_grab_z, 
+                pitch_pos=pitch_pos, 
+                linear_pos=linear_pos,
+                blocking=True,
+                timeout=timeout
+            )
+            
+            if not success:
+                print("移动到预抓取位置失败")
+                return False
+                
+            # 打开夹爪
+            self.open_gripper()
+            time.sleep(0.5)
+            
+            # 移动到抓取位置
+            success = self.move_to_cartesian_with_motors(
+                arm_x, arm_y, arm_z,
+                blocking=True,
+                timeout=timeout / 2
+            )
+            
+            if not success:
+                print("移动到抓取位置失败")
+                return False
+                
+            # 关闭夹爪抓取物体
+            self.close_gripper()
+            time.sleep(1.0)
+            
+            # 提起物体（回到预抓取位置）
+            success = self.move_to_cartesian_with_motors(
+                arm_x, arm_y, pre_grab_z,
+                blocking=blocking,
+                timeout=timeout / 2
+            )
+            
+            if not success and blocking:
+                print("提起物体失败")
+                return False
+                
+            print(f"成功抓取物体: {object_name}")
+            return True
+            
+        except Exception as e:
+            print(f"视觉抓取过程中发生错误: {e}")
+            return False
+    
+    def open_gripper(self):
+        """
+        打开夹爪
+        
+        Returns:
+            bool: 成功返回True
+        """
+        if not self.servo_connected:
+            print("舵机控制器未连接")
+            return False
+            
+        try:
+            # 假设joint6是夹爪
+            if 'joint6' in self.joint_ids:
+                gripper_id = self.joint_ids['joint6']
+                min_pos, max_pos = self.joint_limits['joint6']
+                # 设置为最小位置（打开）
+                return self.set_joint_position('joint6', min_pos)
+            return False
+        except Exception as e:
+            print(f"打开夹爪时发生错误: {e}")
+            return False
+    
+    def close_gripper(self):
+        """
+        关闭夹爪
+        
+        Returns:
+            bool: 成功返回True
+        """
+        if not self.servo_connected:
+            print("舵机控制器未连接")
+            return False
+            
+        try:
+            # 假设joint6是夹爪
+            if 'joint6' in self.joint_ids:
+                gripper_id = self.joint_ids['joint6']
+                min_pos, max_pos = self.joint_limits['joint6']
+                # 设置为关闭位置（位于最大位置和最小位置之间）
+                close_pos = min_pos + (max_pos - min_pos) // 2
+                return self.set_joint_position('joint6', close_pos)
+            return False
+        except Exception as e:
+            print(f"关闭夹爪时发生错误: {e}")
+            return False
+    
+    def release_cameras(self):
+        """
+        释放相机资源
+        
+        Returns:
+            bool: 成功返回True
+        """
+        try:
+            if hasattr(self, 'left_camera') and self.left_camera is not None:
+                self.left_camera.release()
+                
+            if hasattr(self, 'right_camera') and self.right_camera is not None:
+                self.right_camera.release()
+                
+            self.cameras_initialized = False
+            print("已释放相机资源")
+            return True
+        except Exception as e:
+            print(f"释放相机资源时发生错误: {e}")
+            return False 

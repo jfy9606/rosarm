@@ -612,214 +612,249 @@ class RobotArmGUI:
         self.create_status_panel(right_frame)
     
     def create_vision_tab(self):
-        """创建视觉选项卡内容"""
-        # 左右分栏
-        paned_window = ttk.PanedWindow(self.vision_tab, orient=tk.HORIZONTAL)
-        paned_window.pack(fill=tk.BOTH, expand=True)
+        """创建视觉系统标签页"""
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="视觉系统")
         
-        # 左侧视频显示区域
-        video_frame = ttk.Frame(paned_window)
-        paned_window.add(video_frame, weight=3)
+        # 左侧面板 - 视频显示区域
+        left_panel = ttk.Frame(tab)
+        left_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
-        # 右侧视觉控制区域
-        control_frame = ttk.Frame(paned_window)
-        paned_window.add(control_frame, weight=1)
+        # 视频画布
+        self.video_canvas = tk.Canvas(left_panel, bg="black", width=640, height=480)
+        self.video_canvas.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
-        # 视频显示
-        self.video_label = ttk.Label(video_frame)
-        self.video_label.pack(fill=tk.BOTH, expand=True)
+        # 相机控制按钮组
+        camera_control_frame = ttk.LabelFrame(left_panel, text="相机控制")
+        camera_control_frame.pack(fill=tk.X, padx=10, pady=5)
         
-        # 视频控制
-        video_control_frame = ttk.LabelFrame(control_frame, text="视频控制")
-        video_control_frame.pack(fill=tk.X, padx=5, pady=5)
-        
-        # 摄像头选择
-        camera_frame = ttk.Frame(video_control_frame)
+        # 相机列表和控制
+        camera_frame = ttk.Frame(camera_control_frame)
         camera_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        ttk.Label(camera_frame, text="摄像头:").pack(side=tk.LEFT, padx=5)
-        
-        camera_options = []
-        for cam in self.camera_list:
-            camera_options.append(f"{cam['name']} ({cam['resolution']})")
-            
-        self.camera_combo = ttk.Combobox(
-            camera_frame, 
-            values=camera_options,
-            state="readonly",
-            width=15
-        )
-        if camera_options:
-            self.camera_combo.current(0)
+        ttk.Label(camera_frame, text="相机:").pack(side=tk.LEFT)
+        self.camera_var = tk.StringVar()
+        self.camera_combo = ttk.Combobox(camera_frame, textvariable=self.camera_var)
         self.camera_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
         self.camera_combo.bind("<<ComboboxSelected>>", self.on_camera_change)
         
-        # 刷新摄像头按钮
-        ttk.Button(
-            camera_frame,
-            text="刷新",
-            command=self.refresh_camera_list,
-            width=5
-        ).pack(side=tk.LEFT, padx=5)
+        refresh_btn = ttk.Button(camera_frame, text="刷新", command=self.refresh_camera_list)
+        refresh_btn.pack(side=tk.LEFT, padx=5)
         
-        # 开启/关闭摄像头按钮
-        self.camera_btn = ttk.Button(video_control_frame, text="开启摄像头", command=self.toggle_camera)
-        self.camera_btn.pack(fill=tk.X, padx=5, pady=5)
+        # 获取摄像头列表并填充下拉框
+        self.update_camera_list()
         
-        # 双目相机模式选择
-        stereo_frame = ttk.Frame(video_control_frame)
-        stereo_frame.pack(fill=tk.X, padx=5, pady=5)
+        # 相机按钮组
+        camera_btn_frame = ttk.Frame(camera_control_frame)
+        camera_btn_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        self.stereo_var = tk.BooleanVar(value=False)
-        self.stereo_check = ttk.Checkbutton(
-            stereo_frame, 
-            text="双目相机模式",
-            variable=self.stereo_var,
-            command=self.toggle_stereo_mode
-        )
-        self.stereo_check.pack(side=tk.LEFT, padx=5)
+        # 开启/关闭相机按钮
+        self.camera_btn = ttk.Button(camera_btn_frame, text="开启相机", command=self.toggle_camera)
+        self.camera_btn.pack(side=tk.LEFT, padx=5)
         
-        # 分辨率选择
-        resolution_frame = ttk.Frame(video_control_frame)
-        resolution_frame.pack(fill=tk.X, padx=5, pady=5)
+        # 双目模式切换按钮
+        self.stereo_btn = ttk.Button(camera_btn_frame, text="开启双目模式", command=self.toggle_stereo_mode)
+        self.stereo_btn.pack(side=tk.LEFT, padx=5)
         
-        ttk.Label(resolution_frame, text="分辨率:").pack(side=tk.LEFT, padx=5)
-        resolution_combo = ttk.Combobox(
-            resolution_frame, 
-            textvariable=self.selected_resolution,
-            values=self.camera_resolutions,
-            state="readonly",
-            width=15
-        )
-        resolution_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
-        resolution_combo.bind("<<ComboboxSelected>>", self.on_resolution_change)
+        # 视图模式
+        view_frame = ttk.Frame(camera_btn_frame)
+        view_frame.pack(side=tk.LEFT, padx=5)
+        ttk.Label(view_frame, text="视图:").pack(side=tk.LEFT)
         
-        # 视图模式选择
-        view_frame = ttk.LabelFrame(control_frame, text="视图模式")
-        view_frame.pack(fill=tk.X, padx=5, pady=5)
+        self.view_mode_var = tk.StringVar(value="normal")
+        view_modes = ["normal", "left", "right", "depth", "anaglyph"]
+        self.view_mode_combo = ttk.Combobox(view_frame, textvariable=self.view_mode_var, values=view_modes, width=8)
+        self.view_mode_combo.pack(side=tk.LEFT)
+        self.view_mode_combo.bind("<<ComboboxSelected>>", lambda e: self.on_view_mode_change())
         
-        for i, mode in enumerate(self.view_modes):
-            ttk.Radiobutton(
-                view_frame,
-                text=mode,
-                variable=self.selected_view_mode,
-                value=mode,
-                command=self.on_view_mode_change
-            ).pack(anchor=tk.W, padx=10, pady=2)
+        # 右侧面板 - 控制区域
+        right_panel = ttk.Frame(tab)
+        right_panel.pack(side=tk.RIGHT, fill=tk.Y, padx=10, pady=10)
         
-        # YOLO物体检测控制
-        yolo_frame = ttk.LabelFrame(control_frame, text="YOLO物体检测")
+        # 视觉处理区域
+        vision_frame = ttk.LabelFrame(right_panel, text="视觉检测")
+        vision_frame.pack(fill=tk.X, expand=False, pady=5)
+        
+        # YOLO检测开关
+        yolo_frame = ttk.Frame(vision_frame)
         yolo_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        # YOLO启用开关
-        yolo_enable_var = tk.BooleanVar(value=False)
-        self.yolo_enable_check = ttk.Checkbutton(
-            yolo_frame, 
-            text="启用YOLO检测",
-            variable=yolo_enable_var,
-            command=lambda: self.toggle_yolo_detection(yolo_enable_var.get())
-        )
-        self.yolo_enable_check.pack(fill=tk.X, padx=5, pady=5)
+        self.yolo_var = tk.BooleanVar(value=False)
+        yolo_check = ttk.Checkbutton(yolo_frame, text="启用YOLO检测", variable=self.yolo_var, 
+                                     command=lambda: self.toggle_yolo_detection(self.yolo_var.get()))
+        yolo_check.pack(side=tk.LEFT)
         
-        # 置信度阈值控制
-        conf_frame = ttk.Frame(yolo_frame)
+        # 加载自定义模型按钮
+        load_model_btn = ttk.Button(yolo_frame, text="加载模型", command=self.load_custom_yolo_model)
+        load_model_btn.pack(side=tk.RIGHT)
+        
+        # 置信度阈值
+        conf_frame = ttk.Frame(vision_frame)
         conf_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        ttk.Label(conf_frame, text="置信度阈值:").pack(side=tk.LEFT, padx=5)
-        conf_slider = ttk.Scale(
-            conf_frame,
-            from_=0.1,
-            to=1.0,
-            orient=tk.HORIZONTAL,
-            variable=self.confidence_threshold,
-            command=self.update_confidence_threshold
-        )
-        conf_slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        ttk.Label(conf_frame, text="置信度阈值:").pack(side=tk.LEFT)
         
-        conf_label = ttk.Label(conf_frame, text="0.5")
-        conf_label.pack(side=tk.LEFT, padx=5)
+        self.confidence_threshold = tk.DoubleVar(value=0.5)
+        conf_scale = ttk.Scale(conf_frame, from_=0.1, to=1.0, length=150, 
+                              variable=self.confidence_threshold,
+                              command=self.update_confidence_threshold)
+        conf_scale.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
         
-        # 更新置信度标签的回调
+        # 显示当前置信度值
+        self.conf_label = ttk.Label(conf_frame, text="0.5")
+        self.conf_label.pack(side=tk.LEFT, padx=5)
+        
+        # 当置信度值变化时更新标签
         def update_conf_label(*args):
-            conf_label.config(text=f"{self.confidence_threshold.get():.1f}")
+            self.conf_label.config(text=f"{self.confidence_threshold.get():.1f}")
         
         self.confidence_threshold.trace_add("write", update_conf_label)
         
-        # 加载自定义模型按钮
-        ttk.Button(
-            yolo_frame,
-            text="加载自定义模型",
-            command=self.load_custom_yolo_model
-        ).pack(fill=tk.X, padx=5, pady=5)
+        # 物体抓取区域
+        grab_frame = ttk.LabelFrame(right_panel, text="物体抓取")
+        grab_frame.pack(fill=tk.X, expand=False, pady=5)
         
-        # 视觉处理开关
-        vision_enable_var = tk.BooleanVar(value=False)
-        self.vision_enable_check = ttk.Checkbutton(
-            video_control_frame, 
-            text="启用HSV过滤",
-            variable=vision_enable_var,
-            command=lambda: self.toggle_vision_processing(vision_enable_var.get())
-        )
-        self.vision_enable_check.pack(fill=tk.X, padx=5, pady=5)
+        # 物体颜色选择
+        color_frame = ttk.Frame(grab_frame)
+        color_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        # 视觉参数控制框架
-        vision_params_frame = ttk.LabelFrame(control_frame, text="颜色过滤参数")
-        vision_params_frame.pack(fill=tk.X, padx=5, pady=5)
+        ttk.Label(color_frame, text="目标颜色:").pack(side=tk.LEFT)
         
-        # HSV参数滑块
-        param_names = [
-            ("色调下限", "hue_low", 0, 179),
-            ("色调上限", "hue_high", 0, 179),
-            ("饱和度下限", "sat_low", 0, 255),
-            ("饱和度上限", "sat_high", 0, 255),
-            ("亮度下限", "val_low", 0, 255),
-            ("亮度上限", "val_high", 0, 255)
-        ]
+        self.color_var = tk.StringVar(value="red")
+        color_combo = ttk.Combobox(color_frame, textvariable=self.color_var, 
+                                  values=["red", "green", "blue"], width=8)
+        color_combo.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
         
-        self.vision_sliders = {}
+        # 坐标显示
+        coords_frame = ttk.Frame(grab_frame)
+        coords_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        for i, (name, param, min_val, max_val) in enumerate(param_names):
-            # 参数名称标签
-            ttk.Label(vision_params_frame, text=name).grid(row=i, column=0, sticky=tk.W, padx=5, pady=2)
+        self.coords_label = ttk.Label(coords_frame, text="X: 0.0, Y: 0.0, Z: 0.0")
+        self.coords_label.pack(fill=tk.X)
+        
+        # 抓取控制按钮
+        grab_btn_frame = ttk.Frame(grab_frame)
+        grab_btn_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        detect_btn = ttk.Button(grab_btn_frame, text="检测物体",
+                               command=self.run_object_detection)
+        detect_btn.pack(side=tk.LEFT, padx=2, fill=tk.X, expand=True)
+        
+        track_btn = ttk.Button(grab_btn_frame, text="跟踪物体", 
+                              command=self.track_object)
+        track_btn.pack(side=tk.LEFT, padx=2, fill=tk.X, expand=True)
+        
+        grab_btn = ttk.Button(grab_btn_frame, text="抓取物体",
+                             command=self.grab_detected_object)
+        grab_btn.pack(side=tk.LEFT, padx=2, fill=tk.X, expand=True)
+        
+        # 笛卡尔控制区域
+        cartesian_frame = ttk.LabelFrame(right_panel, text="笛卡尔控制")
+        cartesian_frame.pack(fill=tk.X, expand=False, pady=5)
+        
+        # X坐标
+        x_frame = ttk.Frame(cartesian_frame)
+        x_frame.pack(fill=tk.X, padx=5, pady=2)
+        
+        ttk.Label(x_frame, text="X (m):").pack(side=tk.LEFT)
+        self.x_var = tk.DoubleVar(value=0.0)
+        self.x_entry = ttk.Entry(x_frame, textvariable=self.x_var, width=8)
+        self.x_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        
+        # Y坐标
+        y_frame = ttk.Frame(cartesian_frame)
+        y_frame.pack(fill=tk.X, padx=5, pady=2)
+        
+        ttk.Label(y_frame, text="Y (m):").pack(side=tk.LEFT)
+        self.y_var = tk.DoubleVar(value=0.0)
+        self.y_entry = ttk.Entry(y_frame, textvariable=self.y_var, width=8)
+        self.y_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        
+        # Z坐标
+        z_frame = ttk.Frame(cartesian_frame)
+        z_frame.pack(fill=tk.X, padx=5, pady=2)
+        
+        ttk.Label(z_frame, text="Z (m):").pack(side=tk.LEFT)
+        self.z_var = tk.DoubleVar(value=0.3)
+        self.z_entry = ttk.Entry(z_frame, textvariable=self.z_var, width=8)
+        self.z_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        
+        # 移动按钮
+        move_btn = ttk.Button(cartesian_frame, text="移动到位置",
+                             command=self.move_to_cartesian)
+        move_btn.pack(fill=tk.X, padx=5, pady=5)
+        
+        # 日志区域
+        log_frame = ttk.LabelFrame(right_panel, text="日志")
+        log_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+        
+        self.vision_log = tk.Text(log_frame, height=10, width=30)
+        self.vision_log.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # 滚动条
+        log_scrollbar = ttk.Scrollbar(self.vision_log)
+        log_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.vision_log.config(yscrollcommand=log_scrollbar.set)
+        log_scrollbar.config(command=self.vision_log.yview)
+        
+        # 禁用文本框编辑
+        self.vision_log.config(state=tk.DISABLED)
+    
+    def move_to_cartesian(self):
+        """移动到笛卡尔坐标位置"""
+        if not self.robot or not self.robot.connected:
+            self.log_to_vision("机械臂未连接")
+            return
             
-            # 参数滑块
-            slider = ttk.Scale(
-                vision_params_frame,
-                from_=min_val,
-                to=max_val,
-                orient=tk.HORIZONTAL,
-                command=lambda val, p=param: self.update_vision_param(p, float(val))
-            )
-            slider.set(self.vision_params[param])
-            slider.grid(row=i, column=1, padx=5, pady=2)
+        try:
+            # 获取坐标值
+            x = self.x_var.get()
+            y = self.y_var.get()
+            z = self.z_var.get()
             
-            # 参数值标签
-            value_var = tk.StringVar(value=str(self.vision_params[param]))
-            ttk.Label(vision_params_frame, textvariable=value_var).grid(row=i, column=2, padx=5, pady=2)
+            # 记录到日志
+            self.log_to_vision(f"正在移动到坐标: X={x:.3f}, Y={y:.3f}, Z={z:.3f}...")
             
-            self.vision_sliders[param] = (slider, value_var)
-        
-        # 视觉操作按钮
-        vision_actions_frame = ttk.LabelFrame(control_frame, text="视觉操作")
-        vision_actions_frame.pack(fill=tk.X, padx=5, pady=5)
-        
-        ttk.Button(
-            vision_actions_frame,
-            text="运行物体检测",
-            command=self.run_object_detection
-        ).pack(fill=tk.X, padx=5, pady=5)
-        
-        ttk.Button(
-            vision_actions_frame,
-            text="跟踪物体",
-            command=self.track_object
-        ).pack(fill=tk.X, padx=5, pady=5)
-        
-        ttk.Button(
-            vision_actions_frame,
-            text="物体抓取",
-            command=self.grab_detected_object
-        ).pack(fill=tk.X, padx=5, pady=5)
+            # 计算大臂电机位置
+            pitch_pos, linear_pos = self.robot.coordinate_to_motors(x, y, z)
+            
+            # 移动到目标位置
+            self.disable_controls()
+            
+            def move_task():
+                return self.robot.move_to_cartesian_with_motors(
+                    x, y, z,
+                    pitch_pos=pitch_pos,
+                    linear_pos=linear_pos,
+                    blocking=True
+                )
+                
+            def on_complete(success, error=None):
+                if error:
+                    self.log_to_vision(f"移动过程中发生错误: {error}")
+                elif success:
+                    self.log_to_vision("成功移动到目标位置")
+                else:
+                    self.log_to_vision("移动到目标位置失败")
+                    
+                # 重新启用控件
+                self.enable_controls()
+            
+            # 创建并启动任务
+            task = AsyncTask(callback=on_complete)
+            task.task = move_task
+            task.start()
+            
+        except Exception as e:
+            self.log_to_vision(f"移动过程中发生错误: {e}")
+            self.enable_controls()
+    
+    def log_to_vision(self, message):
+        """记录信息到视觉日志"""
+        self.vision_log.config(state=tk.NORMAL)
+        self.vision_log.insert(tk.END, f"{time.strftime('%H:%M:%S')} - {message}\n")
+        self.vision_log.see(tk.END)
+        self.vision_log.config(state=tk.DISABLED)
     
     def create_cartesian_tab(self):
         """创建笛卡尔控制选项卡内容"""
@@ -2425,44 +2460,64 @@ class RobotArmGUI:
     
     def grab_detected_object(self):
         """抓取检测到的物体"""
-        if not self.video_enabled or not self.yolo_enabled:
-            messagebox.showinfo("提示", "请先开启摄像头并启用YOLO检测")
+        if not self.robot or not self.robot.connected:
+            messagebox.showerror("错误", "机械臂未连接")
             return
             
-        # 获取当前检测结果
-        results = self.video.get_detection_results()
-        if results is None or len(results.boxes) == 0:
-            self.log("未检测到物体，无法抓取")
+        # 确保双目相机已初始化
+        if not hasattr(self.robot, 'cameras_initialized') or not self.robot.cameras_initialized:
+            # 尝试初始化双目相机
+            self.log("正在初始化双目相机...")
+            if not self.robot.init_stereo_cameras():
+                messagebox.showerror("错误", "无法初始化双目相机")
+                return
+        
+        # 询问用户要抓取的物体颜色
+        color_mapping = {
+            "红色": "red",
+            "绿色": "green",
+            "蓝色": "blue"
+        }
+        
+        color = simpledialog.askstring(
+            "选择颜色",
+            "请选择要抓取的物体颜色 (红色, 绿色, 蓝色):",
+            initialvalue="红色"
+        )
+        
+        if not color:
             return
             
-        # 找到置信度最高的物体
-        boxes = results.boxes
-        best_box = None
-        best_conf = 0
+        # 转换颜色名称
+        object_name = color_mapping.get(color, color)
         
-        for box in boxes:
-            conf = float(box.conf)
-            if conf > best_conf and conf >= self.confidence_threshold.get():
-                best_conf = conf
-                best_box = box
+        # 禁用界面控件
+        self.disable_controls()
+        self.log(f"正在执行抓取 {color} 物体的操作...")
         
-        if best_box is None:
-            self.log("未找到符合置信度要求的物体")
-            return
+        # 创建异步任务
+        def grab_task():
+            success = self.robot.grab_object_with_vision(object_name=object_name)
+            return success
             
-        # 获取物体位置
-        x1, y1, x2, y2 = map(int, best_box.xyxy[0])
-        center_x = (x1 + x2) // 2
-        center_y = (y1 + y2) // 2
+        def on_complete(success, error=None):
+            if error:
+                self.log(f"抓取过程中发生错误: {error}")
+                messagebox.showerror("错误", f"抓取失败: {error}")
+            elif success:
+                self.log(f"成功抓取 {color} 物体")
+                messagebox.showinfo("成功", f"成功抓取 {color} 物体")
+            else:
+                self.log(f"抓取 {color} 物体失败")
+                messagebox.showerror("错误", f"抓取 {color} 物体失败")
+                
+            # 重新启用界面控件
+            self.enable_controls()
         
-        # 获取物体类别
-        cls_id = int(best_box.cls[0])
-        cls_name = results.names[cls_id]
-        
-        self.log(f"正在抓取物体: {cls_name}, 位置: ({center_x}, {center_y})")
-        
-        # TODO: 实现物体抓取逻辑
-        # 这里可以添加控制机械臂移动到物体位置并抓取的代码
+        # 创建并启动任务
+        task = AsyncTask(callback=on_complete)
+        task.task = grab_task
+        task.start()
     
     def show_about(self):
         """显示关于信息"""
@@ -2571,6 +2626,30 @@ class RobotArmGUI:
             self.video.set_view_mode(mode_mapping[mode])
             
         self.log(f"视图模式已切换为: {mode}")
+
+    def disable_controls(self):
+        """禁用所有控件"""
+        for tab in self.notebook.tabs():
+            for widget in tab.winfo_children():
+                if isinstance(widget, (tk.Button, tk.Entry, ttk.Button, ttk.Entry)):
+                    widget.configure(state="disabled")
+                    
+        # 禁用菜单项
+        for index in range(self.menu_bar.index("end") or 0):
+            self.menu_bar.entryconfigure(index, state="disabled")
+    
+    def enable_controls(self):
+        """启用所有控件"""
+        for tab in self.notebook.tabs():
+            for widget in tab.winfo_children():
+                if isinstance(widget, (tk.Button, ttk.Button)):
+                    widget.configure(state="normal")
+                elif isinstance(widget, (tk.Entry, ttk.Entry)):
+                    widget.configure(state="normal")
+                    
+        # 启用菜单项
+        for index in range(self.menu_bar.index("end") or 0):
+            self.menu_bar.entryconfigure(index, state="normal")
 
 
 def main():
