@@ -1,12 +1,12 @@
 # 请求
-uint8 station_num        # 电机站号
-string control_type      # 控制类型: "position" 或 "velocity"
-int32 position           # 目标位置 (position模式)
-uint16 threshold         # 位置阈值 (position模式)
-int16 velocity           # 目标速度 (velocity模式)
-uint16 acc               # 加速度 (velocity模式)
-uint16 dec               # 减速度 (velocity模式)
+uint8 station_num       # 电机站号
+string control_type      # 控制类型：'position', 'velocity', 'enable'
+int32 position           # 位置目标值
+uint16 threshold         # 位置允许误差
+int16 velocity           # 速度目标值
+uint16 acc               # 加速度
+uint16 dec               # 减速度
+bool enable              # 使能状态
 ---
-# 响应
 bool success             # 是否成功
-string message           # 结果消息 
+string message           # 响应消息 

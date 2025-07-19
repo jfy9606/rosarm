@@ -12,103 +12,53 @@ endif()
 
 # Find dependencies
 find_package(ament_cmake REQUIRED)
+find_package(ament_cmake_python REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclpy REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
-find_package(Qt5 REQUIRED COMPONENTS Widgets Core Gui)
 find_package(servo REQUIRED)
 find_package(motor REQUIRED)
 find_package(trajectory REQUIRED)
-
-# Include Qt resource files
-# Qt MOC 处理
-set(CMAKE_AUTOMOC ON)
-set(CMAKE_AUTORCC ON)
-set(CMAKE_AUTOUIC ON)
-
-set(QT_RESOURCES_FILE
-  resources/resources.qrc
-)
-qt5_add_resources(QT_RESOURCES ${QT_RESOURCES_FILE})
+find_package(Python3 REQUIRED)
 
 # Include directories
 include_directories(
   include
 )
 
-# Header files that need MOC processing
-set(GUI_MOC_HEADERS
-  include/gui/main_window.hpp
-  include/gui/control_panel.hpp
+# Install Python executables
+install(
+  PROGRAMS
+  scripts/tkgui_main.py
+  scripts/joint_state_publisher.py
+  DESTINATION lib/${PROJECT_NAME}
 )
 
-# Create GUI library
-add_library(${PROJECT_NAME}
-  src/main_window.cpp
-  src/joint_state_publisher.cpp
-  src/control_panel.cpp
-  ${QT_RESOURCES}
-  ${GUI_MOC_HEADERS}
+# Install Python modules
+ament_python_install_package(
+  python_src
+  PACKAGE_DIR src/gui_python
 )
 
-target_link_libraries(${PROJECT_NAME}
-  Qt5::Widgets
-  Qt5::Core
-  Qt5::Gui
-)
-
-ament_target_dependencies(${PROJECT_NAME}
-  rclcpp
-  rclcpp_components
-  std_msgs
-  geometry_msgs
-  sensor_msgs
-  servo
-  motor
-  trajectory
-)
-
-# Create main window executable
-add_executable(main_window
-  src/main_window_node.cpp
-)
-target_link_libraries(main_window
-  ${PROJECT_NAME}
-)
-
-# Create joint state publisher node
-add_executable(joint_state_publisher_node
-  src/joint_state_publisher_node.cpp
-)
-target_link_libraries(joint_state_publisher_node
-  ${PROJECT_NAME}
-)
-
-# Install
-install(TARGETS
-  ${PROJECT_NAME}
-  main_window
-  joint_state_publisher_node
-  ARCHIVE DESTINATION lib
-  LIBRARY DESTINATION lib
-  RUNTIME DESTINATION lib/${PROJECT_NAME}
-)
-
+# Install resource files
 install(DIRECTORY
   resources
   DESTINATION share/${PROJECT_NAME}
 )
 
+# Install include files
 install(DIRECTORY include/
   DESTINATION include
 )
 
+# Export dependencies
 ament_export_include_directories(include)
-ament_export_libraries(${PROJECT_NAME})
 ament_export_dependencies(
   rclcpp
+  rclpy
   rclcpp_components
   std_msgs
   geometry_msgs

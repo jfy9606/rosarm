@@ -13,19 +13,30 @@ echo_color() {
   echo -e "${1}${2}${NC}"
 }
 
-# 检查是否已经设置ROS 2环境
-if [ -z "$ROS_DISTRO" ]; then
-  echo_color $YELLOW "未检测到ROS 2环境，尝试加载Rolling环境..."
-  source /opt/ros/rolling/setup.bash
-fi
-
-# 检查ROS 2环境是否正确加载
-if [ -z "$ROS_DISTRO" ]; then
-  echo_color $RED "错误: 无法加载ROS 2环境，请确保已安装ROS 2"
+# 检查conda是否安装
+if ! command -v conda &> /dev/null; then
+  echo_color $RED "错误: 未检测到conda，请确保已安装Anaconda或Miniconda"
   exit 1
 fi
 
-echo_color $GREEN "已加载ROS 2 $ROS_DISTRO 环境"
+# 检查ros_env环境是否存在
+if ! conda env list | grep -q "ros_env"; then
+  echo_color $RED "错误: 未找到ros_env环境，请按照README.md中的说明创建环境"
+  exit 1
+fi
+
+# 激活ros_env环境
+echo_color $YELLOW "正在激活ros_env环境..."
+eval "$(conda shell.bash hook)"
+conda activate ros_env
+
+# 检查ROS 2环境是否正确加载
+if [ -z "$ROS_VERSION" ]; then
+  echo_color $RED "错误: 无法加载ROS 2环境，请确保ros_env环境已正确配置"
+  exit 1
+fi
+
+echo_color $GREEN "已加载ROS 2环境"
 
 # 检查工作空间是否已构建
 if [ ! -f "install/setup.bash" ]; then
@@ -69,7 +80,7 @@ case $choice in
     ;;
   4)
     echo_color $GREEN "仅启动GUI..."
-    ros2 launch gui gui.launch.py
+    ros2 run gui gui_node
     ;;
   5)
     echo_color $YELLOW "退出"

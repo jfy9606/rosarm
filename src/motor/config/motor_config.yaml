@@ -1,0 +1,26 @@
+motor_config:
+  arm_motors:
+    - id: 1
+      name: "feed_motor"
+      type: "AI_MOTOR"
+      protocol: "TEXT_COMMAND"
+      max_speed: 5000
+      max_acc: 500
+    - id: 2
+      name: "pitch_motor"
+      type: "YF_MOTOR"
+      protocol: "TEXT_COMMAND"
+      max_speed: 3000
+      max_acc: 300
+    - id: 3
+      name: "feed_motor_modbus"
+      type: "AI_MOTOR"
+      protocol: "MODBUS_RTU"
+      max_speed: 4000
+      max_acc: 400
+    - id: 4
+      name: "pitch_motor_modbus"
+      type: "YF_MOTOR"
+      protocol: "MODBUS_RTU" 
+      max_speed: 3000
+      max_acc: 300 

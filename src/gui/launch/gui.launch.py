@@ -1,48 +1,39 @@
 #!/usr/bin/env python3
 
 from launch import LaunchDescription
-from launch_ros.actions import Node
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
 
 def generate_launch_description():
     # Launch arguments
-    use_rviz = LaunchConfiguration('use_rviz', default='true')
+    use_joint_state_publisher = LaunchConfiguration('use_joint_state_publisher', default='true')
     
     # Declare launch arguments
-    declare_use_rviz_arg = DeclareLaunchArgument(
-        'use_rviz',
-        default_value=use_rviz,
-        description='Whether to launch RViz')
-    
-    # Joint state publisher node
-    joint_state_publisher_node = Node(
-        package='gui',
-        executable='joint_state_publisher_node',
-        name='joint_state_publisher',
-        output='screen'
-    )
+    declare_use_joint_state_publisher = DeclareLaunchArgument(
+        'use_joint_state_publisher',
+        default_value=use_joint_state_publisher,
+        description='Whether to launch the joint state publisher')
     
     # GUI main window node
     gui_node = Node(
         package='gui',
-        executable='main_window',
+        executable='tkgui_main.py',
         name='gui_node',
         output='screen'
     )
     
-    # RViz node
-    rviz_node = Node(
-        package='rviz2',
-        executable='rviz2',
-        name='rviz2',
+    # Joint state publisher node
+    joint_state_publisher_node = Node(
+        package='gui',
+        executable='joint_state_publisher.py',
+        name='joint_state_publisher',
         output='screen',
-        condition=LaunchConfiguration('use_rviz')
+        condition=LaunchConfiguration('use_joint_state_publisher')
     )
     
     return LaunchDescription([
-        declare_use_rviz_arg,
-        joint_state_publisher_node,
+        declare_use_joint_state_publisher,
         gui_node,
-        rviz_node
+        joint_state_publisher_node
     ]) 

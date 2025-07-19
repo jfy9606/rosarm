@@ -24,6 +24,7 @@ find_package(sensor_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(serial REQUIRED)
+find_package(ament_index_cpp REQUIRED)
 
 # 包含目录
 include_directories(
@@ -75,6 +76,7 @@ ament_target_dependencies(motor_node
   rclcpp_components
   std_msgs
   sensor_msgs
+  ament_index_cpp
 )
 rclcpp_components_register_node(motor_node
   PLUGIN "motor_control::MotorNode"
@@ -87,6 +89,7 @@ ament_export_dependencies(
   std_msgs
   sensor_msgs
   rosidl_default_runtime
+  ament_index_cpp
 )
 
 # 安装头文件
@@ -109,6 +112,12 @@ install(
 install(
   DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}
+)
+
+# 安装配置文件
+install(
+  DIRECTORY config/
+  DESTINATION share/${PROJECT_NAME}/config
 )
 
 # 导出库目标

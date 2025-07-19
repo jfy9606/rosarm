@@ -1,6 +1,8 @@
 #include "motor/motor_node.hpp"
 #include <motor/msg/motor_order.hpp>
 #include <motor/srv/motor_control.hpp>
+#include <filesystem>
+#include <ament_index_cpp/get_package_share_directory.hpp>
 
 namespace motor_control {
 
@@ -50,12 +52,21 @@ MotorNode::MotorNode(const rclcpp::NodeOptions & options)
   }
   
   // 加载配置文件
-  if (!config_file.empty()) {
+  if (config_file.empty()) {
+    // 尝试使用默认配置文件路径
+    std::string package_path = ament_index_cpp::get_package_share_directory("motor");
+    config_file = package_path + "/config/motor_config.yaml";
+    RCLCPP_INFO(this->get_logger(), "Using default config file path: %s", config_file.c_str());
+  }
+  
+  if (std::filesystem::exists(config_file)) {
     if (motor_control_->loadMotorConfigs(config_file)) {
       RCLCPP_INFO(this->get_logger(), "Loaded motor configurations from %s", config_file.c_str());
     } else {
       RCLCPP_ERROR(this->get_logger(), "Failed to load motor configurations from %s", config_file.c_str());
     }
+  } else {
+    RCLCPP_WARN(this->get_logger(), "Config file %s does not exist", config_file.c_str());
   }
 }
 
@@ -98,10 +109,14 @@ void MotorNode::motorControlCallback(
   // 根据控制类型执行不同的命令
   if (request->control_type == "position") {
     result = motor_control_->setPosition(
-      request->station_num, request->position, request->threshold);
+      request->station_num, request->position, request->threshold, 
+      std::abs(request->velocity), request->acc);
   } else if (request->control_type == "velocity") {
     result = motor_control_->setVelocity(
       request->station_num, request->velocity, request->acc, request->dec);
+  } else if (request->control_type == "enable") {
+    result = motor_control_->enableMotor(
+      request->station_num, request->enable);
   } else {
     RCLCPP_ERROR(this->get_logger(), "Unknown control type: %s", request->control_type.c_str());
     response->success = false;
@@ -121,7 +136,7 @@ void MotorNode::timerCallback()
   
   // 查询电机状态
   std::string status;
-  for (int i = 1; i <= 2; ++i) {  // 假设有两个电机站
+  for (int i = 1; i <= 4; ++i) {  // 最多支持4个电机站
     std::string motor_status = motor_control_->getStatus(i);
     if (!motor_status.empty()) {
       status += "Motor " + std::to_string(i) + ": " + motor_status + "\n";
