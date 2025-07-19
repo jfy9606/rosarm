@@ -2,6 +2,12 @@ import serial
 import struct
 import time
 import platform
+import logging
+
+# 设置日志
+logging.basicConfig(level=logging.INFO, 
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger('SCServo')
 
 class SCServo:
     """
@@ -39,7 +45,7 @@ class SCServo:
     ERR_ANGLE_LIMIT = 0x06
     ERR_VOLTAGE = 0x07
 
-    def __init__(self, port=None, baudrate=115200, timeout=0.1):
+    def __init__(self, port=None, baudrate=1000000, timeout=0.1, protocol_end=0):
         """
         Initialize SCServo communication
         
@@ -47,16 +53,19 @@ class SCServo:
             port: Serial port name. If None, needs to be connected later
             baudrate: Baud rate for serial communication
             timeout: Serial timeout in seconds
+            protocol_end: Protocol end bit (0 for STS/SMS, 1 for SCS)
         """
         self.port = port
         self.baudrate = baudrate
         self.timeout = timeout
+        self.protocol_end = protocol_end
         self._serial = None
+        self.is_connected = False
         
         if port:
             self.connect(port, baudrate, timeout)
     
-    def connect(self, port, baudrate=115200, timeout=0.1):
+    def connect(self, port, baudrate=1000000, timeout=0.1):
         """
         Connect to the servo controller
         
@@ -64,6 +73,9 @@ class SCServo:
             port: Serial port name
             baudrate: Baud rate for serial communication
             timeout: Serial timeout in seconds
+            
+        Returns:
+            bool: True if connection successful, False otherwise
         """
         # Handle different port naming conventions across platforms
         if platform.system() == "Windows":
@@ -82,132 +94,60 @@ class SCServo:
                 parity=serial.PARITY_NONE,
                 stopbits=serial.STOPBITS_ONE
             )
+            
+            # 导入 Feetech SDK
+            from scservo_sdk import PortHandler, PacketHandler
+            
+            # 创建 PortHandler 和 PacketHandler 实例
+            self.portHandler = PortHandler(port)
+            self.packetHandler = PacketHandler(self.protocol_end)
+            
+            # 打开端口
+            if self.portHandler.openPort():
+                logger.info(f"成功打开端口 {port}")
+            else:
+                logger.error(f"无法打开端口 {port}")
+                return False
+                
+            # 设置波特率
+            if self.portHandler.setBaudRate(baudrate):
+                logger.info(f"成功设置波特率为 {baudrate}")
+            else:
+                logger.error(f"无法设置波特率为 {baudrate}")
+                return False
+                
+            self.is_connected = True
+            logger.info(f"已成功连接到舵机控制器，协议类型: {self.protocol_end} (0=STS/SMS, 1=SCS)")
             return True
+            
         except serial.SerialException as e:
-            print(f"Error connecting to port {port}: {e}")
+            logger.error(f"连接到端口 {port} 时发生错误: {e}")
+            return False
+        except ImportError as e:
+            logger.error(f"导入 scservo_sdk 失败，请确保已正确安装: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"连接过程中发生未知错误: {e}")
             return False
     
     def disconnect(self):
         """Close the serial connection"""
-        if self._serial and self._serial.is_open:
-            self._serial.close()
-            self._serial = None
-    
-    def _calculate_checksum(self, data):
-        """
-        Calculate the checksum for a packet
-        
-        Args:
-            data: Bytes to calculate checksum for
-        
-        Returns:
-            Checksum byte
-        """
-        checksum = (~sum(data)) & 0xFF
-        return checksum
-    
-    def _send_packet(self, servo_id, cmd, data=None):
-        """
-        Send a packet to the servo
-        
-        Args:
-            servo_id: Servo ID (0-253, 254 for broadcast)
-            cmd: Command byte
-            data: Data bytes to send (optional)
-            
-        Returns:
-            True if packet was sent, False otherwise
-        """
-        if not self._serial or not self._serial.is_open:
-            print("Serial port not open")
-            return False
-        
-        if data is None:
-            data = []
-        
-        # Create packet
-        length = len(data) + 2  # data length + cmd byte + checksum byte
-        packet = bytearray([0xFF, 0xFF, servo_id, length, cmd]) + bytearray(data)
-        checksum = self._calculate_checksum(packet[2:])  # start from ID
-        packet.append(checksum)
-        
-        try:
-            self._serial.write(packet)
-            return True
-        except Exception as e:
-            print(f"Error sending packet: {e}")
-            return False
-    
-    def _receive_packet(self, expected_length=None):
-        """
-        Receive a response packet
-        
-        Args:
-            expected_length: Expected packet length (optional)
-            
-        Returns:
-            Tuple of (servo_id, error, data) or None if no valid packet
-        """
-        if not self._serial or not self._serial.is_open:
-            print("Serial port not open")
-            return None
-        
-        # Find header (0xFF, 0xFF)
-        header = b''
-        while len(header) < 2:
-            h = self._serial.read(1)
-            if not h:
-                return None  # Timeout
-            
-            if len(header) == 0:
-                if h == b'\xff':
-                    header += h
-            elif len(header) == 1:
-                if h == b'\xff':
-                    header += h
-                else:
-                    header = b''  # Reset
-                    if h == b'\xff':
-                        header += h
-        
-        # Read ID
-        servo_id = self._serial.read(1)
-        if not servo_id:
-            return None
-        servo_id = servo_id[0]
-        
-        # Read length
-        length_bytes = self._serial.read(1)
-        if not length_bytes:
-            return None
-        length = length_bytes[0]
-        
-        # Read error
-        error = self._serial.read(1)
-        if not error:
-            return None
-        error = error[0]
-        
-        # Read data (length - 2 bytes, excluding error and checksum)
-        data = self._serial.read(length - 2)
-        if len(data) != length - 2:
-            return None
-        
-        # Read checksum
-        checksum = self._serial.read(1)
-        if not checksum:
-            return None
-        checksum = checksum[0]
-        
-        # Verify checksum
-        calculated_checksum = self._calculate_checksum(
-            bytes([servo_id, length]) + error + data
-        )
-        if checksum != calculated_checksum:
-            print(f"Checksum error: {checksum} != {calculated_checksum}")
-            return None
-        
-        return servo_id, error, data
+        if self.is_connected:
+            try:
+                if hasattr(self, 'portHandler'):
+                    self.portHandler.closePort()
+                    
+                if self._serial and self._serial.is_open:
+                    self._serial.close()
+                    
+                self.is_connected = False
+                logger.info("已断开与舵机控制器的连接")
+                return True
+                
+            except Exception as e:
+                logger.error(f"断开连接时发生错误: {e}")
+                return False
+        return True
     
     def ping(self, servo_id):
         """
@@ -217,13 +157,139 @@ class SCServo:
             servo_id: Servo ID
             
         Returns:
-            True if servo responds, False otherwise
+            Tuple: (model_number, result_code, error_code) or (0, -1, 0) if failed
         """
-        if not self._send_packet(servo_id, self.CMD_PING):
-            return False
+        if not self.is_connected:
+            logger.error("未连接到舵机控制器")
+            return 0, -1, 0
+            
+        try:
+            # 使用 SDK 的 ping 方法
+            model_number, comm_result, error = self.packetHandler.ping(self.portHandler, servo_id)
+            
+            if comm_result != 0:  # COMM_SUCCESS
+                logger.error(f"Ping 通信失败: {self.packetHandler.getTxRxResult(comm_result)}")
+                return 0, comm_result, error
+                
+            if error != 0:
+                logger.warning(f"Ping 返回错误: {self.packetHandler.getRxPacketError(error)}")
+                
+            logger.info(f"[ID:{servo_id:03d}] ping 成功. 舵机型号: {model_number}")
+            return model_number, comm_result, error
+            
+        except Exception as e:
+            logger.error(f"Ping 舵机时发生错误: {e}")
+            return 0, -1, 0
+    
+    def set_torque_enable(self, servo_id, enable):
+        """
+        Enable or disable torque for a servo
         
-        response = self._receive_packet()
-        return response is not None
+        Args:
+            servo_id: Servo ID
+            enable: True to enable, False to disable
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not self.is_connected:
+            logger.error("未连接到舵机控制器")
+            return False
+            
+        try:
+            value = 1 if enable else 0
+            
+            # 使用 SDK 写入扭矩使能
+            comm_result, error = self.packetHandler.write1ByteTxRx(
+                self.portHandler, servo_id, self.ADDR_TORQUE_ENABLE, value)
+                
+            if comm_result != 0:  # COMM_SUCCESS
+                logger.error(f"设置扭矩状态失败: {self.packetHandler.getTxRxResult(comm_result)}")
+                return False
+                
+            if error != 0:
+                logger.warning(f"设置扭矩状态返回错误: {self.packetHandler.getRxPacketError(error)}")
+                return False
+                
+            action = "使能" if enable else "禁用"
+            logger.info(f"[ID:{servo_id:03d}] 舵机扭矩已{action}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"设置舵机扭矩时发生错误: {e}")
+            return False
+    
+    def write_position(self, servo_id, position, time=0, speed=0):
+        """
+        Set the position of a servo
+        
+        Args:
+            servo_id: Servo ID
+            position: Target position (0-4095)
+            time: Time to reach position in milliseconds (0 for immediate)
+            speed: Moving speed (0 for default)
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not self.is_connected:
+            logger.error("未连接到舵机控制器")
+            return False
+            
+        try:
+            # 首先确保舵机能正常通信
+            model_number, comm_result, error = self.ping(servo_id)
+            if comm_result != 0 or model_number == 0:
+                logger.error(f"无法与舵机 ID:{servo_id} 通信，设置位置前请先确认连接")
+                return False
+                
+            # 限制位置范围
+            position = max(0, min(4095, position))
+            
+            # 准备位置数据
+            position_data = [
+                position & 0xFF,
+                (position >> 8) & 0xFF,
+                time & 0xFF,
+                (time >> 8) & 0xFF
+            ]
+            
+            # 如果需要设置速度
+            if speed > 0:
+                # 设置速度
+                speed_comm_result, speed_error = self.packetHandler.write2ByteTxRx(
+                    self.portHandler, servo_id, self.ADDR_GOAL_SPEED, speed)
+                    
+                if speed_comm_result != 0 or speed_error != 0:
+                    logger.warning(f"设置舵机速度失败: {self.packetHandler.getTxRxResult(speed_comm_result)}")
+            
+            # 写入位置
+            comm_result, error = self.packetHandler.writeTxRx(
+                self.portHandler, servo_id, self.ADDR_GOAL_POSITION, 4, position_data)
+                
+            if comm_result != 0:
+                logger.error(f"设置位置失败: {self.packetHandler.getTxRxResult(comm_result)}")
+                return False
+                
+            if error != 0:
+                error_message = self.packetHandler.getRxPacketError(error)
+                logger.warning(f"设置位置返回错误: {error_message}")
+                
+                # 检查是否过载错误
+                if error & 0x20:  # 0x20 是过载错误位
+                    logger.error("检测到舵机过载错误，可能原因:")
+                    logger.error("1. 舵机负载过大")
+                    logger.error("2. 电源电压不稳定")
+                    logger.error("3. 舵机内部故障")
+                    logger.error("建议: 检查舵机是否被阻塞，减小移动速度或增大移动时间")
+                return False
+                
+            logger.info(f"[ID:{servo_id:03d}] 设置位置:{position}, 时间:{time}, 速度:{speed}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"设置舵机位置时发生错误: {e}")
+            return False
     
     def read_position(self, servo_id):
         """
@@ -235,72 +301,28 @@ class SCServo:
         Returns:
             Current position (0-4095) or None if error
         """
-        if not self._send_packet(servo_id, self.CMD_READ_DATA, 
-                               [self.ADDR_PRESENT_POSITION, 2]):
+        if not self.is_connected:
+            logger.error("未连接到舵机控制器")
             return None
-        
-        response = self._receive_packet()
-        if not response:
-            return None
-        
-        _, error, data = response
-        if error != 0:
-            print(f"Servo error: {error}")
-            return None
-        
-        if len(data) != 2:
-            return None
-        
-        position = data[0] + (data[1] << 8)
-        return position
-    
-    def write_position(self, servo_id, position, time=0):
-        """
-        Set the position of a servo
-        
-        Args:
-            servo_id: Servo ID
-            position: Target position (0-4095)
-            time: Time to reach position in milliseconds (0 for immediate)
             
-        Returns:
-            True if successful, False otherwise
-        """
-        # Clamp position to valid range
-        position = max(0, min(4095, position))
-        
-        # Prepare data bytes
-        pos_low = position & 0xFF
-        pos_high = (position >> 8) & 0xFF
-        time_low = time & 0xFF
-        time_high = (time >> 8) & 0xFF
-        
-        if not self._send_packet(servo_id, self.CMD_WRITE_DATA, 
-                              [self.ADDR_GOAL_POSITION, pos_low, pos_high, time_low, time_high]):
-            return False
-        
-        response = self._receive_packet()
-        return response is not None
-    
-    def set_torque_enable(self, servo_id, enable):
-        """
-        Enable or disable torque for a servo
-        
-        Args:
-            servo_id: Servo ID
-            enable: True to enable, False to disable
+        try:
+            # 使用 SDK 读取位置
+            position, comm_result, error = self.packetHandler.read2ByteTxRx(
+                self.portHandler, servo_id, self.ADDR_PRESENT_POSITION)
+                
+            if comm_result != 0:
+                logger.error(f"读取位置失败: {self.packetHandler.getTxRxResult(comm_result)}")
+                return None
+                
+            if error != 0:
+                logger.warning(f"读取位置返回错误: {self.packetHandler.getRxPacketError(error)}")
+                
+            logger.debug(f"[ID:{servo_id:03d}] 当前位置: {position}")
+            return position
             
-        Returns:
-            True if successful, False otherwise
-        """
-        value = 1 if enable else 0
-        
-        if not self._send_packet(servo_id, self.CMD_WRITE_DATA, 
-                              [self.ADDR_TORQUE_ENABLE, value, 0]):
-            return False
-        
-        response = self._receive_packet()
-        return response is not None
+        except Exception as e:
+            logger.error(f"读取舵机位置时发生错误: {e}")
+            return None
     
     def sync_write_position(self, positions, times=None):
         """
@@ -311,31 +333,54 @@ class SCServo:
             times: Dictionary of {servo_id: time} or single time value for all servos
             
         Returns:
-            True if successful, False otherwise
+            bool: True if successful, False otherwise
         """
-        if not positions:
+        if not self.is_connected or not positions:
+            logger.error("未连接到舵机控制器或位置列表为空")
             return False
-        
-        # Prepare data for sync write
-        data = [self.ADDR_GOAL_POSITION, 4]  # Address, data length (pos + time = 2+2 bytes)
-        
-        for servo_id, position in positions.items():
-            # Clamp position to valid range
-            position = max(0, min(4095, position))
-            pos_low = position & 0xFF
-            pos_high = (position >> 8) & 0xFF
             
-            # Handle time parameter
-            if times is None:
-                time = 0
-            elif isinstance(times, dict):
-                time = times.get(servo_id, 0)
-            else:
-                time = times
+        try:
+            from scservo_sdk import GroupSyncWrite
             
-            time_low = time & 0xFF
-            time_high = (time >> 8) & 0xFF
+            # 初始化 GroupSyncWrite 实例
+            groupSyncWrite = GroupSyncWrite(
+                self.portHandler, self.packetHandler, self.ADDR_GOAL_POSITION, 4)
             
-            data.extend([servo_id, pos_low, pos_high, time_low, time_high])
-        
-        return self._send_packet(254, self.CMD_SYNC_WRITE, data)  # Broadcast ID = 254 
+            for servo_id, position in positions.items():
+                # 限制位置范围
+                position = max(0, min(4095, position))
+                
+                # 处理时间参数
+                if times is None:
+                    time_value = 0
+                elif isinstance(times, dict):
+                    time_value = times.get(servo_id, 0)
+                else:
+                    time_value = times
+                
+                # 准备数据
+                param = [
+                    position & 0xFF,
+                    (position >> 8) & 0xFF,
+                    time_value & 0xFF,
+                    (time_value >> 8) & 0xFF
+                ]
+                
+                # 添加参数
+                result = groupSyncWrite.addParam(servo_id, param)
+                if result != True:
+                    logger.error(f"[ID:{servo_id:03d}] 添加同步写入参数失败")
+                    return False
+            
+            # 执行同步写入
+            comm_result = groupSyncWrite.txPacket()
+            if comm_result != 0:
+                logger.error(f"同步写入位置失败: {self.packetHandler.getTxRxResult(comm_result)}")
+                return False
+                
+            logger.info(f"成功同步写入 {len(positions)} 个舵机位置")
+            return True
+            
+        except Exception as e:
+            logger.error(f"同步写入舵机位置时发生错误: {e}")
+            return False 
