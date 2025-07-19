@@ -405,3 +405,38 @@ class RobotArm:
             return False
             
         return True 
+
+    def check_servo_voltage(self, servo_id):
+        """
+        检查舵机电压是否在正常范围内
+        
+        Args:
+            servo_id: 舵机ID
+            
+        Returns:
+            tuple: (is_ok, voltage)
+                is_ok: 如果电压正常则为True
+                voltage: 电压值(单位:V)
+        """
+        if not self.servo_connected or not self.servo or not self.servo.port_handler:
+            return False, 0
+        
+        try:
+            # 读取电压寄存器(地址62)
+            voltage_raw, result, error = self.servo.packet_handler.read1ByteTxRx(
+                self.servo.port_handler, servo_id, 62)  # ADDR_SCS_PRESENT_VOLTAGE
+            
+            if result != COMM_SUCCESS or error != 0:
+                return False, 0
+            
+            # 转换为实际电压(单位:V)
+            voltage = voltage_raw / 10.0
+            
+            # 检查电压是否在安全范围内(通常6V-12V，但这里我们宽松一些)
+            is_ok = (voltage >= 5.5) and (voltage <= 12.5)
+            
+            return is_ok, voltage
+            
+        except Exception as e:
+            print(f"检查电压时出错: {e}")
+            return False, 0 

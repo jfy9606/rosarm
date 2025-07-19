@@ -163,7 +163,7 @@ class DCMotorController:
                 logger.info(f"电机通信测试结果: YF俯仰电机={test_results['yf_pitch']}, AImotor进给电机={test_results['ai_linear']}")
                 
                 # 如果任一电机通信成功，则认为连接成功
-                return True
+            return True
             else:
                 logger.warning(f"电机通信测试失败: {test_results}")
                 # 尝试不同的波特率
@@ -588,8 +588,8 @@ class DCMotorController:
                 code_order = [4, 0, 2, 6, 8, 9, 10, 11, 12, 13]
             else:
                 logger.error(f"Invalid form input: {form_input}")
-                return False
-            
+            return False
+        
             # 发送命令序列
             for i in code_order:
                 self._delay_if_needed()
@@ -652,7 +652,7 @@ class DCMotorController:
                 self.pitch_position = position
                 return True
             else:
-                return False
+            return False
         
         except Exception as e:
             logger.error(f"Error setting YF pitch position: {e}")
@@ -902,8 +902,8 @@ class DCMotorController:
                     status['temperature'] = temperature
             
             logger.info(f"Read motor {station_num} status: {status}")
-            return status
-        
+        return status
+    
         except Exception as e:
             logger.error(f"Error reading motor {station_num} status: {e}")
             return None 
@@ -1045,7 +1045,7 @@ class DCMotorController:
             
             else:
                 logger.error(f"Invalid station number: {station_num}")
-                return False
+            return False
         
         except Exception as e:
             logger.error(f"Error enabling motor {station_num}: {e}")

@@ -101,9 +101,43 @@ class VideoCapture:
         self.stereo_height = 1080  # 默认分辨率高度
         self.left_frame = None
         self.right_frame = None
+        self.depth_frame = None
+        
+        # 双目相机校准参数
+        self.stereo_calibrated = False
+        self.stereo_matcher = None
         
         # 加载YOLO模型的线程
         self.model_loading_thread = None
+        
+        # 视图模式
+        self.view_mode = "normal"  # normal, left, right, depth, anaglyph
+        
+    @staticmethod
+    def get_camera_list():
+        """获取可用摄像头列表"""
+        camera_list = []
+        index = 0
+        while True:
+            cap = cv2.VideoCapture(index)
+            if not cap.isOpened():
+                break
+            ret, frame = cap.read()
+            if ret:
+                # 获取摄像头信息
+                name = f"Camera {index}"
+                width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                fps = int(cap.get(cv2.CAP_PROP_FPS))
+                camera_list.append({
+                    "index": index,
+                    "name": name,
+                    "resolution": f"{width}x{height}",
+                    "fps": fps
+                })
+            cap.release()
+            index += 1
+        return camera_list
         
     def load_yolo_model(self, model_path=None):
         """异步加载YOLO模型"""
@@ -123,6 +157,81 @@ class VideoCapture:
             self.model_loading_thread = threading.Thread(target=_load_model)
             self.model_loading_thread.daemon = True
             self.model_loading_thread.start()
+    
+    def setup_stereo_matcher(self):
+        """设置双目匹配器用于生成深度图"""
+        if not self.stereo_calibrated:
+            # 创建立体匹配器 - 使用StereoBM算法，速度快但质量一般
+            self.stereo_matcher = cv2.StereoBM.create(
+                numDisparities=128,  # 视差搜索范围
+                blockSize=21         # 匹配块大小
+            )
+            
+            # 可选：使用更高质量但更慢的SGBM算法
+            # self.stereo_matcher = cv2.StereoSGBM.create(
+            #     minDisparity=0,
+            #     numDisparities=128,
+            #     blockSize=11,
+            #     P1=8 * 3 * 11 * 11,
+            #     P2=32 * 3 * 11 * 11,
+            #     disp12MaxDiff=1,
+            #     uniquenessRatio=10,
+            #     speckleWindowSize=100,
+            #     speckleRange=32
+            # )
+            
+            self.stereo_calibrated = True
+    
+    def compute_depth_map(self):
+        """计算深度图"""
+        if not self.stereo_mode or self.left_frame is None or self.right_frame is None:
+            return None
+            
+        # 确保立体匹配器已设置
+        if not self.stereo_calibrated:
+            self.setup_stereo_matcher()
+            
+        try:
+            # 转换为灰度图
+            left_gray = cv2.cvtColor(self.left_frame, cv2.COLOR_BGR2GRAY)
+            right_gray = cv2.cvtColor(self.right_frame, cv2.COLOR_BGR2GRAY)
+            
+            # 计算视差图
+            disparity = self.stereo_matcher.compute(left_gray, right_gray)
+            
+            # 归一化视差图以便显示
+            disparity_normalized = cv2.normalize(disparity, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+            
+            # 创建伪彩色深度图
+            depth_colormap = cv2.applyColorMap(disparity_normalized, cv2.COLORMAP_JET)
+            
+            return depth_colormap
+        except Exception as e:
+            print(f"计算深度图时出错: {e}")
+            return None
+    
+    def create_anaglyph(self):
+        """创建红蓝3D立体图（Anaglyph）"""
+        if not self.stereo_mode or self.left_frame is None or self.right_frame is None:
+            return None
+            
+        try:
+            # 分离左右图像的通道
+            left_b, left_g, left_r = cv2.split(self.left_frame)
+            right_b, right_g, right_r = cv2.split(self.right_frame)
+            
+            # 创建红蓝立体图
+            anaglyph_r = right_r
+            anaglyph_g = right_g
+            anaglyph_b = left_b
+            
+            # 合并通道
+            anaglyph = cv2.merge([anaglyph_b, anaglyph_g, anaglyph_r])
+            
+            return anaglyph
+        except Exception as e:
+            print(f"创建立体图时出错: {e}")
+            return None
     
     def start(self):
         """启动视频捕获"""
@@ -182,6 +291,10 @@ class VideoCapture:
                 self.left_frame = frame[:, :mid]
                 self.right_frame = frame[:, mid:]
                 
+                # 计算深度图（如果需要）
+                if self.view_mode == "depth":
+                    self.depth_frame = self.compute_depth_map()
+                
                 # 进行物体检测
                 if self.yolo_enabled and self.yolo_model is not None:
                     try:
@@ -232,6 +345,23 @@ class VideoCapture:
             return None, None
         return self.left_frame, self.right_frame
     
+    def get_depth_frame(self):
+        """获取深度图"""
+        if not self.running or not self.stereo_mode:
+            return None
+        
+        if self.depth_frame is None and self.left_frame is not None and self.right_frame is not None:
+            self.depth_frame = self.compute_depth_map()
+            
+        return self.depth_frame
+    
+    def get_anaglyph_frame(self):
+        """获取红蓝3D立体图"""
+        if not self.running or not self.stereo_mode:
+            return None
+            
+        return self.create_anaglyph()
+    
     def get_detection_results(self):
         """获取最新的检测结果"""
         return self.detection_results
@@ -262,6 +392,14 @@ class VideoCapture:
         
         if was_running:
             self.start()
+            
+    def set_view_mode(self, mode):
+        """设置视图模式
+        
+        Args:
+            mode: 视图模式，可选值：normal, left, right, depth, anaglyph
+        """
+        self.view_mode = mode
 
 
 class RobotArmGUI:
@@ -295,6 +433,11 @@ class RobotArmGUI:
         self.video_update_ms = 50  # 视频更新间隔(毫秒)
         self.video_frame = None
         
+        # 摄像头选择
+        self.camera_list = []
+        self.selected_camera = tk.IntVar(value=0)
+        self.update_camera_list()
+        
         # 双目相机设置
         self.stereo_mode = False
         self.camera_resolutions = [
@@ -306,6 +449,16 @@ class RobotArmGUI:
             "3840x1520 (10FPS)"
         ]
         self.selected_resolution = tk.StringVar(value=self.camera_resolutions[0])
+        
+        # 视图模式
+        self.view_modes = [
+            "正常视图",
+            "左目视图",
+            "右目视图", 
+            "深度视图",
+            "3D立体视图"
+        ]
+        self.selected_view_mode = tk.StringVar(value=self.view_modes[0])
         
         # YOLO物体检测设置
         self.yolo_enabled = False
@@ -480,6 +633,35 @@ class RobotArmGUI:
         video_control_frame = ttk.LabelFrame(control_frame, text="视频控制")
         video_control_frame.pack(fill=tk.X, padx=5, pady=5)
         
+        # 摄像头选择
+        camera_frame = ttk.Frame(video_control_frame)
+        camera_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        ttk.Label(camera_frame, text="摄像头:").pack(side=tk.LEFT, padx=5)
+        
+        camera_options = []
+        for cam in self.camera_list:
+            camera_options.append(f"{cam['name']} ({cam['resolution']})")
+            
+        self.camera_combo = ttk.Combobox(
+            camera_frame, 
+            values=camera_options,
+            state="readonly",
+            width=15
+        )
+        if camera_options:
+            self.camera_combo.current(0)
+        self.camera_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        self.camera_combo.bind("<<ComboboxSelected>>", self.on_camera_change)
+        
+        # 刷新摄像头按钮
+        ttk.Button(
+            camera_frame,
+            text="刷新",
+            command=self.refresh_camera_list,
+            width=5
+        ).pack(side=tk.LEFT, padx=5)
+        
         # 开启/关闭摄像头按钮
         self.camera_btn = ttk.Button(video_control_frame, text="开启摄像头", command=self.toggle_camera)
         self.camera_btn.pack(fill=tk.X, padx=5, pady=5)
@@ -511,6 +693,19 @@ class RobotArmGUI:
         )
         resolution_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
         resolution_combo.bind("<<ComboboxSelected>>", self.on_resolution_change)
+        
+        # 视图模式选择
+        view_frame = ttk.LabelFrame(control_frame, text="视图模式")
+        view_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        for i, mode in enumerate(self.view_modes):
+            ttk.Radiobutton(
+                view_frame,
+                text=mode,
+                variable=self.selected_view_mode,
+                value=mode,
+                command=self.on_view_mode_change
+            ).pack(anchor=tk.W, padx=10, pady=2)
         
         # YOLO物体检测控制
         yolo_frame = ttk.LabelFrame(control_frame, text="YOLO物体检测")
@@ -1477,21 +1672,49 @@ class RobotArmGUI:
         try:
             self.log("正在回到初始位置...")
             
-            if self.robot.home(blocking=True):
-                self.log("已回到初始位置")
+            # 设置较低的速度和加速度，避免过载
+            if self.servo_connected:
+                self.robot.set_speeds(servo_speed=500)  # 增加时间，降低速度
+                self.robot.set_all_servo_acc(2)  # 降低加速度
                 
-                # 更新滑块位置
-                if self.servo_connected:
-                    for joint in self.joint_values:
-                        self.joint_values[joint].set(2048)
+            if self.motor_connected:
+                self.robot.motor.set_motor_speed(50, 50)  # 降低电机速度
+            
+            # 尝试回到初始位置，但捕获可能的过载错误
+            try:
+                success = self.robot.home(blocking=True)
+                if success:
+                    self.log("已回到初始位置")
+                    
+                    # 更新滑块位置
+                    if self.servo_connected:
+                        for joint in self.joint_values:
+                            self.joint_values[joint].set(2048)
+                    
+                    if self.motor_connected:
+                        self.pitch_value.set(0)
+                        self.linear_value.set(0)
+                else:
+                    self.log("回到初始位置失败")
+            except Exception as e:
+                error_str = str(e)
+                if "Overload error" in error_str:
+                    self.log("警告：舵机过载！可能是负载过大或电压不稳定")
+                    messagebox.showwarning("舵机过载", "检测到舵机过载错误！\n\n可能原因：\n1. 机械臂负载过大\n2. 电源电压不足\n3. 舵机运动速度过快\n\n建议：\n1. 检查电源\n2. 减小负载\n3. 降低速度和加速度")
+                    
+                    # 尝试紧急停止
+                    self.emergency_stop()
+                else:
+                    raise  # 重新抛出其他类型的错误
                 
-                if self.motor_connected:
-                    self.pitch_value.set(0)
-                    self.linear_value.set(0)
-            else:
-                self.log("回到初始位置失败")
         except Exception as e:
             self.log(f"回到初始位置时出错: {e}")
+            
+            # 如果出现严重错误，尝试紧急停止
+            try:
+                self.emergency_stop()
+            except:
+                pass
     
     def calibrate_robot(self):
         """校准机械臂"""
@@ -1515,22 +1738,36 @@ class RobotArmGUI:
             
             # 设置较低的速度和加速度
             if self.servo_connected:
-                self.robot.set_speeds(servo_speed=300)
-                self.robot.set_all_servo_acc(3)
-                self.servo_speed_var.set(300)
-                self.acc_var.set(3)
+                self.robot.set_speeds(servo_speed=500)  # 增加时间，降低速度
+                self.robot.set_all_servo_acc(2)  # 降低加速度
+                self.servo_speed_var.set(500)
+                self.acc_var.set(2)
             
             if self.motor_connected:
-                self.robot.motor.set_motor_speed(80, 80)
-                self.pitch_speed_var.set(80)
-                self.linear_speed_var.set(80)
+                self.robot.motor.set_motor_speed(50, 50)  # 降低电机速度
+                self.pitch_speed_var.set(50)
+                self.linear_speed_var.set(50)
             
-            # 返回初始位置
+            # 返回初始位置，使用修改后的home_robot方法（已添加错误处理）
             self.home_robot()
             
             self.log("校准完成")
         except Exception as e:
-            self.log(f"校准时出错: {e}")
+            error_str = str(e)
+            if "Overload error" in error_str:
+                self.log("警告：校准过程中舵机过载！可能是负载过大或电压不稳定")
+                messagebox.showwarning("舵机过载", "校准过程中检测到舵机过载错误！\n\n可能原因：\n1. 机械臂负载过大\n2. 电源电压不足\n3. 舵机运动速度过快\n\n建议：\n1. 检查电源\n2. 减小负载\n3. 降低速度和加速度")
+                
+                # 尝试紧急停止
+                self.emergency_stop()
+            else:
+                self.log(f"校准时出错: {e}")
+                
+                # 如果出现严重错误，尝试紧急停止
+                try:
+                    self.emergency_stop()
+                except:
+                    pass
     
     def test_dc_motors(self):
         """测试DC电机通信"""
@@ -1783,21 +2020,27 @@ class RobotArmGUI:
     def toggle_camera(self):
         """开启/关闭摄像头"""
         if self.video_enabled:
-            # 关闭摄像头
+            # 停止摄像头
             self.video.stop()
             self.video_enabled = False
             self.camera_btn.config(text="开启摄像头")
             self.log("摄像头已关闭")
         else:
-            # 开启摄像头
+            # 获取选定的摄像头索引
+            camera_index = self.selected_camera.get()
+            
+            # 更新摄像头索引
+            self.video.camera_index = camera_index
+            
+            # 启动摄像头
             if self.video.start():
                 self.video_enabled = True
                 self.camera_btn.config(text="关闭摄像头")
-                self.log("摄像头已开启")
+                self.log(f"摄像头已开启 (索引: {camera_index})")
+                
                 # 启动视频更新
                 self.update_video_frame()
             else:
-                self.log("无法开启摄像头")
                 messagebox.showerror("错误", "无法开启摄像头，请检查摄像头连接")
     
     def toggle_stereo_mode(self):
@@ -1891,32 +2134,69 @@ class RobotArmGUI:
             frame = self.video.get_frame()
             
             if frame is not None:
-                display_frame = frame.copy()
+                display_frame = None
                 
-                # 处理双目模式
+                # 根据视图模式和双目模式选择显示的帧
+                view_mode = self.selected_view_mode.get()
+                
                 if self.stereo_mode:
                     left_frame, right_frame = self.video.get_stereo_frames()
                     
-                    if left_frame is not None and right_frame is not None:
+                    if view_mode == "正常视图":
                         # 在左帧上绘制检测结果
-                        if self.yolo_enabled:
-                            display_frame = self.draw_detection_results(left_frame.copy())
-                        elif self.vision_processing_enabled:
-                            display_frame = self.process_frame(left_frame.copy())
+                        if self.yolo_enabled and left_frame is not None:
+                            left_display = self.draw_detection_results(left_frame.copy())
+                        elif self.vision_processing_enabled and left_frame is not None:
+                            left_display = self.process_frame(left_frame.copy())
+                        else:
+                            left_display = left_frame.copy() if left_frame is not None else None
                             
                         # 将左右帧并排显示
-                        h, w = left_frame.shape[:2]
-                        combined_frame = np.zeros((h, w*2, 3), dtype=np.uint8)
-                        combined_frame[:, :w] = display_frame
-                        combined_frame[:, w:] = right_frame
-                        
-                        display_frame = combined_frame
+                        if left_display is not None and right_frame is not None:
+                            h, w = left_display.shape[:2]
+                            combined_frame = np.zeros((h, w*2, 3), dtype=np.uint8)
+                            combined_frame[:, :w] = left_display
+                            combined_frame[:, w:] = right_frame
+                            display_frame = combined_frame
+                    
+                    elif view_mode == "左目视图":
+                        # 只显示左目视图
+                        if left_frame is not None:
+                            if self.yolo_enabled:
+                                display_frame = self.draw_detection_results(left_frame.copy())
+                            elif self.vision_processing_enabled:
+                                display_frame = self.process_frame(left_frame.copy())
+                            else:
+                                display_frame = left_frame.copy()
+                    
+                    elif view_mode == "右目视图":
+                        # 只显示右目视图
+                        if right_frame is not None:
+                            display_frame = right_frame.copy()
+                    
+                    elif view_mode == "深度视图":
+                        # 显示深度图
+                        depth_frame = self.video.get_depth_frame()
+                        if depth_frame is not None:
+                            display_frame = depth_frame
+                    
+                    elif view_mode == "3D立体视图":
+                        # 显示红蓝3D立体图
+                        anaglyph_frame = self.video.get_anaglyph_frame()
+                        if anaglyph_frame is not None:
+                            display_frame = anaglyph_frame
                 else:
                     # 单目模式
                     if self.yolo_enabled:
-                        display_frame = self.draw_detection_results(frame)
+                        display_frame = self.draw_detection_results(frame.copy())
                     elif self.vision_processing_enabled:
-                        display_frame = self.process_frame(frame)
+                        display_frame = self.process_frame(frame.copy())
+                    else:
+                        display_frame = frame.copy()
+                
+                # 如果没有有效的显示帧，使用原始帧
+                if display_frame is None:
+                    display_frame = frame.copy()
                 
                 # 调整大小以适应显示
                 display_frame = cv2.resize(display_frame, (800, 600))
@@ -2206,6 +2486,91 @@ class RobotArmGUI:
                 pass
                 
             self.root.destroy() 
+
+    def update_camera_list(self):
+        """更新可用摄像头列表"""
+        try:
+            self.camera_list = VideoCapture.get_camera_list()
+            # 如果没有找到任何摄像头，至少添加一个默认摄像头
+            if not self.camera_list:
+                self.camera_list.append({
+                    "index": 0,
+                    "name": "默认摄像头",
+                    "resolution": "未知",
+                    "fps": 0
+                })
+        except Exception as e:
+            self.log(f"获取摄像头列表时出错: {e}")
+            # 添加一个默认摄像头
+            self.camera_list = [{
+                "index": 0,
+                "name": "默认摄像头",
+                "resolution": "未知",
+                "fps": 0
+            }]
+    
+    def refresh_camera_list(self):
+        """刷新摄像头列表"""
+        # 如果摄像头正在运行，先停止
+        was_running = self.video_enabled
+        if was_running:
+            self.toggle_camera()
+            
+        # 更新摄像头列表
+        self.update_camera_list()
+        
+        # 更新下拉框内容
+        camera_options = []
+        for cam in self.camera_list:
+            camera_options.append(f"{cam['name']} ({cam['resolution']})")
+            
+        self.camera_combo['values'] = camera_options
+        if camera_options:
+            self.camera_combo.current(0)
+            
+        self.log("摄像头列表已刷新")
+        
+    def on_camera_change(self, event):
+        """处理摄像头选择变化"""
+        # 获取选择的索引
+        selected_index = self.camera_combo.current()
+        if selected_index < 0 or selected_index >= len(self.camera_list):
+            return
+            
+        # 如果摄像头正在运行，需要先停止
+        was_running = self.video_enabled
+        if was_running:
+            self.toggle_camera()
+            
+        # 更新摄像头索引
+        camera_index = self.camera_list[selected_index]["index"]
+        self.selected_camera.set(camera_index)
+        self.video.camera_index = camera_index
+        
+        # 如果之前在运行，重新启动摄像头
+        if was_running:
+            self.toggle_camera()
+            
+        self.log(f"已选择摄像头: {self.camera_list[selected_index]['name']}")
+        
+    def on_view_mode_change(self):
+        """处理视图模式变化"""
+        mode = self.selected_view_mode.get()
+        
+        # 映射UI视图模式到VideoCapture类中的视图模式
+        mode_mapping = {
+            "正常视图": "normal",
+            "左目视图": "left",
+            "右目视图": "right",
+            "深度视图": "depth",
+            "3D立体视图": "anaglyph"
+        }
+        
+        # 设置视图模式
+        if mode in mode_mapping:
+            self.video.set_view_mode(mode_mapping[mode])
+            
+        self.log(f"视图模式已切换为: {mode}")
 
 
 def main():
