@@ -12,7 +12,7 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', ['launch/gui.launch.py']),
-        ('lib/' + package_name, ['scripts/tkgui_main.py', 'scripts/joint_state_publisher.py']),
+        ('lib/' + package_name, ['scripts/tkgui_main.py', 'scripts/joint_state_publisher.py', 'scripts/test_tkinter.py']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -21,10 +21,16 @@ setup(
     description='GUI interface for robotic arm control using Tkinter',
     license='TODO',
     tests_require=['pytest'],
+    python_requires='>=3.11',  # 指定Python 3.11+
+    classifiers=[
+        'Programming Language :: Python :: 3',
+        'Programming Language :: Python :: 3.11',
+    ],
     entry_points={
         'console_scripts': [
             'tkgui_main = gui.scripts.tkgui_main:main',
             'joint_state_publisher = gui.scripts.joint_state_publisher:main',
+            'test_tkinter = gui.scripts.test_tkinter:main',
         ],
     },
 ) 
