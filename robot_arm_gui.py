@@ -609,8 +609,8 @@ class RobotArmGUI:
     
     def create_vision_tab(self):
         """创建视觉系统标签页"""
-        tab = ttk.Frame(self.notebook)
-        self.notebook.add(tab, text="视觉系统")
+        # 使用已创建的视觉系统标签页
+        tab = self.vision_tab
         
         # 左侧面板 - 视频显示区域
         left_panel = ttk.Frame(tab)
@@ -658,9 +658,7 @@ class RobotArmGUI:
         view_frame.pack(side=tk.LEFT, padx=5)
         ttk.Label(view_frame, text="视图:").pack(side=tk.LEFT)
         
-        self.view_mode_var = tk.StringVar(value="normal")
-        view_modes = ["normal", "left", "right", "depth", "anaglyph"]
-        self.view_mode_combo = ttk.Combobox(view_frame, textvariable=self.view_mode_var, values=view_modes, width=8)
+        self.view_mode_combo = ttk.Combobox(view_frame, textvariable=self.selected_view_mode, values=self.view_modes, width=10)
         self.view_mode_combo.pack(side=tk.LEFT)
         self.view_mode_combo.bind("<<ComboboxSelected>>", lambda e: self.on_view_mode_change())
         
@@ -2065,9 +2063,10 @@ class RobotArmGUI:
                 image = Image.fromarray(display_frame)
                 photo = ImageTk.PhotoImage(image=image)
                 
-                # 更新标签
-                self.video_label.config(image=photo)
-                self.video_label.image = photo  # 保持引用
+                # 更新画布
+                self.video_canvas.config(width=display_frame.shape[1], height=display_frame.shape[0])
+                self.video_canvas.create_image(0, 0, anchor=tk.NW, image=photo)
+                self.video_canvas.image = photo  # 保持引用
         except Exception as e:
             self.log(f"更新视频帧时出错: {e}")
             
