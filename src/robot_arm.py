@@ -1405,4 +1405,128 @@ class RobotArm:
             return True
         except Exception as e:
             print(f"释放相机资源时发生错误: {e}")
-            return False 
+            return False
+    
+    def scan_servos(self, start_id=1, end_id=10):
+        """
+        扫描指定ID范围内的舵机
+        
+        Args:
+            start_id: 起始ID
+            end_id: 结束ID
+            
+        Returns:
+            list: 包含(servo_id, model_number)元组的列表
+        """
+        if not self.servo_connected:
+            print("舵机控制器未连接")
+            return []
+            
+        try:
+            servos = []
+            for servo_id in range(start_id, end_id + 1):
+                model_number, result, error = self.servo.ping(servo_id)
+                if result == COMM_SUCCESS and error == 0:
+                    servos.append((servo_id, model_number))
+                    print(f"找到舵机 ID: {servo_id}, 型号: {model_number}")
+                    
+            return servos
+        except Exception as e:
+            print(f"扫描舵机时发生错误: {e}")
+            return []
+    
+    def set_speeds(self, servo_speed=None, pitch_speed=None, linear_speed=None):
+        """
+        设置舵机和电机的速度
+        
+        Args:
+            servo_speed: 舵机速度（时间，毫秒，0=最大速度）
+            pitch_speed: 俯仰电机速度
+            linear_speed: 进给电机速度
+            
+        Returns:
+            bool: 成功返回True
+        """
+        success = True
+        
+        # 设置舵机速度
+        if servo_speed is not None:
+            self.servo_speed = servo_speed
+            if self.servo_connected:
+                # 为所有已连接的舵机设置速度
+                for joint_name, servo_id in self.joint_ids.items():
+                    try:
+                        self.servo.write_speed(servo_id, servo_speed)
+                    except Exception as e:
+                        print(f"设置舵机 {joint_name} (ID: {servo_id}) 速度时出错: {e}")
+                        success = False
+        
+        # 设置电机速度
+        if (pitch_speed is not None or linear_speed is not None) and self.motor_connected:
+            try:
+                self.motor.set_motor_speed(pitch_speed, linear_speed)
+            except Exception as e:
+                print(f"设置电机速度时出错: {e}")
+                success = False
+        
+        return success
+    
+    def set_all_servo_acc(self, acceleration):
+        """
+        设置所有舵机的加速度
+        
+        Args:
+            acceleration: 加速度值 (0-254)
+            
+        Returns:
+            bool: 成功返回True
+        """
+        if not self.servo_connected:
+            print("舵机控制器未连接")
+            return False
+            
+        success = True
+        self.servo_acceleration = acceleration
+        
+        # 为所有已连接的舵机设置加速度
+        for joint_name, servo_id in self.joint_ids.items():
+            try:
+                self.servo.write_acceleration(servo_id, acceleration)
+            except Exception as e:
+                print(f"设置舵机 {joint_name} (ID: {servo_id}) 加速度时出错: {e}")
+                success = False
+                
+        return success
+    
+    def stop_all(self):
+        """
+        停止所有电机和舵机
+        
+        Returns:
+            bool: 成功返回True
+        """
+        success = True
+        
+        # 停止舵机
+        if self.servo_connected:
+            try:
+                # 禁用舵机力矩
+                for joint_name, servo_id in self.joint_ids.items():
+                    try:
+                        self.servo.set_torque_enable(servo_id, False)
+                    except Exception as e:
+                        print(f"禁用舵机 {joint_name} (ID: {servo_id}) 力矩时出错: {e}")
+                        success = False
+            except Exception as e:
+                print(f"停止舵机时出错: {e}")
+                success = False
+        
+        # 停止电机
+        if self.motor_connected:
+            try:
+                self.motor.stop_all()
+            except Exception as e:
+                print(f"停止电机时出错: {e}")
+                success = False
+                
+        return success
