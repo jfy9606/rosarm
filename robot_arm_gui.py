@@ -440,6 +440,7 @@ class RobotArmGUI:
         
         # 双目相机设置
         self.stereo_mode = False
+        self.stereo_var = tk.BooleanVar(value=False)  # 添加stereo_var变量
         self.camera_resolutions = [
             "1280x480 (30FPS)",
             "1920x1080 (30FPS)",
@@ -572,14 +573,9 @@ class RobotArmGUI:
         self.notebook.add(self.basic_tab, text="基本控制")
         self.create_basic_tab()
         
-        # 笛卡尔控制选项卡
-        self.cartesian_tab = ttk.Frame(self.notebook)
-        self.notebook.add(self.cartesian_tab, text="笛卡尔控制")
-        self.create_cartesian_tab()
-        
-        # 视觉选项卡
+        # 视觉系统选项卡
         self.vision_tab = ttk.Frame(self.notebook)
-        self.notebook.add(self.vision_tab, text="视觉")
+        self.notebook.add(self.vision_tab, text="视觉系统")
         self.create_vision_tab()
     
     def create_basic_tab(self):
@@ -653,7 +649,8 @@ class RobotArmGUI:
         self.camera_btn.pack(side=tk.LEFT, padx=5)
         
         # 双目模式切换按钮
-        self.stereo_btn = ttk.Button(camera_btn_frame, text="开启双目模式", command=self.toggle_stereo_mode)
+        self.stereo_var = tk.BooleanVar(value=False)  # 确保在这里也定义了stereo_var
+        self.stereo_btn = ttk.Checkbutton(camera_btn_frame, text="双目模式", variable=self.stereo_var, command=self.toggle_stereo_mode)
         self.stereo_btn.pack(side=tk.LEFT, padx=5)
         
         # 视图模式
@@ -748,41 +745,7 @@ class RobotArmGUI:
                              command=self.grab_detected_object)
         grab_btn.pack(side=tk.LEFT, padx=2, fill=tk.X, expand=True)
         
-        # 笛卡尔控制区域
-        cartesian_frame = ttk.LabelFrame(right_panel, text="笛卡尔控制")
-        cartesian_frame.pack(fill=tk.X, expand=False, pady=5)
-        
-        # X坐标
-        x_frame = ttk.Frame(cartesian_frame)
-        x_frame.pack(fill=tk.X, padx=5, pady=2)
-        
-        ttk.Label(x_frame, text="X (m):").pack(side=tk.LEFT)
-        self.x_var = tk.DoubleVar(value=0.0)
-        self.x_entry = ttk.Entry(x_frame, textvariable=self.x_var, width=8)
-        self.x_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-        
-        # Y坐标
-        y_frame = ttk.Frame(cartesian_frame)
-        y_frame.pack(fill=tk.X, padx=5, pady=2)
-        
-        ttk.Label(y_frame, text="Y (m):").pack(side=tk.LEFT)
-        self.y_var = tk.DoubleVar(value=0.0)
-        self.y_entry = ttk.Entry(y_frame, textvariable=self.y_var, width=8)
-        self.y_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-        
-        # Z坐标
-        z_frame = ttk.Frame(cartesian_frame)
-        z_frame.pack(fill=tk.X, padx=5, pady=2)
-        
-        ttk.Label(z_frame, text="Z (m):").pack(side=tk.LEFT)
-        self.z_var = tk.DoubleVar(value=0.3)
-        self.z_entry = ttk.Entry(z_frame, textvariable=self.z_var, width=8)
-        self.z_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-        
-        # 移动按钮
-        move_btn = ttk.Button(cartesian_frame, text="移动到位置",
-                             command=self.move_to_cartesian)
-        move_btn.pack(fill=tk.X, padx=5, pady=5)
+        # 删除笛卡尔控制区域
         
         # 日志区域
         log_frame = ttk.LabelFrame(right_panel, text="日志")
@@ -800,54 +763,7 @@ class RobotArmGUI:
         # 禁用文本框编辑
         self.vision_log.config(state=tk.DISABLED)
     
-    def move_to_cartesian(self):
-        """移动到笛卡尔坐标位置"""
-        if not self.robot or not self.robot.connected:
-            self.log_to_vision("机械臂未连接")
-            return
-            
-        try:
-            # 获取坐标值
-            x = self.x_var.get()
-            y = self.y_var.get()
-            z = self.z_var.get()
-            
-            # 记录到日志
-            self.log_to_vision(f"正在移动到坐标: X={x:.3f}, Y={y:.3f}, Z={z:.3f}...")
-            
-            # 计算大臂电机位置
-            pitch_pos, linear_pos = self.robot.coordinate_to_motors(x, y, z)
-            
-            # 移动到目标位置
-            self.disable_controls()
-            
-            def move_task():
-                return self.robot.move_to_cartesian_with_motors(
-                    x, y, z,
-                    pitch_pos=pitch_pos,
-                    linear_pos=linear_pos,
-                    blocking=True
-                )
-                
-            def on_complete(success, error=None):
-                if error:
-                    self.log_to_vision(f"移动过程中发生错误: {error}")
-                elif success:
-                    self.log_to_vision("成功移动到目标位置")
-                else:
-                    self.log_to_vision("移动到目标位置失败")
-                    
-                # 重新启用控件
-                self.enable_controls()
-            
-            # 创建并启动任务
-            task = AsyncTask(callback=on_complete)
-            task.task = move_task
-            task.start()
-            
-        except Exception as e:
-            self.log_to_vision(f"移动过程中发生错误: {e}")
-            self.enable_controls()
+    # 删除move_to_cartesian函数
     
     def log_to_vision(self, message):
         """记录信息到视觉日志"""
@@ -856,47 +772,7 @@ class RobotArmGUI:
         self.vision_log.see(tk.END)
         self.vision_log.config(state=tk.DISABLED)
     
-    def create_cartesian_tab(self):
-        """创建笛卡尔控制选项卡内容"""
-        # 笛卡尔坐标控制框架
-        cartesian_frame = ttk.LabelFrame(self.cartesian_tab, text="笛卡尔坐标控制")
-        cartesian_frame.pack(fill=tk.X, padx=10, pady=10)
-        
-        # X坐标控制
-        ttk.Label(cartesian_frame, text="X 坐标:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
-        self.x_var = tk.IntVar(value=0)
-        x_spinbox = ttk.Spinbox(cartesian_frame, from_=-50, to=50, textvariable=self.x_var, width=5)
-        x_spinbox.grid(row=0, column=1, padx=5, pady=5)
-        
-        # Y坐标控制
-        ttk.Label(cartesian_frame, text="Y 坐标:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
-        self.y_var = tk.IntVar(value=15)
-        y_spinbox = ttk.Spinbox(cartesian_frame, from_=-50, to=50, textvariable=self.y_var, width=5)
-        y_spinbox.grid(row=1, column=1, padx=5, pady=5)
-        
-        # Z坐标控制
-        ttk.Label(cartesian_frame, text="Z 坐标:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
-        self.z_var = tk.IntVar(value=0)
-        z_spinbox = ttk.Spinbox(cartesian_frame, from_=-50, to=50, textvariable=self.z_var, width=5)
-        z_spinbox.grid(row=2, column=1, padx=5, pady=5)
-        
-        # 移动按钮
-        ttk.Button(
-            cartesian_frame,
-            text="移动到位置",
-            command=self.move_cartesian
-        ).grid(row=3, column=0, columnspan=2, padx=5, pady=5)
-        
-        # 预设动作框架
-        presets_frame = ttk.LabelFrame(self.cartesian_tab, text="预设动作")
-        presets_frame.pack(fill=tk.X, padx=10, pady=10)
-        
-        # 抓取-放置示例按钮
-        ttk.Button(
-            presets_frame,
-            text="执行抓取-放置示例",
-            command=self.run_pick_place_demo
-        ).pack(fill=tk.X, padx=5, pady=5)
+    # 删除create_cartesian_tab函数
         
         # 方形轨迹示例按钮
         ttk.Button(
@@ -1837,61 +1713,7 @@ class RobotArmGUI:
         
         self.log(f"调试模式: {'已启用' if self.debug_mode else '已禁用'}")
     
-    def move_cartesian(self):
-        """基于笛卡尔坐标移动机械臂"""
-        # 检查舵机和电机是否连接
-        if not self.servo_connected or not self.motor_connected:
-            self.log("请先连接舵机和电机控制器")
-            return
-            
-        # 检查舵机和电机是否使能
-        if self.enable_button.cget("text") != "禁用舵机" or self.dc_enable_button.cget("text") != "禁用DC电机":
-            self.log("请先使能舵机和DC电机")
-            return
-            
-        try:
-            x = self.x_var.get()
-            y = self.y_var.get()
-            z = self.z_var.get()
-            
-            self.log(f"正在移动到笛卡尔坐标: X={x}, Y={y}, Z={z}...")
-            
-            # 先检查电压
-            if self.servo_connected:
-                self.check_voltage()
-            
-            # 设置较低的速度
-            self.robot.set_speeds(servo_speed=300)
-            self.robot.set_all_servo_acc(3)
-            self.robot.motor.set_motor_speed(80, 80)
-            
-            # 简单映射到关节和电机坐标
-            # X -> joint1 (底座旋转)
-            # Y -> linear (进给电机)
-            # Z -> pitch (俯仰电机)
-            
-            # 将X映射到底座旋转
-            joint1_pos = int(x * 10 + 2048)  # 简单线性映射
-            
-            # 设置底座位置
-            self.robot.set_joint_position('joint1', joint1_pos)
-            time.sleep(0.5)  # 等待底座移动
-            
-            # 设置进给位置
-            self.robot.set_linear_position(y * 100)  # 放大系数
-            time.sleep(0.5)
-            
-            # 设置俯仰位置
-            self.robot.set_pitch_position(z * 100)  # 放大系数
-            
-            self.log(f"已移动到: X={x}, Y={y}, Z={z}")
-            
-            # 更新UI上的滑块值
-            self.joint_values['joint1'].set(joint1_pos)
-            self.linear_value.set(y * 100)
-            self.pitch_value.set(z * 100)
-        except Exception as e:
-            self.log(f"笛卡尔坐标移动出错: {e}")
+    # 删除move_cartesian函数
     
     def run_pick_place_demo(self):
         """执行抓取和放置演示"""
