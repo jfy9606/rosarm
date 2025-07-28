@@ -1530,3 +1530,94 @@ class RobotArm:
                 success = False
                 
         return success
+        
+    def home(self, blocking=False, timeout=10.0):
+        """
+        将机械臂移动到初始位置（归位）
+        
+        Args:
+            blocking: 是否阻塞等待动作完成
+            timeout: 最大等待时间(秒)
+            
+        Returns:
+            bool: 如果成功返回True
+        """
+        if not self.connected:
+            print("控制器未连接")
+            return False
+            
+        success = True
+        
+        try:
+            # 设置舵机初始位置
+            if self.servo_connected:
+                # 定义初始位置（中间位置）
+                home_positions = {
+                    'joint1': 2048,  # 底座旋转
+                    'joint2': 2048,  # 肩部
+                    'joint3': 2048,  # 肘部
+                    'joint4': 2048   # 腕部俯仰
+                }
+                
+                # 设置所有关节位置
+                for joint, position in home_positions.items():
+                    if joint in self.joint_ids:
+                        if not self.set_joint_position(joint, position, blocking=False):
+                            print(f"设置关节 {joint} 初始位置失败")
+                            success = False
+            
+            # 设置电机初始位置
+            if self.motor_connected:
+                # 设置俯仰电机位置（水平位置）
+                if not self.set_pitch_position(0, blocking=False):
+                    print("设置俯仰电机初始位置失败")
+                    success = False
+                    
+                # 设置进给电机位置（中间位置）
+                if not self.set_linear_position(10000, blocking=False):
+                    print("设置进给电机初始位置失败")
+                    success = False
+            
+            # 如果需要阻塞等待
+            if blocking and success:
+                start_time = time.time()
+                while time.time() - start_time < timeout:
+                    # 检查所有舵机是否到达目标位置
+                    all_reached = True
+                    
+                    if self.servo_connected:
+                        for joint, target_pos in home_positions.items():
+                            if joint in self.joint_ids:
+                                servo_id = self.joint_ids[joint]
+                                current_pos = self.servo.read_position(servo_id)
+                                
+                                if current_pos is None or abs(current_pos - target_pos) > 10:
+                                    all_reached = False
+                                    break
+                    
+                    # 检查电机是否到达目标位置
+                    if self.motor_connected:
+                        # 检查俯仰电机
+                        pitch_pos = self.motor.get_pitch_position()
+                        if pitch_pos is None or abs(pitch_pos) > 100:
+                            all_reached = False
+                        
+                        # 检查进给电机
+                        linear_pos = self.motor.get_linear_position()
+                        if linear_pos is None or abs(linear_pos - 10000) > 100:
+                            all_reached = False
+                    
+                    if all_reached:
+                        print("所有关节和电机已到达初始位置")
+                        return True
+                        
+                    time.sleep(0.1)
+                
+                print("等待到达初始位置超时")
+                return False
+            
+            return success
+            
+        except Exception as e:
+            print(f"归位过程中出错: {e}")
+            return False

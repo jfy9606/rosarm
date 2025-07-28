@@ -743,7 +743,49 @@ class RobotArmGUI:
                              command=self.grab_detected_object)
         grab_btn.pack(side=tk.LEFT, padx=2, fill=tk.X, expand=True)
         
-        # 删除笛卡尔控制区域
+        # 添加末端坐标控制区域
+        cartesian_frame = ttk.LabelFrame(right_panel, text="末端坐标控制")
+        cartesian_frame.pack(fill=tk.X, expand=False, pady=5)
+        
+        # X坐标控制
+        x_frame = ttk.Frame(cartesian_frame)
+        x_frame.pack(fill=tk.X, padx=5, pady=2)
+        
+        ttk.Label(x_frame, text="X坐标(m):").pack(side=tk.LEFT)
+        self.x_var = tk.DoubleVar(value=0.25)
+        x_entry = ttk.Entry(x_frame, textvariable=self.x_var, width=6)
+        x_entry.pack(side=tk.LEFT, padx=5)
+        
+        # Y坐标控制
+        y_frame = ttk.Frame(cartesian_frame)
+        y_frame.pack(fill=tk.X, padx=5, pady=2)
+        
+        ttk.Label(y_frame, text="Y坐标(m):").pack(side=tk.LEFT)
+        self.y_var = tk.DoubleVar(value=0.0)
+        y_entry = ttk.Entry(y_frame, textvariable=self.y_var, width=6)
+        y_entry.pack(side=tk.LEFT, padx=5)
+        
+        # Z坐标控制
+        z_frame = ttk.Frame(cartesian_frame)
+        z_frame.pack(fill=tk.X, padx=5, pady=2)
+        
+        ttk.Label(z_frame, text="Z坐标(m):").pack(side=tk.LEFT)
+        self.z_var = tk.DoubleVar(value=0.2)
+        z_entry = ttk.Entry(z_frame, textvariable=self.z_var, width=6)
+        z_entry.pack(side=tk.LEFT, padx=5)
+        
+        # 移动按钮
+        move_btn_frame = ttk.Frame(cartesian_frame)
+        move_btn_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        move_btn = ttk.Button(move_btn_frame, text="移动到坐标",
+                             command=self.move_to_cartesian_from_vision)
+        move_btn.pack(fill=tk.X, expand=True)
+        
+        # 获取当前位置按钮
+        get_pos_btn = ttk.Button(move_btn_frame, text="获取当前位置",
+                               command=self.get_current_position_to_vision)
+        get_pos_btn.pack(fill=tk.X, expand=True, pady=2)
         
         # 日志区域
         log_frame = ttk.LabelFrame(right_panel, text="日志")
@@ -761,7 +803,53 @@ class RobotArmGUI:
         # 禁用文本框编辑
         self.vision_log.config(state=tk.DISABLED)
     
-    # 删除move_to_cartesian函数
+    def move_to_cartesian_from_vision(self):
+        """从视觉系统界面移动机械臂到指定笛卡尔坐标"""
+        if not self.servo_connected and not self.motor_connected:
+            self.log_to_vision("请先连接至少一个控制器")
+            return
+            
+        try:
+            # 获取输入的坐标值
+            x = self.x_var.get()
+            y = self.y_var.get()
+            z = self.z_var.get()
+            
+            self.log_to_vision(f"正在移动到坐标: X={x:.3f}, Y={y:.3f}, Z={z:.3f}")
+            
+            # 调用机械臂移动函数
+            success = self.robot.move_to_cartesian_position(x, y, z, blocking=True)
+            
+            if success:
+                self.log_to_vision("已到达目标位置")
+            else:
+                self.log_to_vision("移动失败，可能超出工作范围")
+                
+        except Exception as e:
+            self.log_to_vision(f"移动过程中出错: {e}")
+    
+    def get_current_position_to_vision(self):
+        """获取当前机械臂末端位置并显示在视觉系统界面"""
+        if not self.servo_connected and not self.motor_connected:
+            self.log_to_vision("请先连接至少一个控制器")
+            return
+            
+        try:
+            # 获取当前末端位置
+            pose = self.robot.get_current_cartesian_position()
+            
+            if pose:
+                # 更新界面上的坐标值
+                self.x_var.set(round(pose['position'][0], 3))
+                self.y_var.set(round(pose['position'][1], 3))
+                self.z_var.set(round(pose['position'][2], 3))
+                
+                self.log_to_vision(f"当前位置: X={pose['position'][0]:.3f}, Y={pose['position'][1]:.3f}, Z={pose['position'][2]:.3f}")
+            else:
+                self.log_to_vision("无法获取当前位置")
+                
+        except Exception as e:
+            self.log_to_vision(f"获取当前位置时出错: {e}")
     
     def log_to_vision(self, message):
         """记录信息到视觉日志"""
@@ -1003,7 +1091,7 @@ class RobotArmGUI:
         
         # 创建红色按钮样式
         style = ttk.Style()
-        style.configure("Red.TButton", foreground="white", background="red")
+        style.configure("Red.TButton", foreground="white", background="red", font=("Arial", 10, "bold"))
     
     def create_status_panel(self, parent):
         """创建状态面板"""
