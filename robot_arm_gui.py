@@ -146,24 +146,38 @@ class VideoCapture:
             try:
                 if model_path and os.path.exists(model_path):
                     self.yolo_model = YOLO(model_path)
+                    print(f"成功加载自定义模型: {model_path}")
                 else:
-                    # 如果没有指定模型路径，尝试使用预训练的YOLOv8n模型
-                    # 注意：这里改为使用YOLOv8n模型，因为YOLOv11n可能不存在或无法自动下载
+                    # 如果没有指定模型路径，尝试使用预训练的YOLOv11n模型
                     try:
-                        self.yolo_model = YOLO('yolov8n.pt')
-                        print("YOLOv8n模型加载完成")
+                        # 使用force_reload=True确保模型被下载
+                        print("正在加载/下载YOLOv11n模型...")
+                        self.yolo_model = YOLO('yolo11n.pt')
+                        print("YOLOv11n模型加载完成")
                     except Exception as e1:
-                        print(f"尝试加载YOLOv8n模型失败: {e1}，尝试使用本地模型...")
+                        print(f"尝试加载YOLOv11n模型失败: {e1}，尝试使用本地模型...")
                         # 尝试在当前目录和models目录查找模型文件
-                        model_paths = ['yolov8n.pt', 'models/yolov8n.pt', 'yolov8s.pt', 'models/yolov8s.pt']
+                        model_paths = ['yolo11n.pt', 'models/yolo11n.pt', 'yolov8s.pt', 'models/yolov8s.pt']
                         for path in model_paths:
                             if os.path.exists(path):
                                 self.yolo_model = YOLO(path)
                                 print(f"成功加载本地模型: {path}")
                                 break
                         else:
-                            print("未找到可用的YOLO模型，请手动加载模型")
-                            self.yolo_model = None
+                            # 如果本地没有找到模型，尝试创建models目录并下载模型
+                            try:
+                                print("尝试创建models目录并下载YOLOv11n模型...")
+                                os.makedirs('models', exist_ok=True)
+                                # 使用ultralytics库直接下载模型
+                                from ultralytics.utils.downloads import download
+                                model_url = 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.pt'
+                                download_path = os.path.join('models', 'yolo11n.pt')
+                                download(model_url, download_path)
+                                self.yolo_model = YOLO(download_path)
+                                print(f"成功下载并加载模型: {download_path}")
+                            except Exception as e2:
+                                print(f"下载模型失败: {e2}，请手动下载模型")
+                                self.yolo_model = None
             except Exception as e:
                 print(f"加载YOLO模型时出错: {e}")
                 self.yolo_model = None

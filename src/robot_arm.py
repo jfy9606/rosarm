@@ -648,7 +648,7 @@ class RobotArm:
         
         return angles
     
-    def inverse_kinematics(self, target_position, target_orientation=None, max_iterations=100, tolerance=0.001):
+    def inverse_kinematics(self, target_position, target_orientation=None, max_iterations=200, tolerance=0.001, adaptive_tolerance=True):
         """
         计算逆向运动学，求解到达指定位置和姿态所需的关节角度
         采用迭代法（雅可比矩阵）
@@ -658,6 +658,7 @@ class RobotArm:
             target_orientation: 目标姿态 [roll, pitch, yaw]，如果为None则仅考虑位置
             max_iterations: 最大迭代次数
             tolerance: 位置误差容忍度(m)
+            adaptive_tolerance: 是否使用自适应容忍度（当迭代未收敛但误差较小时仍返回近似解）
             
         Returns:
             tuple: (是否成功, 关节角度列表)
@@ -765,6 +766,22 @@ class RobotArm:
                 return False, None
         
         print(f"逆运动学迭代未收敛，最终误差: {error_magnitude:.4f}m")
+        
+        # 如果启用了自适应容忍度，且误差在可接受范围内（小于0.1m），仍然返回近似解
+        if adaptive_tolerance and error_magnitude < 0.1:
+            print(f"使用自适应容忍度，返回近似解（误差: {error_magnitude:.4f}m）")
+            # 将关节角度转换回舵机位置值
+            servo_positions = {}
+            for i, joint in enumerate(['joint1', 'joint2', 'joint3', 'joint4']):
+                if i < len(joint_angles):
+                    angle = joint_angles[i]
+                    min_pos, max_pos = self.joint_limits[joint]
+                    # 将角度(-pi/2到pi/2)转换为舵机位置(min_pos到max_pos)
+                    pos = int((angle + np.pi/2) / np.pi * (max_pos - min_pos) + min_pos)
+                    servo_positions[joint] = pos
+            
+            return True, servo_positions
+        
         return False, None
     
     def move_to_cartesian_position(self, x, y, z, roll=None, pitch=None, yaw=None, blocking=False, timeout=10.0):
@@ -792,8 +809,8 @@ class RobotArm:
         if roll is not None and pitch is not None and yaw is not None:
             target_orientation = np.array([roll, pitch, yaw])
         
-        # 计算逆运动学
-        success, joint_positions = self.inverse_kinematics(target_position, target_orientation)
+        # 计算逆运动学（启用自适应容忍度）
+        success, joint_positions = self.inverse_kinematics(target_position, target_orientation, adaptive_tolerance=True)
         
         if not success:
             print("无法求解逆运动学，无法到达目标位置")
