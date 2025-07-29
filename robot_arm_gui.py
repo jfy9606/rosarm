@@ -147,9 +147,9 @@ class VideoCapture:
                 if model_path and os.path.exists(model_path):
                     self.yolo_model = YOLO(model_path)
                 else:
-                    # 如果没有指定模型路径，使用预训练的YOLOv8n模型
-                    self.yolo_model = YOLO('yolov8n.pt')
-                print("YOLO模型加载完成")
+                    # 如果没有指定模型路径，使用预训练的YOLOv11n模型
+                    self.yolo_model = YOLO('yolov11n.pt')
+                print("YOLOv11n模型加载完成")
             except Exception as e:
                 print(f"加载YOLO模型时出错: {e}")
                 self.yolo_model = None
@@ -812,14 +812,14 @@ class RobotArmGUI:
             
         try:
             # 获取输入的坐标值
-            x = self.x_var.get()
-            y = self.y_var.get()
-            z = self.z_var.get()
+            x = float(self.x_var.get())
+            y = float(self.y_var.get())
+            z = float(self.z_var.get())
             
             self.log_to_vision(f"正在移动到坐标: X={x:.3f}, Y={y:.3f}, Z={z:.3f}")
             
             # 调用机械臂移动函数
-            success = self.robot.move_to_cartesian_position(x, y, z, blocking=True)
+            success = self.robot_arm.move_to_cartesian_position(x, y, z, blocking=True)
             
             if success:
                 self.log_to_vision("已到达目标位置")
@@ -827,7 +827,9 @@ class RobotArmGUI:
                 self.log_to_vision("移动失败，可能超出工作范围")
                 
         except Exception as e:
-            self.log_to_vision(f"移动过程中出错: {e}")
+            self.log_to_vision(f"移动到坐标出错: {e}")
+            import traceback
+            self.log_to_vision(traceback.format_exc())
     
     def get_current_position_to_vision(self):
         """获取当前机械臂末端位置并显示在视觉系统界面"""
@@ -837,7 +839,7 @@ class RobotArmGUI:
             
         try:
             # 获取当前末端位置
-            pose = self.robot.get_current_cartesian_position()
+            pose = self.robot_arm.get_current_cartesian_position()
             
             if pose:
                 # 更新界面上的坐标值
@@ -851,6 +853,8 @@ class RobotArmGUI:
                 
         except Exception as e:
             self.log_to_vision(f"获取当前位置时出错: {e}")
+            import traceback
+            self.log_to_vision(traceback.format_exc())
     
     def log_to_vision(self, message):
         """记录信息到视觉日志"""
@@ -2563,32 +2567,71 @@ class RobotArmGUI:
                 messagebox.showerror("错误", "无法初始化双目相机")
                 return
         
-        # 询问用户要抓取的物体颜色
-        color_mapping = {
-            "红色": "red",
-            "绿色": "green",
-            "蓝色": "blue"
-        }
-        
-        color = simpledialog.askstring(
-            "选择颜色",
-            "请选择要抓取的物体颜色 (红色, 绿色, 蓝色):",
-            initialvalue="红色"
-        )
-        
-        if not color:
+        # 检查YOLO是否启用
+        if not self.yolo_enabled:
+            messagebox.showinfo("提示", "请先启用YOLO检测")
             return
             
-        # 转换颜色名称
-        object_name = color_mapping.get(color, color)
+        # 获取当前检测结果
+        results = self.video.get_detection_results()
+        if results is None or len(results.boxes) == 0:
+            self.log("未检测到物体，无法抓取")
+            messagebox.showinfo("提示", "未检测到物体，无法抓取")
+            return
+            
+        # 获取所有符合置信度要求的物体
+        valid_boxes = []
+        for i, box in enumerate(results.boxes):
+            conf = float(box.conf)
+            if conf >= self.confidence_threshold.get():
+                cls_id = int(box.cls[0])
+                cls_name = results.names[cls_id]
+                valid_boxes.append({
+                    'index': i,
+                    'box': box,
+                    'conf': conf,
+                    'cls_id': cls_id,
+                    'cls_name': cls_name
+                })
+        
+        if not valid_boxes:
+            self.log("未找到符合置信度要求的物体")
+            messagebox.showinfo("提示", "未找到符合置信度要求的物体")
+            return
+            
+        # 如果有多个物体，让用户选择要抓取的物体序号
+        target_index = 0
+        if len(valid_boxes) > 1:
+            options = [f"{i+1}. {box['cls_name']} (置信度: {box['conf']:.2f})" for i, box in enumerate(valid_boxes)]
+            choice = simpledialog.askstring(
+                "选择物体",
+                "检测到多个物体，请选择要抓取的物体序号:",
+                initialvalue="1"
+            )
+            
+            if not choice:
+                return
+                
+            try:
+                target_index = int(choice) - 1
+                if target_index < 0 or target_index >= len(valid_boxes):
+                    target_index = 0
+            except ValueError:
+                target_index = 0
+        
+        # 获取选中的物体信息
+        selected_box = valid_boxes[target_index]
+        cls_name = selected_box['cls_name']
         
         # 禁用界面控件
         self.disable_controls()
-        self.log(f"正在执行抓取 {color} 物体的操作...")
+        self.log(f"正在执行抓取 {cls_name} 物体的操作...")
         
         # 创建异步任务
         def grab_task():
-            success = self.robot.grab_object_with_vision(object_name=object_name)
+            # 将YOLO检测框传递给grab_object_with_vision函数
+            box_xyxy = selected_box['box'].xyxy[0].tolist()
+            success = self.robot.grab_object_with_vision(object_name=cls_name, yolo_bbox=box_xyxy)
             return success
             
         def on_complete(success, error=None):
@@ -2596,11 +2639,11 @@ class RobotArmGUI:
                 self.log(f"抓取过程中发生错误: {error}")
                 messagebox.showerror("错误", f"抓取失败: {error}")
             elif success:
-                self.log(f"成功抓取 {color} 物体")
-                messagebox.showinfo("成功", f"成功抓取 {color} 物体")
+                self.log(f"成功抓取 {cls_name} 物体")
+                messagebox.showinfo("成功", f"成功抓取 {cls_name} 物体")
             else:
-                self.log(f"抓取 {color} 物体失败")
-                messagebox.showerror("错误", f"抓取 {color} 物体失败")
+                self.log(f"抓取 {cls_name} 物体失败")
+                messagebox.showerror("错误", f"抓取 {cls_name} 物体失败")
                 
             # 重新启用界面控件
             self.enable_controls()

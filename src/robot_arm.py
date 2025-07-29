@@ -1191,6 +1191,90 @@ class RobotArm:
             print(f"物体检测错误: {e}")
             return None
     
+    def calculate_distance_with_yolo(self, left_frame, right_frame, yolo_bbox):
+        """
+        使用YOLO检测框和双目立体视觉计算物体到相机的距离
+        
+        Args:
+            left_frame: 左相机图像
+            right_frame: 右相机图像
+            yolo_bbox: YOLO检测框 [x1, y1, x2, y2]
+            
+        Returns:
+            tuple: (x, y, z, bbox) 物体的3D坐标(m)和边界框，或 None表示失败
+        """
+        try:
+            # 从YOLO检测框中提取左图像中的边界框
+            x1, y1, x2, y2 = map(int, yolo_bbox)
+            left_bbox = (x1, y1, x2-x1, y2-y1)  # 转换为(x, y, w, h)格式
+            
+            # 在右图像中寻找对应的物体
+            # 这里使用简化方法：在右图像中搜索与左图像中相似的区域
+            # 实际应用中应使用更复杂的立体匹配算法
+            
+            # 获取左图像中物体的中心点
+            left_x = (x1 + x2) // 2
+            left_y = (y1 + y2) // 2
+            
+            # 在右图像中搜索范围（假设视差不会太大）
+            search_range = 100  # 搜索范围（像素）
+            search_x1 = max(0, left_x - search_range)
+            search_x2 = min(right_frame.shape[1], left_x + search_range)
+            
+            # 提取左图像中的物体区域
+            object_roi = left_frame[y1:y2, x1:x2]
+            if object_roi.size == 0:
+                print("YOLO检测框无效")
+                return None
+                
+            # 在右图像中搜索最匹配的位置
+            best_match_x = None
+            best_match_score = float('inf')
+            
+            # 简化的模板匹配（实际应用中可使用更复杂的方法）
+            for x in range(search_x1, search_x2 - (x2-x1)):
+                roi = right_frame[y1:y2, x:x+(x2-x1)]
+                if roi.shape != object_roi.shape:
+                    continue
+                    
+                # 计算差异（简单的像素差的平方和）
+                diff = np.sum((roi.astype(np.float32) - object_roi.astype(np.float32)) ** 2)
+                if diff < best_match_score:
+                    best_match_score = diff
+                    best_match_x = x
+            
+            if best_match_x is None:
+                print("在右图像中未找到匹配区域")
+                return None
+                
+            # 计算右图像中物体的中心点
+            right_x = best_match_x + (x2-x1) // 2
+            right_y = left_y  # 假设y坐标相同
+            
+            # 计算视差
+            disparity = left_x - right_x
+            
+            # 避免除零错误
+            if disparity <= 0:
+                print("视差为零或负值，无法计算距离")
+                return None
+                
+            # 计算距离(m)
+            z = (self.baseline * self.focal_length) / disparity
+            
+            # 计算3D坐标
+            x = (left_x - 320) * z / self.focal_length
+            y = (left_y - 240) * z / self.focal_length
+            
+            print(f"使用YOLO检测框计算的物体位置: X={x:.3f}m, Y={y:.3f}m, Z={z:.3f}m")
+            return (x, y, z, left_bbox)
+            
+        except Exception as e:
+            print(f"YOLO距离计算错误: {e}")
+            import traceback
+            print(traceback.format_exc())
+            return None
+    
     def calculate_distance(self, left_frame, right_frame, object_name="target"):
         """
         使用双目立体视觉计算物体到相机的距离
@@ -1240,7 +1324,7 @@ class RobotArm:
             print(f"距离计算错误: {e}")
             return None
     
-    def grab_object_with_vision(self, object_name="target", grab_distance=0.05, blocking=True, timeout=20.0):
+    def grab_object_with_vision(self, object_name="target", grab_distance=0.05, blocking=True, timeout=20.0, yolo_bbox=None):
         """
         使用视觉系统自动抓取物体
         
@@ -1249,6 +1333,7 @@ class RobotArm:
             grab_distance: 抓取距离(m)，最终抓取位置会比检测到的物体位置稍微靠前
             blocking: 是否阻塞等待动作完成
             timeout: 最大等待时间(秒)
+            yolo_bbox: YOLO检测框 [x1, y1, x2, y2]，如果提供则优先使用
             
         Returns:
             bool: 如果抓取成功则返回True
@@ -1265,7 +1350,14 @@ class RobotArm:
                 return False
                 
             # 计算物体3D位置
-            result = self.calculate_distance(left_frame, right_frame, object_name)
+            if yolo_bbox is not None:
+                # 使用YOLO检测框
+                print(f"使用YOLO检测框: {yolo_bbox}")
+                result = self.calculate_distance_with_yolo(left_frame, right_frame, yolo_bbox)
+            else:
+                # 使用传统颜色检测
+                result = self.calculate_distance(left_frame, right_frame, object_name)
+                
             if result is None:
                 print(f"无法定位物体: {object_name}")
                 return False
