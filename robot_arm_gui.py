@@ -301,7 +301,7 @@ class VideoCapture:
                     try:
                         # 在左图上进行检测
                         results = self.yolo_model(self.left_frame, verbose=False)
-                        self.detection_results = results[0]  # 保存检测结果
+                        self.detection_results = results  # 保存检测结果
                     except Exception as e:
                         print(f"YOLO检测出错: {e}")
                         self.detection_results = []
@@ -310,7 +310,7 @@ class VideoCapture:
                 if self.yolo_enabled and self.yolo_model is not None:
                     try:
                         results = self.yolo_model(frame, verbose=False)
-                        self.detection_results = results[0]  # 保存检测结果
+                        self.detection_results = results  # 保存检测结果
                     except Exception as e:
                         print(f"YOLO检测出错: {e}")
                         self.detection_results = []

@@ -567,7 +567,7 @@ class RobotArm:
         if joint_angles is None:
             joint_angles = self.get_current_joint_angles()
             
-        if not joint_angles or len(joint_angles) < 4:
+        if joint_angles is None or len(joint_angles) < 4:
             print("缺少关节角度信息")
             return None
         
