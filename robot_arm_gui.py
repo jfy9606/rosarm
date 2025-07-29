@@ -365,6 +365,9 @@ class VideoCapture:
     
     def get_detection_results(self):
         """获取最新的检测结果"""
+        # 确保返回的结果是有效的YOLO结果对象，而不是空列表
+        if isinstance(self.detection_results, list) and not self.detection_results:
+            return None
         return self.detection_results
     
     def set_yolo_enabled(self, enabled):
@@ -819,7 +822,7 @@ class RobotArmGUI:
             self.log_to_vision(f"正在移动到坐标: X={x:.3f}, Y={y:.3f}, Z={z:.3f}")
             
             # 调用机械臂移动函数
-            success = self.robot_arm.move_to_cartesian_position(x, y, z, blocking=True)
+            success = self.robot.move_to_cartesian_position(x, y, z, blocking=True)
             
             if success:
                 self.log_to_vision("已到达目标位置")
@@ -839,7 +842,7 @@ class RobotArmGUI:
             
         try:
             # 获取当前末端位置
-            pose = self.robot_arm.get_current_cartesian_position()
+            pose = self.robot.get_current_cartesian_position()
             
             if pose:
                 # 更新界面上的坐标值
@@ -865,7 +868,7 @@ class RobotArmGUI:
     
     def run_square_trajectory(self):
         """运行方形轨迹示例"""
-        if not self.robot_arm.connected:
+        if not self.robot.connected:
             self.log("控制器未连接，无法执行方形轨迹")
             return
             
@@ -873,7 +876,7 @@ class RobotArmGUI:
         
         try:
             # 获取当前位置作为起点
-            current_pose = self.robot_arm.get_current_cartesian_position()
+            current_pose = self.robot.get_current_cartesian_position()
             if current_pose is None:
                 self.log("无法获取当前位置，轨迹执行失败")
                 return
@@ -904,7 +907,7 @@ class RobotArmGUI:
             
             for i, (x, y, z) in enumerate(points):
                 self.log(f"移动到方形轨迹点 {i+1}/4")
-                self.robot_arm.move_to_cartesian_position(x, y, z, blocking=True)
+                self.robot.move_to_cartesian_position(x, y, z, blocking=True)
                 time.sleep(0.5)  # 在每个点停留片刻
             
             # 恢复原来的速度和加速度
@@ -920,7 +923,7 @@ class RobotArmGUI:
             
     def run_circle_trajectory(self):
         """运行圆形轨迹示例"""
-        if not self.robot_arm.connected:
+        if not self.robot.connected:
             self.log("控制器未连接，无法执行圆形轨迹")
             return
             
@@ -928,7 +931,7 @@ class RobotArmGUI:
         
         try:
             # 获取当前位置作为圆心
-            current_pose = self.robot_arm.get_current_cartesian_position()
+            current_pose = self.robot.get_current_cartesian_position()
             if current_pose is None:
                 self.log("无法获取当前位置，轨迹执行失败")
                 return
@@ -958,7 +961,7 @@ class RobotArmGUI:
                 z = center_z
                 
                 self.log(f"移动到圆形轨迹点 {i+1}/{num_points+1}")
-                self.robot_arm.move_to_cartesian_position(x, y, z, blocking=True)
+                self.robot.move_to_cartesian_position(x, y, z, blocking=True)
                 time.sleep(0.2)  # 短暂停留
             
             # 恢复原来的速度和加速度
@@ -974,7 +977,7 @@ class RobotArmGUI:
             
     def run_wave_trajectory(self):
         """运行波浪轨迹示例"""
-        if not self.robot_arm.connected:
+        if not self.robot.connected:
             self.log("控制器未连接，无法执行波浪轨迹")
             return
             
@@ -982,7 +985,7 @@ class RobotArmGUI:
         
         try:
             # 获取当前位置作为起点
-            current_pose = self.robot_arm.get_current_cartesian_position()
+            current_pose = self.robot.get_current_cartesian_position()
             if current_pose is None:
                 self.log("无法获取当前位置，轨迹执行失败")
                 return
@@ -1013,11 +1016,11 @@ class RobotArmGUI:
                 z = start_z
                 
                 self.log(f"移动到波浪轨迹点 {i+1}/{num_points+1}")
-                self.robot_arm.move_to_cartesian_position(x, y, z, blocking=True)
+                self.robot.move_to_cartesian_position(x, y, z, blocking=True)
                 time.sleep(0.1)  # 短暂停留
             
             # 回到起点
-            self.robot_arm.move_to_cartesian_position(start_x, start_y, start_z, blocking=True)
+            self.robot.move_to_cartesian_position(start_x, start_y, start_z, blocking=True)
             
             # 恢复原来的速度和加速度
             self.servo_speed_var.set(original_speed)
@@ -2567,72 +2570,90 @@ class RobotArmGUI:
                 messagebox.showerror("错误", "无法初始化双目相机")
                 return
         
-        # 检查YOLO是否启用
-        if not self.yolo_enabled:
-            messagebox.showinfo("提示", "请先启用YOLO检测")
-            return
-            
-        # 获取当前检测结果
-        results = self.video.get_detection_results()
-        if results is None or len(results.boxes) == 0:
-            self.log("未检测到物体，无法抓取")
-            messagebox.showinfo("提示", "未检测到物体，无法抓取")
-            return
-            
-        # 获取所有符合置信度要求的物体
-        valid_boxes = []
-        for i, box in enumerate(results.boxes):
-            conf = float(box.conf)
-            if conf >= self.confidence_threshold.get():
-                cls_id = int(box.cls[0])
-                cls_name = results.names[cls_id]
-                valid_boxes.append({
-                    'index': i,
-                    'box': box,
-                    'conf': conf,
-                    'cls_id': cls_id,
-                    'cls_name': cls_name
-                })
-        
-        if not valid_boxes:
-            self.log("未找到符合置信度要求的物体")
-            messagebox.showinfo("提示", "未找到符合置信度要求的物体")
-            return
-            
-        # 如果有多个物体，让用户选择要抓取的物体序号
-        target_index = 0
-        if len(valid_boxes) > 1:
-            options = [f"{i+1}. {box['cls_name']} (置信度: {box['conf']:.2f})" for i, box in enumerate(valid_boxes)]
-            choice = simpledialog.askstring(
-                "选择物体",
-                "检测到多个物体，请选择要抓取的物体序号:",
-                initialvalue="1"
-            )
-            
-            if not choice:
+        # 使用YOLO检测物体
+        if self.yolo_enabled:
+            # 获取当前检测结果
+            results = self.video.get_detection_results()
+            if results is None or not hasattr(results, 'boxes') or len(results.boxes) == 0:
+                self.log("未检测到物体，无法抓取")
+                messagebox.showinfo("提示", "未检测到物体，无法抓取")
                 return
                 
-            try:
-                target_index = int(choice) - 1
-                if target_index < 0 or target_index >= len(valid_boxes):
+            # 获取所有符合置信度要求的物体
+            valid_boxes = []
+            for i, box in enumerate(results.boxes):
+                conf = float(box.conf)
+                if conf >= self.confidence_threshold.get():
+                    cls_id = int(box.cls[0])
+                    cls_name = results.names[cls_id]
+                    valid_boxes.append({
+                        'index': i,
+                        'box': box,
+                        'conf': conf,
+                        'cls_id': cls_id,
+                        'cls_name': cls_name
+                    })
+            
+            if not valid_boxes:
+                self.log("未找到符合置信度要求的物体")
+                messagebox.showinfo("提示", "未找到符合置信度要求的物体")
+                return
+                
+            # 如果有多个物体，让用户选择要抓取的物体序号
+            target_index = 0
+            if len(valid_boxes) > 1:
+                options = [f"{i+1}. {box['cls_name']} (置信度: {box['conf']:.2f})" for i, box in enumerate(valid_boxes)]
+                choice = simpledialog.askstring(
+                    "选择物体",
+                    "检测到多个物体，请选择要抓取的物体序号:",
+                    initialvalue="1"
+                )
+                
+                if not choice:
+                    return
+                    
+                try:
+                    target_index = int(choice) - 1
+                    if target_index < 0 or target_index >= len(valid_boxes):
+                        target_index = 0
+                except ValueError:
                     target_index = 0
-            except ValueError:
-                target_index = 0
-        
-        # 获取选中的物体信息
-        selected_box = valid_boxes[target_index]
-        cls_name = selected_box['cls_name']
-        
-        # 禁用界面控件
-        self.disable_controls()
-        self.log(f"正在执行抓取 {cls_name} 物体的操作...")
-        
-        # 创建异步任务
-        def grab_task():
-            # 将YOLO检测框传递给grab_object_with_vision函数
-            box_xyxy = selected_box['box'].xyxy[0].tolist()
-            success = self.robot.grab_object_with_vision(object_name=cls_name, yolo_bbox=box_xyxy)
-            return success
+            
+            # 获取选中的物体信息
+            selected_box = valid_boxes[target_index]
+            cls_name = selected_box['cls_name']
+            
+            # 禁用界面控件
+            self.disable_controls()
+            self.log(f"正在执行抓取 {cls_name} 物体的操作...")
+            
+            # 创建异步任务
+            def grab_task():
+                # 将YOLO检测框传递给grab_object_with_vision函数
+                box_xyxy = selected_box['box'].xyxy[0].tolist()
+                success = self.robot.grab_object_with_vision(object_name=cls_name, yolo_bbox=box_xyxy)
+                return success
+        else:
+            # YOLO未启用，使用传统的颜色检测方法
+            # 让用户选择要抓取的物体颜色
+            colors = ["红色", "绿色", "蓝色", "黄色", "紫色", "橙色"]
+            color = simpledialog.askstring(
+                "选择颜色",
+                "请选择要抓取的物体颜色:",
+                initialvalue=colors[0]
+            )
+            
+            if not color:
+                return
+                
+            # 禁用界面控件
+            self.disable_controls()
+            self.log(f"正在执行抓取{color}物体的操作...")
+            
+            # 创建异步任务
+            def grab_task():
+                success = self.robot.grab_object_with_vision(object_name=color)
+                return success
             
         def on_complete(success, error=None):
             if error:
