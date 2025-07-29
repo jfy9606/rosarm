@@ -10,6 +10,7 @@
 import sys
 import os
 import time
+import math
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 import serial.tools.list_ports
@@ -858,14 +859,172 @@ class RobotArmGUI:
         self.vision_log.see(tk.END)
         self.vision_log.config(state=tk.DISABLED)
     
-    # 删除create_cartesian_tab函数
+    def run_square_trajectory(self):
+        """运行方形轨迹示例"""
+        if not self.robot_arm.connected:
+            self.log("控制器未连接，无法执行方形轨迹")
+            return
+            
+        self.log("开始执行方形轨迹...")
         
-        # 方形轨迹示例按钮
-        ttk.Button(
-            presets_frame,
-            text="执行方形轨迹示例",
-            command=self.run_square_demo
-        ).pack(fill=tk.X, padx=5, pady=5) 
+        try:
+            # 获取当前位置作为起点
+            current_pose = self.robot_arm.get_current_cartesian_position()
+            if current_pose is None:
+                self.log("无法获取当前位置，轨迹执行失败")
+                return
+                
+            start_x = current_pose['position'][0]
+            start_y = current_pose['position'][1]
+            start_z = current_pose['position'][2]
+            
+            # 方形边长(米)
+            side_length = 0.05
+            
+            # 设置较低的速度和加速度
+            original_speed = self.servo_speed_var.get()
+            original_acc = self.acc_var.get()
+            
+            self.servo_speed_var.set(200)
+            self.acc_var.set(3)
+            self.update_speeds(None)
+            self.update_acceleration(None)
+            
+            # 执行方形轨迹
+            points = [
+                (start_x + side_length, start_y, start_z),  # 右
+                (start_x + side_length, start_y + side_length, start_z),  # 右上
+                (start_x, start_y + side_length, start_z),  # 左上
+                (start_x, start_y, start_z)   # 回到起点
+            ]
+            
+            for i, (x, y, z) in enumerate(points):
+                self.log(f"移动到方形轨迹点 {i+1}/4")
+                self.robot_arm.move_to_cartesian_position(x, y, z, blocking=True)
+                time.sleep(0.5)  # 在每个点停留片刻
+            
+            # 恢复原来的速度和加速度
+            self.servo_speed_var.set(original_speed)
+            self.acc_var.set(original_acc)
+            self.update_speeds(None)
+            self.update_acceleration(None)
+            
+            self.log("方形轨迹执行完成")
+            
+        except Exception as e:
+            self.log(f"执行方形轨迹时出错: {str(e)}")
+            
+    def run_circle_trajectory(self):
+        """运行圆形轨迹示例"""
+        if not self.robot_arm.connected:
+            self.log("控制器未连接，无法执行圆形轨迹")
+            return
+            
+        self.log("开始执行圆形轨迹...")
+        
+        try:
+            # 获取当前位置作为圆心
+            current_pose = self.robot_arm.get_current_cartesian_position()
+            if current_pose is None:
+                self.log("无法获取当前位置，轨迹执行失败")
+                return
+                
+            center_x = current_pose['position'][0]
+            center_y = current_pose['position'][1]
+            center_z = current_pose['position'][2]
+            
+            # 圆的半径(米)
+            radius = 0.05
+            
+            # 设置较低的速度和加速度
+            original_speed = self.servo_speed_var.get()
+            original_acc = self.acc_var.get()
+            
+            self.servo_speed_var.set(200)
+            self.acc_var.set(3)
+            self.update_speeds(None)
+            self.update_acceleration(None)
+            
+            # 执行圆形轨迹
+            num_points = 12  # 圆周上的点数
+            for i in range(num_points + 1):  # +1是为了回到起点
+                angle = 2 * math.pi * i / num_points
+                x = center_x + radius * math.cos(angle)
+                y = center_y + radius * math.sin(angle)
+                z = center_z
+                
+                self.log(f"移动到圆形轨迹点 {i+1}/{num_points+1}")
+                self.robot_arm.move_to_cartesian_position(x, y, z, blocking=True)
+                time.sleep(0.2)  # 短暂停留
+            
+            # 恢复原来的速度和加速度
+            self.servo_speed_var.set(original_speed)
+            self.acc_var.set(original_acc)
+            self.update_speeds(None)
+            self.update_acceleration(None)
+            
+            self.log("圆形轨迹执行完成")
+            
+        except Exception as e:
+            self.log(f"执行圆形轨迹时出错: {str(e)}")
+            
+    def run_wave_trajectory(self):
+        """运行波浪轨迹示例"""
+        if not self.robot_arm.connected:
+            self.log("控制器未连接，无法执行波浪轨迹")
+            return
+            
+        self.log("开始执行波浪轨迹...")
+        
+        try:
+            # 获取当前位置作为起点
+            current_pose = self.robot_arm.get_current_cartesian_position()
+            if current_pose is None:
+                self.log("无法获取当前位置，轨迹执行失败")
+                return
+                
+            start_x = current_pose['position'][0]
+            start_y = current_pose['position'][1]
+            start_z = current_pose['position'][2]
+            
+            # 波浪参数
+            length = 0.1  # 波浪长度(米)
+            amplitude = 0.03  # 波浪振幅(米)
+            
+            # 设置较低的速度和加速度
+            original_speed = self.servo_speed_var.get()
+            original_acc = self.acc_var.get()
+            
+            self.servo_speed_var.set(200)
+            self.acc_var.set(3)
+            self.update_speeds(None)
+            self.update_acceleration(None)
+            
+            # 执行波浪轨迹
+            num_points = 20
+            for i in range(num_points + 1):  # +1是为了回到起点
+                t = i / num_points
+                x = start_x + length * t
+                y = start_y + amplitude * math.sin(2 * math.pi * t * 2)  # 2个完整波
+                z = start_z
+                
+                self.log(f"移动到波浪轨迹点 {i+1}/{num_points+1}")
+                self.robot_arm.move_to_cartesian_position(x, y, z, blocking=True)
+                time.sleep(0.1)  # 短暂停留
+            
+            # 回到起点
+            self.robot_arm.move_to_cartesian_position(start_x, start_y, start_z, blocking=True)
+            
+            # 恢复原来的速度和加速度
+            self.servo_speed_var.set(original_speed)
+            self.acc_var.set(original_acc)
+            self.update_speeds(None)
+            self.update_acceleration(None)
+            
+            self.log("波浪轨迹执行完成")
+            
+        except Exception as e:
+            self.log(f"执行波浪轨迹时出错: {str(e)}")
 
     def create_connection_panel(self, parent):
         """创建连接设置面板"""
@@ -1092,6 +1251,29 @@ class RobotArmGUI:
         # 创建红色按钮样式
         style = ttk.Style()
         style.configure("Red.TButton", foreground="white", background="red", font=("Arial", 10, "bold"))
+        
+        # 示例动作面板
+        presets_frame = ttk.LabelFrame(parent, text="示例动作")
+        presets_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        # 示例动作按钮
+        presets_button_frame = ttk.Frame(presets_frame)
+        presets_button_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        # 方形轨迹示例
+        square_button = ttk.Button(presets_button_frame, text="方形轨迹", 
+                                  command=lambda: self.run_square_trajectory())
+        square_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        
+        # 圆形轨迹示例
+        circle_button = ttk.Button(presets_button_frame, text="圆形轨迹", 
+                                  command=lambda: self.run_circle_trajectory())
+        circle_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        
+        # 波浪轨迹示例
+        wave_button = ttk.Button(presets_button_frame, text="波浪轨迹", 
+                                command=lambda: self.run_wave_trajectory())
+        wave_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
     
     def create_status_panel(self, parent):
         """创建状态面板"""
