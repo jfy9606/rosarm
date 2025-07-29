@@ -147,9 +147,23 @@ class VideoCapture:
                 if model_path and os.path.exists(model_path):
                     self.yolo_model = YOLO(model_path)
                 else:
-                    # 如果没有指定模型路径，使用预训练的YOLOv11n模型
-                    self.yolo_model = YOLO('yolov11n.pt')
-                print("YOLOv11n模型加载完成")
+                    # 如果没有指定模型路径，尝试使用预训练的YOLOv8n模型
+                    # 注意：这里改为使用YOLOv8n模型，因为YOLOv11n可能不存在或无法自动下载
+                    try:
+                        self.yolo_model = YOLO('yolov8n.pt')
+                        print("YOLOv8n模型加载完成")
+                    except Exception as e1:
+                        print(f"尝试加载YOLOv8n模型失败: {e1}，尝试使用本地模型...")
+                        # 尝试在当前目录和models目录查找模型文件
+                        model_paths = ['yolov8n.pt', 'models/yolov8n.pt', 'yolov8s.pt', 'models/yolov8s.pt']
+                        for path in model_paths:
+                            if os.path.exists(path):
+                                self.yolo_model = YOLO(path)
+                                print(f"成功加载本地模型: {path}")
+                                break
+                        else:
+                            print("未找到可用的YOLO模型，请手动加载模型")
+                            self.yolo_model = None
             except Exception as e:
                 print(f"加载YOLO模型时出错: {e}")
                 self.yolo_model = None
@@ -713,11 +727,23 @@ class RobotArmGUI:
         grab_frame = ttk.LabelFrame(right_panel, text="物体抓取")
         grab_frame.pack(fill=tk.X, expand=False, pady=5)
         
-        # 物体颜色选择
+        # 物体选择框架
+        object_frame = ttk.Frame(grab_frame)
+        object_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        # 检测到的物体标签
+        ttk.Label(object_frame, text="检测到的物体:").pack(side=tk.LEFT)
+        
+        # 检测到的物体显示
+        self.detected_objects_var = tk.StringVar(value="无")
+        detected_objects_label = ttk.Label(object_frame, textvariable=self.detected_objects_var)
+        detected_objects_label.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        
+        # 保留颜色选择用于非YOLO模式
         color_frame = ttk.Frame(grab_frame)
         color_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        ttk.Label(color_frame, text="目标颜色:").pack(side=tk.LEFT)
+        ttk.Label(color_frame, text="目标颜色(非YOLO模式):").pack(side=tk.LEFT)
         
         self.color_var = tk.StringVar(value="red")
         color_combo = ttk.Combobox(color_frame, textvariable=self.color_var, 
@@ -760,6 +786,12 @@ class RobotArmGUI:
         x_entry = ttk.Entry(x_frame, textvariable=self.x_var, width=6)
         x_entry.pack(side=tk.LEFT, padx=5)
         
+        # X坐标微调按钮
+        x_btn_frame = ttk.Frame(x_frame)
+        x_btn_frame.pack(side=tk.LEFT, padx=5)
+        ttk.Button(x_btn_frame, text="-", width=2, command=lambda: self.adjust_coordinate('x', -0.05)).pack(side=tk.LEFT)
+        ttk.Button(x_btn_frame, text="+", width=2, command=lambda: self.adjust_coordinate('x', 0.05)).pack(side=tk.LEFT)
+        
         # Y坐标控制
         y_frame = ttk.Frame(cartesian_frame)
         y_frame.pack(fill=tk.X, padx=5, pady=2)
@@ -769,6 +801,12 @@ class RobotArmGUI:
         y_entry = ttk.Entry(y_frame, textvariable=self.y_var, width=6)
         y_entry.pack(side=tk.LEFT, padx=5)
         
+        # Y坐标微调按钮
+        y_btn_frame = ttk.Frame(y_frame)
+        y_btn_frame.pack(side=tk.LEFT, padx=5)
+        ttk.Button(y_btn_frame, text="-", width=2, command=lambda: self.adjust_coordinate('y', -0.05)).pack(side=tk.LEFT)
+        ttk.Button(y_btn_frame, text="+", width=2, command=lambda: self.adjust_coordinate('y', 0.05)).pack(side=tk.LEFT)
+        
         # Z坐标控制
         z_frame = ttk.Frame(cartesian_frame)
         z_frame.pack(fill=tk.X, padx=5, pady=2)
@@ -777,6 +815,12 @@ class RobotArmGUI:
         self.z_var = tk.DoubleVar(value=0.2)
         z_entry = ttk.Entry(z_frame, textvariable=self.z_var, width=6)
         z_entry.pack(side=tk.LEFT, padx=5)
+        
+        # Z坐标微调按钮
+        z_btn_frame = ttk.Frame(z_frame)
+        z_btn_frame.pack(side=tk.LEFT, padx=5)
+        ttk.Button(z_btn_frame, text="-", width=2, command=lambda: self.adjust_coordinate('z', -0.05)).pack(side=tk.LEFT)
+        ttk.Button(z_btn_frame, text="+", width=2, command=lambda: self.adjust_coordinate('z', 0.05)).pack(side=tk.LEFT)
         
         # 移动按钮
         move_btn_frame = ttk.Frame(cartesian_frame)
@@ -2358,11 +2402,16 @@ class RobotArmGUI:
             
         results = self.video.get_detection_results()
         if results is None:
+            if hasattr(self, 'detected_objects_var'):
+                self.detected_objects_var.set("无")
             return frame
             
         try:
             # 获取检测框和类别
             boxes = results.boxes
+            
+            # 检测到的物体列表
+            detected_objects = []
             
             # 遍历所有检测结果
             for i, box in enumerate(boxes):
@@ -2376,22 +2425,61 @@ class RobotArmGUI:
                 # 获取边界框坐标
                 x1, y1, x2, y2 = map(int, box.xyxy[0])
                 
+                # 计算物体中心点
+                center_x = (x1 + x2) // 2
+                center_y = (y1 + y2) // 2
+                
                 # 获取类别ID和名称
                 cls_id = int(box.cls[0])
                 cls_name = results.names[cls_id]
                 
+                # 添加到检测到的物体列表
+                detected_objects.append(f"{i+1}:{cls_name}({conf:.2f})")
+                
                 # 绘制边界框
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
                 
-                # 绘制类别名称和置信度
-                label = f"{cls_name} {conf:.2f}"
+                # 绘制类别名称、置信度和编号
+                label = f"{i+1}:{cls_name} {conf:.2f}"
                 (label_width, label_height), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
                 cv2.rectangle(frame, (x1, y1-label_height-5), (x1+label_width, y1), (0, 255, 0), -1)
                 cv2.putText(frame, label, (x1, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+                
+                # 绘制中心点和坐标
+                cv2.circle(frame, (center_x, center_y), 3, (0, 0, 255), -1)
+                coord_label = f"({center_x},{center_y})"
+                cv2.putText(frame, coord_label, (center_x + 5, center_y + 15), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+            
+            # 更新检测到的物体显示
+            if hasattr(self, 'detected_objects_var'):
+                if detected_objects:
+                    self.detected_objects_var.set(", ".join(detected_objects))
+                else:
+                    self.detected_objects_var.set("无")
+                    
         except Exception as e:
             print(f"绘制检测结果时出错: {e}")
             
         return frame
+        
+    def adjust_coordinate(self, axis, delta):
+        """调整笛卡尔坐标"""
+        if axis == 'x':
+            new_value = self.x_var.get() + delta
+            # 限制X坐标范围在0.1到0.5之间
+            new_value = max(0.1, min(0.5, new_value))
+            self.x_var.set(new_value)
+        elif axis == 'y':
+            new_value = self.y_var.get() + delta
+            # 限制Y坐标范围在-0.3到0.3之间
+            new_value = max(-0.3, min(0.3, new_value))
+            self.y_var.set(new_value)
+        elif axis == 'z':
+            new_value = self.z_var.get() + delta
+            # 限制Z坐标范围在0.05到0.4之间
+            new_value = max(0.05, min(0.4, new_value))
+            self.z_var.set(new_value)
     
     def toggle_vision_processing(self, enabled):
         """开启/关闭视觉处理"""
@@ -2577,10 +2665,12 @@ class RobotArmGUI:
             if results is None or not hasattr(results, 'boxes') or len(results.boxes) == 0:
                 self.log("未检测到物体，无法抓取")
                 messagebox.showinfo("提示", "未检测到物体，无法抓取")
+                self.detected_objects_var.set("无")
                 return
                 
             # 获取所有符合置信度要求的物体
             valid_boxes = []
+            detected_objects = []
             for i, box in enumerate(results.boxes):
                 conf = float(box.conf)
                 if conf >= self.confidence_threshold.get():
@@ -2593,11 +2683,16 @@ class RobotArmGUI:
                         'cls_id': cls_id,
                         'cls_name': cls_name
                     })
+                    detected_objects.append(f"{i+1}:{cls_name}({conf:.2f})")
             
             if not valid_boxes:
                 self.log("未找到符合置信度要求的物体")
                 messagebox.showinfo("提示", "未找到符合置信度要求的物体")
+                self.detected_objects_var.set("无")
                 return
+            
+            # 更新检测到的物体显示
+            self.detected_objects_var.set(", ".join(detected_objects))
                 
             # 如果有多个物体，让用户选择要抓取的物体序号
             target_index = 0
@@ -2622,6 +2717,9 @@ class RobotArmGUI:
             # 获取选中的物体信息
             selected_box = valid_boxes[target_index]
             cls_name = selected_box['cls_name']
+            
+            # 更新选中的物体显示
+            self.detected_objects_var.set(f"已选择: {target_index+1}:{cls_name}({selected_box['conf']:.2f})")
             
             # 禁用界面控件
             self.disable_controls()
@@ -2659,12 +2757,15 @@ class RobotArmGUI:
             if error:
                 self.log(f"抓取过程中发生错误: {error}")
                 messagebox.showerror("错误", f"抓取失败: {error}")
+                self.detected_objects_var.set(f"抓取失败: {cls_name}")
             elif success:
                 self.log(f"成功抓取 {cls_name} 物体")
                 messagebox.showinfo("成功", f"成功抓取 {cls_name} 物体")
+                self.detected_objects_var.set(f"抓取成功: {cls_name}")
             else:
                 self.log(f"抓取 {cls_name} 物体失败")
                 messagebox.showerror("错误", f"抓取 {cls_name} 物体失败")
+                self.detected_objects_var.set(f"抓取失败: {cls_name}")
                 
             # 重新启用界面控件
             self.enable_controls()

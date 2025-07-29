@@ -913,7 +913,7 @@ class RobotArm:
             return True
             
         except Exception as e:
-            print(f"设置电机 {motor_type} 位置时发生错误: {e}")
+            print(f"设置电机 {motor_type} 位置时出错: {e}")
             return False
     
     def move_to_cartesian_with_motors(self, x, y, z, pitch_pos=None, linear_pos=None, roll=None, pitch=None, yaw=None, blocking=False, timeout=10.0):
