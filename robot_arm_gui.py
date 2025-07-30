@@ -2876,24 +2876,35 @@ class RobotArmGUI:
                 return success
         else:
             # YOLO未启用，使用传统的颜色检测方法
-            # 让用户选择要抓取的物体颜色
-            colors = ["红色", "绿色", "蓝色", "黄色", "紫色", "橙色"]
-            color = simpledialog.askstring(
-                "选择颜色",
-                "请选择要抓取的物体颜色:",
-                initialvalue=colors[0]
+            # 让用户选择要抓取的物体序号
+            target_options = ["1", "2", "3", "4", "5", "6"]
+            target_index = simpledialog.askstring(
+                "选择目标",
+                "请选择要抓取的目标序号(1-6):",
+                initialvalue=target_options[0]
             )
             
-            if not color:
+            if not target_index:
                 return
+                
+            # 确保输入是有效的序号
+            try:
+                target_num = int(target_index)
+                if target_num < 1 or target_num > 6:
+                    target_num = 1
+            except ValueError:
+                target_num = 1
+                
+            # 将序号转换为名称，用于显示
+            cls_name = f"目标{target_num}"
                 
             # 禁用界面控件
             self.disable_controls()
-            self.log(f"正在执行抓取{color}物体的操作...")
+            self.log(f"正在执行抓取{cls_name}的操作...")
             
             # 创建异步任务
             def grab_task():
-                success = self.robot.grab_object_with_vision(object_name=color)
+                success = self.robot.grab_object_with_vision(object_name=str(target_num))
                 return success
             
         def on_complete(success, error=None):

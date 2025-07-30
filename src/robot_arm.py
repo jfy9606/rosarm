@@ -1161,18 +1161,31 @@ class RobotArm:
             hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
             
             # 根据物体名称选择颜色阈值
-            if object_name.lower() == "red":
+            # 支持颜色名称和序号
+            if object_name.lower() == "red" or object_name == "1":
                 # 红色物体的HSV阈值
                 lower_color = np.array([0, 100, 100])
                 upper_color = np.array([10, 255, 255])
-            elif object_name.lower() == "blue":
+            elif object_name.lower() == "blue" or object_name == "2":
                 # 蓝色物体的HSV阈值
                 lower_color = np.array([100, 100, 100])
                 upper_color = np.array([140, 255, 255])
-            elif object_name.lower() == "green":
+            elif object_name.lower() == "green" or object_name == "3":
                 # 绿色物体的HSV阈值
                 lower_color = np.array([40, 100, 100])
                 upper_color = np.array([80, 255, 255])
+            elif object_name == "4":
+                # 黄色物体的HSV阈值
+                lower_color = np.array([20, 100, 100])
+                upper_color = np.array([30, 255, 255])
+            elif object_name == "5":
+                # 紫色物体的HSV阈值
+                lower_color = np.array([125, 100, 100])
+                upper_color = np.array([155, 255, 255])
+            elif object_name == "6":
+                # 青色物体的HSV阈值
+                lower_color = np.array([85, 100, 100])
+                upper_color = np.array([95, 255, 255])
             else:
                 # 默认为红色
                 lower_color = np.array([0, 100, 100])
