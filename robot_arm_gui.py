@@ -753,22 +753,21 @@ class RobotArmGUI:
         detected_objects_label = ttk.Label(object_frame, textvariable=self.detected_objects_var)
         detected_objects_label.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
         
-        # 保留颜色选择用于非YOLO模式
-        color_frame = ttk.Frame(grab_frame)
-        color_frame.pack(fill=tk.X, padx=5, pady=5)
+        target_frame = ttk.Frame(grab_frame)
+        target_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        ttk.Label(color_frame, text="目标颜色(非YOLO模式):").pack(side=tk.LEFT)
+        ttk.Label(target_frame, text="目标序号:").pack(side=tk.LEFT)
         
-        self.color_var = tk.StringVar(value="red")
-        color_combo = ttk.Combobox(color_frame, textvariable=self.color_var, 
-                                  values=["red", "green", "blue"], width=8)
-        color_combo.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+        self.target_var = tk.StringVar(value="1")
+        target_combo = ttk.Combobox(target_frame, textvariable=self.target_var, 
+                                  values=["1", "2", "3", "4", "5", "6"], width=8)
+        target_combo.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
         
         # 坐标显示
         coords_frame = ttk.Frame(grab_frame)
         coords_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        self.coords_label = ttk.Label(coords_frame, text="X: 0.0, Y: 0.0, Z: 0.0")
+        self.coords_label = ttk.Label(coords_frame, text="X: 0.0mm, Y: 0.0mm, Z: 0.0mm")
         self.coords_label.pack(fill=tk.X)
         
         # 抓取控制按钮
@@ -795,46 +794,46 @@ class RobotArmGUI:
         x_frame = ttk.Frame(cartesian_frame)
         x_frame.pack(fill=tk.X, padx=5, pady=2)
         
-        ttk.Label(x_frame, text="X坐标(m):").pack(side=tk.LEFT)
-        self.x_var = tk.DoubleVar(value=0.25)
+        ttk.Label(x_frame, text="X坐标(mm):").pack(side=tk.LEFT)
+        self.x_var = tk.DoubleVar(value=250)  # 从0.25m改为250mm
         x_entry = ttk.Entry(x_frame, textvariable=self.x_var, width=6)
         x_entry.pack(side=tk.LEFT, padx=5)
         
         # X坐标微调按钮
         x_btn_frame = ttk.Frame(x_frame)
         x_btn_frame.pack(side=tk.LEFT, padx=5)
-        ttk.Button(x_btn_frame, text="-", width=2, command=lambda: self.adjust_coordinate('x', -0.05)).pack(side=tk.LEFT)
-        ttk.Button(x_btn_frame, text="+", width=2, command=lambda: self.adjust_coordinate('x', 0.05)).pack(side=tk.LEFT)
+        ttk.Button(x_btn_frame, text="-", width=2, command=lambda: self.adjust_coordinate('x', -50)).pack(side=tk.LEFT)
+        ttk.Button(x_btn_frame, text="+", width=2, command=lambda: self.adjust_coordinate('x', 50)).pack(side=tk.LEFT)
         
         # Y坐标控制
         y_frame = ttk.Frame(cartesian_frame)
         y_frame.pack(fill=tk.X, padx=5, pady=2)
         
-        ttk.Label(y_frame, text="Y坐标(m):").pack(side=tk.LEFT)
-        self.y_var = tk.DoubleVar(value=0.0)
+        ttk.Label(y_frame, text="Y坐标(mm):").pack(side=tk.LEFT)
+        self.y_var = tk.DoubleVar(value=0.0)  # 0mm
         y_entry = ttk.Entry(y_frame, textvariable=self.y_var, width=6)
         y_entry.pack(side=tk.LEFT, padx=5)
         
         # Y坐标微调按钮
         y_btn_frame = ttk.Frame(y_frame)
         y_btn_frame.pack(side=tk.LEFT, padx=5)
-        ttk.Button(y_btn_frame, text="-", width=2, command=lambda: self.adjust_coordinate('y', -0.05)).pack(side=tk.LEFT)
-        ttk.Button(y_btn_frame, text="+", width=2, command=lambda: self.adjust_coordinate('y', 0.05)).pack(side=tk.LEFT)
+        ttk.Button(y_btn_frame, text="-", width=2, command=lambda: self.adjust_coordinate('y', -50)).pack(side=tk.LEFT)
+        ttk.Button(y_btn_frame, text="+", width=2, command=lambda: self.adjust_coordinate('y', 50)).pack(side=tk.LEFT)
         
         # Z坐标控制
         z_frame = ttk.Frame(cartesian_frame)
         z_frame.pack(fill=tk.X, padx=5, pady=2)
         
-        ttk.Label(z_frame, text="Z坐标(m):").pack(side=tk.LEFT)
-        self.z_var = tk.DoubleVar(value=0.2)
+        ttk.Label(z_frame, text="Z坐标(mm):").pack(side=tk.LEFT)
+        self.z_var = tk.DoubleVar(value=200)  # 从0.2m改为200mm
         z_entry = ttk.Entry(z_frame, textvariable=self.z_var, width=6)
         z_entry.pack(side=tk.LEFT, padx=5)
         
         # Z坐标微调按钮
         z_btn_frame = ttk.Frame(z_frame)
         z_btn_frame.pack(side=tk.LEFT, padx=5)
-        ttk.Button(z_btn_frame, text="-", width=2, command=lambda: self.adjust_coordinate('z', -0.05)).pack(side=tk.LEFT)
-        ttk.Button(z_btn_frame, text="+", width=2, command=lambda: self.adjust_coordinate('z', 0.05)).pack(side=tk.LEFT)
+        ttk.Button(z_btn_frame, text="-", width=2, command=lambda: self.adjust_coordinate('z', -50)).pack(side=tk.LEFT)
+        ttk.Button(z_btn_frame, text="+", width=2, command=lambda: self.adjust_coordinate('z', 50)).pack(side=tk.LEFT)
         
         # 移动按钮
         move_btn_frame = ttk.Frame(cartesian_frame)
@@ -872,14 +871,19 @@ class RobotArmGUI:
             return
             
         try:
-            # 获取输入的坐标值
-            x = float(self.x_var.get())
-            y = float(self.y_var.get())
-            z = float(self.z_var.get())
+            # 获取输入的坐标值（毫米）
+            x_mm = float(self.x_var.get())
+            y_mm = float(self.y_var.get())
+            z_mm = float(self.z_var.get())
             
-            self.log_to_vision(f"正在移动到坐标: X={x:.3f}, Y={y:.3f}, Z={z:.3f}")
+            # 转换为米单位（机械臂控制函数使用米为单位）
+            x = x_mm / 1000.0
+            y = y_mm / 1000.0
+            z = z_mm / 1000.0
             
-            # 调用机械臂移动函数
+            self.log_to_vision(f"正在移动到坐标: X={x_mm:.1f}mm, Y={y_mm:.1f}mm, Z={z_mm:.1f}mm")
+            
+            # 调用机械臂移动函数（使用米为单位）
             success = self.robot.move_to_cartesian_position(x, y, z, blocking=True)
             
             if success:
@@ -903,12 +907,16 @@ class RobotArmGUI:
             pose = self.robot.get_current_cartesian_position()
             
             if pose:
-                # 更新界面上的坐标值
-                self.x_var.set(round(pose['position'][0], 3))
-                self.y_var.set(round(pose['position'][1], 3))
-                self.z_var.set(round(pose['position'][2], 3))
+                # 将米转换为毫米并更新界面上的坐标值
+                x_mm = pose['position'][0] * 1000
+                y_mm = pose['position'][1] * 1000
+                z_mm = pose['position'][2] * 1000
                 
-                self.log_to_vision(f"当前位置: X={pose['position'][0]:.3f}, Y={pose['position'][1]:.3f}, Z={pose['position'][2]:.3f}")
+                self.x_var.set(round(x_mm, 1))
+                self.y_var.set(round(y_mm, 1))
+                self.z_var.set(round(z_mm, 1))
+                
+                self.log_to_vision(f"当前位置: X={x_mm:.1f}mm, Y={y_mm:.1f}mm, Z={z_mm:.1f}mm")
             else:
                 self.log_to_vision("无法获取当前位置")
                 
@@ -1830,6 +1838,10 @@ class RobotArmGUI:
             # 更新电机位置
             if self.motor_connected:
                 self.update_motor_positions()
+                
+            # 更新笛卡尔坐标显示
+            if self.servo_connected or self.motor_connected:
+                self.update_cartesian_display()
         except Exception as e:
             pass  # 忽略错误，不影响GUI正常运行
         finally:
@@ -1867,6 +1879,23 @@ class RobotArmGUI:
                 self.linear_status_var.set(str(linear_pos))
         except Exception:
             pass  # 忽略错误 
+            
+    def update_cartesian_display(self):
+        """更新笛卡尔坐标显示"""
+        try:
+            # 获取当前末端位置
+            pose = self.robot.get_current_cartesian_position()
+            
+            if pose:
+                # 将米转换为毫米
+                x_mm = pose['position'][0] * 1000
+                y_mm = pose['position'][1] * 1000
+                z_mm = pose['position'][2] * 1000
+                
+                # 更新坐标显示标签
+                self.coords_label.config(text=f"X: {x_mm:.1f}mm, Y: {y_mm:.1f}mm, Z: {z_mm:.1f}mm")
+        except Exception:
+            pass  # 忽略错误
 
     def check_voltage(self):
         """检查舵机电压"""
@@ -2528,18 +2557,18 @@ class RobotArmGUI:
         """调整笛卡尔坐标"""
         if axis == 'x':
             new_value = self.x_var.get() + delta
-            # 限制X坐标范围在0.1到0.5之间
-            new_value = max(0.1, min(0.5, new_value))
+            # 限制X坐标范围在100到500mm之间
+            new_value = max(100, min(500, new_value))
             self.x_var.set(new_value)
         elif axis == 'y':
             new_value = self.y_var.get() + delta
-            # 限制Y坐标范围在-0.3到0.3之间
-            new_value = max(-0.3, min(0.3, new_value))
+            # 限制Y坐标范围在-300到300mm之间
+            new_value = max(-300, min(300, new_value))
             self.y_var.set(new_value)
         elif axis == 'z':
             new_value = self.z_var.get() + delta
-            # 限制Z坐标范围在0.05到0.4之间
-            new_value = max(0.05, min(0.4, new_value))
+            # 限制Z坐标范围在50到400mm之间
+            new_value = max(50, min(400, new_value))
             self.z_var.set(new_value)
     
     def toggle_vision_processing(self, enabled):

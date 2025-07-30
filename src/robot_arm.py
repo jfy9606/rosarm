@@ -767,8 +767,8 @@ class RobotArm:
         
         print(f"逆运动学迭代未收敛，最终误差: {error_magnitude:.4f}m")
         
-        # 如果启用了自适应容忍度，且误差在可接受范围内（小于0.1m），仍然返回近似解
-        if adaptive_tolerance and error_magnitude < 0.1:
+        # 如果启用了自适应容忍度，且误差在可接受范围内（小于0.2m），仍然返回近似解
+        if adaptive_tolerance and error_magnitude < 0.2:
             print(f"使用自适应容忍度，返回近似解（误差: {error_magnitude:.4f}m）")
             # 将关节角度转换回舵机位置值
             servo_positions = {}
@@ -1695,8 +1695,8 @@ class RobotArm:
                     print("设置俯仰电机初始位置失败")
                     success = False
                     
-                # 设置进给电机位置（中间位置）
-                if not self.set_linear_position(10000, blocking=False):
+                # 设置进给电机位置（初始位置）
+                if not self.set_linear_position(0, blocking=False):
                     print("设置进给电机初始位置失败")
                     success = False
             
@@ -1726,7 +1726,7 @@ class RobotArm:
                         
                         # 检查进给电机
                         linear_pos = self.motor.get_linear_position()
-                        if linear_pos is None or abs(linear_pos - 10000) > 100:
+                        if linear_pos is None or abs(linear_pos) > 100:
                             all_reached = False
                     
                     if all_reached:
