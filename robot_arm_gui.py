@@ -707,9 +707,9 @@ class RobotArmGUI:
         yolo_frame.pack(fill=tk.X, padx=5, pady=5)
         
         self.yolo_var = tk.BooleanVar(value=False)
-        yolo_check = ttk.Checkbutton(yolo_frame, text="启用YOLO检测", variable=self.yolo_var, 
+        self.yolo_enable_check = ttk.Checkbutton(yolo_frame, text="启用YOLO检测", variable=self.yolo_var, 
                                      command=lambda: self.toggle_yolo_detection(self.yolo_var.get()))
-        yolo_check.pack(side=tk.LEFT)
+        self.yolo_enable_check.pack(side=tk.LEFT)
         
         # 加载自定义模型按钮
         load_model_btn = ttk.Button(yolo_frame, text="加载模型", command=self.load_custom_yolo_model)
@@ -884,7 +884,7 @@ class RobotArmGUI:
             self.log_to_vision(f"正在移动到坐标: X={x_mm:.1f}mm, Y={y_mm:.1f}mm, Z={z_mm:.1f}mm")
             
             # 调用机械臂移动函数（使用米为单位）
-            success = self.robot.move_to_cartesian_position(x, y, z, blocking=True)
+            success = self.robot.move_to_cartesian_position(x, y, z, blocking=True, strict_error_check=False)
             
             if success:
                 self.log_to_vision("已到达目标位置")
@@ -973,7 +973,7 @@ class RobotArmGUI:
             
             for i, (x, y, z) in enumerate(points):
                 self.log(f"移动到方形轨迹点 {i+1}/4")
-                self.robot.move_to_cartesian_position(x, y, z, blocking=True)
+                self.robot.move_to_cartesian_position(x, y, z, blocking=True, strict_error_check=False)
                 time.sleep(0.5)  # 在每个点停留片刻
             
             # 恢复原来的速度和加速度
@@ -1086,7 +1086,7 @@ class RobotArmGUI:
                 time.sleep(0.1)  # 短暂停留
             
             # 回到起点
-            self.robot.move_to_cartesian_position(start_x, start_y, start_z, blocking=True)
+            self.robot.move_to_cartesian_position(start_x, start_y, start_z, blocking=True, strict_error_check=False)
             
             # 恢复原来的速度和加速度
             self.servo_speed_var.set(original_speed)
@@ -2417,8 +2417,18 @@ class RobotArmGUI:
                 if display_frame is None:
                     display_frame = frame.copy()
                 
-                # 调整大小以适应显示
-                display_frame = cv2.resize(display_frame, (800, 600))
+                # 获取画布当前尺寸
+                canvas_width = self.video_canvas.winfo_width()
+                canvas_height = self.video_canvas.winfo_height()
+                
+                # 确保画布尺寸有效（初始化时可能为1）
+                if canvas_width <= 1:
+                    canvas_width = 640
+                if canvas_height <= 1:
+                    canvas_height = 480
+                
+                # 调整大小以适应画布显示
+                display_frame = cv2.resize(display_frame, (canvas_width, canvas_height))
                 
                 # 转换颜色空间
                 display_frame = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
@@ -2428,7 +2438,6 @@ class RobotArmGUI:
                 photo = ImageTk.PhotoImage(image=image)
                 
                 # 更新画布
-                self.video_canvas.config(width=display_frame.shape[1], height=display_frame.shape[0])
                 self.video_canvas.create_image(0, 0, anchor=tk.NW, image=photo)
                 self.video_canvas.image = photo  # 保持引用
         except Exception as e:

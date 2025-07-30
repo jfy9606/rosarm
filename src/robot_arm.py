@@ -784,7 +784,7 @@ class RobotArm:
         
         return False, None
     
-    def move_to_cartesian_position(self, x, y, z, roll=None, pitch=None, yaw=None, blocking=False, timeout=10.0):
+    def move_to_cartesian_position(self, x, y, z, roll=None, pitch=None, yaw=None, blocking=False, timeout=10.0, strict_error_check=False):
         """
         移动末端执行器到指定的笛卡尔坐标位置和姿态
         
@@ -793,6 +793,7 @@ class RobotArm:
             roll, pitch, yaw: 目标姿态欧拉角(rad)，如果为None则仅控制位置
             blocking: 是否阻塞等待动作完成
             timeout: 最大等待时间(秒)
+            strict_error_check: 是否严格检查误差（如果为False，即使存在误差也会继续执行）
             
         Returns:
             bool: 如果规划成功并开始执行则返回True
@@ -843,9 +844,24 @@ class RobotArm:
                 if error < 0.01:  # 1cm误差
                     return True
                 
+                # 检查所有舵机是否已停止移动
+                all_servos_stopped = True
+                for joint in self.joint_ids:
+                    if self.servo_controller.is_moving(self.joint_ids[joint]):
+                        all_servos_stopped = False
+                        break
+                
+                # 如果所有舵机已停止移动且不需要严格检查误差，则认为动作已完成
+                if all_servos_stopped and not strict_error_check:
+                    print(f"机械臂已停止移动，最终误差: {error:.4f}m")
+                    return True
+                
                 time.sleep(0.1)
             
             print("等待机械臂到达目标位置超时")
+            # 如果不需要严格检查误差，即使超时也返回成功
+            if not strict_error_check:
+                return True
             return False
         
         return True
@@ -970,7 +986,7 @@ class RobotArm:
             
             # 将目标转换为小臂舵机坐标系中的目标
             # 注意：这里我们假设小臂舵机的坐标系原点在大臂电机位置
-            servos_success = self.move_to_cartesian_position(x, y, z, roll, pitch, yaw, blocking=False)
+            servos_success = self.move_to_cartesian_position(x, y, z, roll, pitch, yaw, blocking=False, strict_error_check=False)
         
         # 如果需要阻塞等待
         if blocking and (motors_success or servos_success):
