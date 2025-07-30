@@ -847,7 +847,7 @@ class RobotArm:
                 # 检查所有舵机是否已停止移动
                 all_servos_stopped = True
                 for joint in self.joint_ids:
-                    if self.servo_controller.is_moving(self.joint_ids[joint]):
+                    if self.servo.is_moving(self.joint_ids[joint]):
                         all_servos_stopped = False
                         break
                 
