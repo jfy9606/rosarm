@@ -157,7 +157,7 @@ class VideoCapture:
                     except Exception as e1:
                         print(f"尝试加载YOLOv11n模型失败: {e1}，尝试使用本地模型...")
                         # 尝试在当前目录和models目录查找模型文件
-                        model_paths = ['yolo11n.pt', 'models/yolo11n.pt', 'yolov8s.pt', 'models/yolov8s.pt']
+                        model_paths = ['yolo11n.pt', 'models/yolo11n.pt']
                         for path in model_paths:
                             if os.path.exists(path):
                                 self.yolo_model = YOLO(path)
@@ -170,7 +170,7 @@ class VideoCapture:
                                 os.makedirs('models', exist_ok=True)
                                 # 使用ultralytics库直接下载模型
                                 from ultralytics.utils.downloads import download
-                                model_url = 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.pt'
+                                model_url = 'https://ghproxy.cfd/https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.pt'
                                 download_path = os.path.join('models', 'yolo11n.pt')
                                 download(model_url, download_path)
                                 self.yolo_model = YOLO(download_path)
@@ -178,9 +178,30 @@ class VideoCapture:
                             except Exception as e2:
                                 print(f"下载模型失败: {e2}，请手动下载模型")
                                 self.yolo_model = None
+                
+                # 保存COCO数据集的类别名称，用于YOLOv11n格式的结果
+                if self.yolo_model is not None and hasattr(self.yolo_model, 'names'):
+                    self.class_names = self.yolo_model.names
+                else:
+                    # 使用COCO数据集的80个类别作为默认类别
+                    self.class_names = {
+                        0: 'person', 1: 'bicycle', 2: 'car', 3: 'motorcycle', 4: 'airplane', 5: 'bus', 6: 'train', 7: 'truck', 
+                        8: 'boat', 9: 'traffic light', 10: 'fire hydrant', 11: 'stop sign', 12: 'parking meter', 13: 'bench', 
+                        14: 'bird', 15: 'cat', 16: 'dog', 17: 'horse', 18: 'sheep', 19: 'cow', 20: 'elephant', 21: 'bear', 
+                        22: 'zebra', 23: 'giraffe', 24: 'backpack', 25: 'umbrella', 26: 'handbag', 27: 'tie', 28: 'suitcase', 
+                        29: 'frisbee', 30: 'skis', 31: 'snowboard', 32: 'sports ball', 33: 'kite', 34: 'baseball bat', 
+                        35: 'baseball glove', 36: 'skateboard', 37: 'surfboard', 38: 'tennis racket', 39: 'bottle', 
+                        40: 'wine glass', 41: 'cup', 42: 'fork', 43: 'knife', 44: 'spoon', 45: 'bowl', 46: 'banana', 
+                        47: 'apple', 48: 'sandwich', 49: 'orange', 50: 'broccoli', 51: 'carrot', 52: 'hot dog', 53: 'pizza', 
+                        54: 'donut', 55: 'cake', 56: 'chair', 57: 'couch', 58: 'potted plant', 59: 'bed', 60: 'dining table', 
+                        61: 'toilet', 62: 'tv', 63: 'laptop', 64: 'mouse', 65: 'remote', 66: 'keyboard', 67: 'cell phone', 
+                        68: 'microwave', 69: 'oven', 70: 'toaster', 71: 'sink', 72: 'refrigerator', 73: 'book', 74: 'clock', 
+                        75: 'vase', 76: 'scissors', 77: 'teddy bear', 78: 'hair drier', 79: 'toothbrush'
+                    }
             except Exception as e:
                 print(f"加载YOLO模型时出错: {e}")
                 self.yolo_model = None
+                self.class_names = {}
         
         if self.model_loading_thread is None or not self.model_loading_thread.is_alive():
             self.model_loading_thread = threading.Thread(target=_load_model)
@@ -2480,9 +2501,9 @@ class RobotArmGUI:
                         
                         # 获取类别ID和名称
                         cls_id = int(det[5])
-                        # 尝试获取类别名称，如果没有names属性，则使用类别ID
-                        if hasattr(results, 'names') and cls_id in results.names:
-                            cls_name = results.names[cls_id]
+                        # 使用VideoCapture类中保存的类别名称
+                        if hasattr(self.video, 'class_names') and cls_id in self.video.class_names:
+                            cls_name = self.video.class_names[cls_id]
                         else:
                             cls_name = f"类别{cls_id}"
                         
@@ -2507,48 +2528,11 @@ class RobotArmGUI:
                         coord_label = f"({center_x},{center_y})"
                         cv2.putText(frame, coord_label, (center_x + 5, center_y + 15), 
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
-            # 处理YOLOv8n的结果格式（对象格式）
-            elif hasattr(results, 'boxes'):
-                # 获取检测框和类别
-                boxes = results.boxes
-                
-                # 遍历所有检测结果
-                for i, box in enumerate(boxes):
-                    # 获取置信度
-                    conf = float(box.conf)
-                    
-                    # 如果置信度低于阈值，跳过
-                    if conf < self.confidence_threshold.get():
-                        continue
-                        
-                    # 获取边界框坐标
-                    x1, y1, x2, y2 = map(int, box.xyxy[0])
-                    
-                    # 计算物体中心点
-                    center_x = (x1 + x2) // 2
-                    center_y = (y1 + y2) // 2
-                    
-                    # 获取类别ID和名称
-                    cls_id = int(box.cls[0])
-                    cls_name = results.names[cls_id]
-                    
-                    # 添加到检测到的物体列表
-                    detected_objects.append(f"{i+1}:{cls_name}({conf:.2f})")
-                    
-                    # 绘制边界框
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    
-                    # 绘制类别名称、置信度和编号
-                    label = f"{i+1}:{cls_name} {conf:.2f}"
-                    (label_width, label_height), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-                    cv2.rectangle(frame, (x1, y1-label_height-5), (x1+label_width, y1), (0, 255, 0), -1)
-                    cv2.putText(frame, label, (x1, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
-                    
-                    # 绘制中心点和坐标
-                    cv2.circle(frame, (center_x, center_y), 3, (0, 0, 255), -1)
-                    coord_label = f"({center_x},{center_y})"
-                    cv2.putText(frame, coord_label, (center_x + 5, center_y + 15), 
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+            else:
+                # 不支持的结果格式
+                print(f"不支持的YOLO结果格式: {type(results)}")
+                if hasattr(self, 'detected_objects_var'):
+                    self.detected_objects_var.set("无法识别的结果格式")
             
             # 更新检测到的物体显示
             if hasattr(self, 'detected_objects_var'):
@@ -2743,43 +2727,17 @@ class RobotArmGUI:
             
             # 获取物体类别
             cls_id = int(best_det[5])
-            # 尝试获取类别名称，如果没有names属性，则使用类别ID
-            if hasattr(results, 'names') and cls_id in results.names:
-                cls_name = results.names[cls_id]
+            # 使用VideoCapture类中保存的类别名称
+            if hasattr(self.video, 'class_names') and cls_id in self.video.class_names:
+                cls_name = self.video.class_names[cls_id]
             else:
-                cls_name = f"类别{cls_id}"
-        
-        # 处理YOLOv8n的结果格式（对象格式）
-        elif hasattr(results, 'boxes'):
-            if len(results.boxes) == 0:
-                self.log("未检测到物体，无法跟踪")
-                return
-                
-            # 找到置信度最高的物体
-            boxes = results.boxes
-            best_box = None
-            best_conf = 0
-            
-            for box in boxes:
-                conf = float(box.conf)
-                if conf > best_conf and conf >= self.confidence_threshold.get():
-                    best_conf = conf
-                    best_box = box
-            
-            if best_box is None:
-                self.log("未找到符合置信度要求的物体")
-                return
-                
-            # 获取物体位置
-            x1, y1, x2, y2 = map(int, best_box.xyxy[0])
-            center_x = (x1 + x2) // 2
-            center_y = (y1 + y2) // 2
-            
-            # 获取物体类别
-            cls_id = int(best_box.cls[0])
-            cls_name = results.names[cls_id]
+                # 如果在VideoCapture类中没有找到，尝试从results中获取
+                if hasattr(results, 'names') and cls_id in results.names:
+                    cls_name = results.names[cls_id]
+                else:
+                    cls_name = f"类别{cls_id}"
         else:
-            self.log("检测结果格式不支持，无法跟踪")
+            self.log("检测结果格式不支持，只支持YOLOv11n格式的结果")
             return
         
         self.log(f"正在跟踪物体: {cls_name}, 位置: ({center_x}, {center_y})")
@@ -2826,13 +2784,17 @@ class RobotArmGUI:
                         if conf >= self.confidence_threshold.get():
                             # 获取类别ID和名称
                             cls_id = int(det[5])
-                            # 尝试获取类别名称，如果没有names属性，则使用类别ID
-                            if hasattr(results, 'names') and cls_id in results.names:
-                                cls_name = results.names[cls_id]
+                            # 使用VideoCapture类中保存的类别名称
+                            if hasattr(self.video, 'class_names') and cls_id in self.video.class_names:
+                                cls_name = self.video.class_names[cls_id]
                             else:
-                                cls_name = f"类别{cls_id}"
+                                # 如果在VideoCapture类中没有找到，尝试从results中获取
+                                if hasattr(results, 'names') and cls_id in results.names:
+                                    cls_name = results.names[cls_id]
+                                else:
+                                    cls_name = f"类别{cls_id}"
                                 
-                            # 创建一个类似于YOLOv8的box对象
+                            # 创建box对象
                             box = {
                                 'xyxy': [det[:4]],  # 边界框坐标
                                 'conf': conf,       # 置信度
@@ -2847,21 +2809,11 @@ class RobotArmGUI:
                                 'cls_name': cls_name
                             })
                             detected_objects.append(f"{i+1}:{cls_name}({conf:.2f})")
-            # 处理YOLOv8n的结果格式（对象格式）
-            elif hasattr(results, 'boxes'):
-                for i, box in enumerate(results.boxes):
-                    conf = float(box.conf)
-                    if conf >= self.confidence_threshold.get():
-                        cls_id = int(box.cls[0])
-                        cls_name = results.names[cls_id]
-                        valid_boxes.append({
-                            'index': i,
-                            'box': box,
-                            'conf': conf,
-                            'cls_id': cls_id,
-                            'cls_name': cls_name
-                        })
-                        detected_objects.append(f"{i+1}:{cls_name}({conf:.2f})")
+            else:
+                self.log("检测结果格式不支持，只支持YOLOv11n格式的结果")
+                messagebox.showinfo("提示", "检测结果格式不支持，只支持YOLOv11n格式的结果")
+                self.detected_objects_var.set("无")
+                return
             
             if not valid_boxes:
                 self.log("未找到符合置信度要求的物体")
@@ -2906,10 +2858,7 @@ class RobotArmGUI:
             # 创建异步任务
             def grab_task():
                 # 将YOLO检测框传递给grab_object_with_vision函数
-                if isinstance(selected_box['box'], dict):  # YOLOv11n格式
-                    box_xyxy = selected_box['box']['xyxy'][0]
-                else:  # YOLOv8n格式
-                    box_xyxy = selected_box['box'].xyxy[0].tolist()
+                box_xyxy = selected_box['box']['xyxy'][0]
                 success = self.robot.grab_object_with_vision(object_name=cls_name, yolo_bbox=box_xyxy)
                 return success
         else:
