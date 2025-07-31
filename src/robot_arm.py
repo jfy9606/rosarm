@@ -784,6 +784,29 @@ class RobotArm:
         
         return False, None
     
+    def is_moving(self, servo_id):
+        """
+        检查舵机是否正在移动
+        
+        Args:
+            servo_id: 舵机 ID
+            
+        Returns:
+            bool: 如果舵机正在移动则返回 True，否则返回 False
+        """
+        if not self.servo_connected:
+            return False
+        
+        # 读取舵机当前速度
+        speed = self.servo.read_speed(servo_id)
+        
+        # 如果读取失败，假设舵机不在移动
+        if speed is None:
+            return False
+        
+        # 如果速度不为0，认为舵机正在移动
+        return abs(speed) > 0
+    
     def move_to_cartesian_position(self, x, y, z, roll=None, pitch=None, yaw=None, blocking=False, timeout=10.0, strict_error_check=False):
         """
         移动末端执行器到指定的笛卡尔坐标位置和姿态
@@ -847,7 +870,7 @@ class RobotArm:
                 # 检查所有舵机是否已停止移动
                 all_servos_stopped = True
                 for joint in self.joint_ids:
-                    if self.servo.is_moving(self.joint_ids[joint]):
+                    if self.is_moving(self.joint_ids[joint]):
                         all_servos_stopped = False
                         break
                 
