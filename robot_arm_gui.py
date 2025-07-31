@@ -2483,51 +2483,52 @@ class RobotArmGUI:
             # 检测到的物体列表
             detected_objects = []
             
-            # 处理YOLOv11n的结果格式（列表格式）
-            if isinstance(results, list):
+            # 处理YOLOv11n的结果格式（Results对象）
+            if hasattr(results, 'boxes'):
+                # 获取检测框
+                boxes = results.boxes
+                
                 # 遍历所有检测结果
-                for i, det in enumerate(results):
-                    # 确保检测结果有足够的元素
-                    if len(det) >= 6:  # 通常包含 [x1, y1, x2, y2, conf, cls_id]
-                        # 获取边界框坐标
-                        x1, y1, x2, y2 = map(int, det[:4])
-                        
-                        # 获取置信度
-                        conf = float(det[4])
-                        
-                        # 如果置信度低于阈值，跳过
-                        if conf < self.confidence_threshold.get():
-                            continue
-                        
-                        # 获取类别ID和名称
-                        cls_id = int(det[5])
-                        # 使用VideoCapture类中保存的类别名称
-                        if hasattr(self.video, 'class_names') and cls_id in self.video.class_names:
-                            cls_name = self.video.class_names[cls_id]
-                        else:
-                            cls_name = f"类别{cls_id}"
-                        
-                        # 计算物体中心点
-                        center_x = (x1 + x2) // 2
-                        center_y = (y1 + y2) // 2
-                        
-                        # 添加到检测到的物体列表
-                        detected_objects.append(f"{i+1}:{cls_name}({conf:.2f})")
-                        
-                        # 绘制边界框
-                        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                        
-                        # 绘制类别名称、置信度和编号
-                        label = f"{i+1}:{cls_name} {conf:.2f}"
-                        (label_width, label_height), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-                        cv2.rectangle(frame, (x1, y1-label_height-5), (x1+label_width, y1), (0, 255, 0), -1)
-                        cv2.putText(frame, label, (x1, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
-                        
-                        # 绘制中心点和坐标
-                        cv2.circle(frame, (center_x, center_y), 3, (0, 0, 255), -1)
-                        coord_label = f"({center_x},{center_y})"
-                        cv2.putText(frame, coord_label, (center_x + 5, center_y + 15), 
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                for i, box in enumerate(boxes):
+                    # 获取边界框坐标
+                    x1, y1, x2, y2 = map(int, box.xyxy[0])
+                    
+                    # 获取置信度
+                    conf = float(box.conf[0])
+                    
+                    # 如果置信度低于阈值，跳过
+                    if conf < self.confidence_threshold.get():
+                        continue
+                    
+                    # 获取类别ID和名称
+                    cls_id = int(box.cls[0])
+                    # 使用VideoCapture类中保存的类别名称
+                    if hasattr(self.video, 'class_names') and cls_id in self.video.class_names:
+                        cls_name = self.video.class_names[cls_id]
+                    else:
+                        cls_name = f"类别{cls_id}"
+                    
+                    # 计算物体中心点
+                    center_x = (x1 + x2) // 2
+                    center_y = (y1 + y2) // 2
+                    
+                    # 添加到检测到的物体列表
+                    detected_objects.append(f"{i+1}:{cls_name}({conf:.2f})")
+                    
+                    # 绘制边界框
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    
+                    # 绘制类别名称、置信度和编号
+                    label = f"{i+1}:{cls_name} {conf:.2f}"
+                    (label_width, label_height), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+                    cv2.rectangle(frame, (x1, y1-label_height-5), (x1+label_width, y1), (0, 255, 0), -1)
+                    cv2.putText(frame, label, (x1, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+                    
+                    # 绘制中心点和坐标
+                    cv2.circle(frame, (center_x, center_y), 3, (0, 0, 255), -1)
+                    coord_label = f"({center_x},{center_y})"
+                    cv2.putText(frame, coord_label, (center_x + 5, center_y + 15), 
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
             else:
                 # 不支持的结果格式
                 print(f"不支持的YOLO结果格式: {type(results)}")
@@ -2698,35 +2699,34 @@ class RobotArmGUI:
             self.log("未检测到物体，无法跟踪")
             return
             
-        # 处理YOLOv11n的结果格式（列表格式）
-        if isinstance(results, list):
-            if not results:  # 空列表
+        # 处理YOLOv11n的结果格式（Results对象）
+        if hasattr(results, 'boxes'):
+            boxes = results.boxes
+            if len(boxes) == 0:  # 没有检测到物体
                 self.log("未检测到物体，无法跟踪")
                 return
                 
             # 找到置信度最高的物体
-            best_det = None
+            best_box = None
             best_conf = 0
             
-            for det in results:
-                # 确保检测结果有足够的元素
-                if len(det) >= 6:  # 通常包含 [x1, y1, x2, y2, conf, cls_id]
-                    conf = float(det[4])
-                    if conf > best_conf and conf >= self.confidence_threshold.get():
-                        best_conf = conf
-                        best_det = det
+            for box in boxes:
+                conf = float(box.conf[0])
+                if conf > best_conf and conf >= self.confidence_threshold.get():
+                    best_conf = conf
+                    best_box = box
             
-            if best_det is None:
+            if best_box is None:
                 self.log("未找到符合置信度要求的物体")
                 return
                 
             # 获取物体位置
-            x1, y1, x2, y2 = map(int, best_det[:4])
+            x1, y1, x2, y2 = map(int, best_box.xyxy[0])
             center_x = (x1 + x2) // 2
             center_y = (y1 + y2) // 2
             
             # 获取物体类别
-            cls_id = int(best_det[5])
+            cls_id = int(best_box.cls[0])
             # 使用VideoCapture类中保存的类别名称
             if hasattr(self.video, 'class_names') and cls_id in self.video.class_names:
                 cls_name = self.video.class_names[cls_id]
@@ -2773,42 +2773,41 @@ class RobotArmGUI:
             valid_boxes = []
             detected_objects = []
             
-            # 处理YOLOv11n的结果格式（列表格式）
-            if isinstance(results, list):
-                for i, det in enumerate(results):
-                    # 确保检测结果有足够的元素
-                    if len(det) >= 6:  # 通常包含 [x1, y1, x2, y2, conf, cls_id]
-                        # 获取置信度
-                        conf = float(det[4])
-                        
-                        if conf >= self.confidence_threshold.get():
-                            # 获取类别ID和名称
-                            cls_id = int(det[5])
-                            # 使用VideoCapture类中保存的类别名称
-                            if hasattr(self.video, 'class_names') and cls_id in self.video.class_names:
-                                cls_name = self.video.class_names[cls_id]
+            # 处理YOLOv11n的结果格式
+            if hasattr(results, 'boxes'):
+                boxes = results.boxes
+                for i, box in enumerate(boxes):
+                    # 获取置信度
+                    conf = float(box.conf[0])
+                    
+                    if conf >= self.confidence_threshold.get():
+                        # 获取类别ID和名称
+                        cls_id = int(box.cls[0])
+                        # 使用VideoCapture类中保存的类别名称
+                        if hasattr(self.video, 'class_names') and cls_id in self.video.class_names:
+                            cls_name = self.video.class_names[cls_id]
+                        else:
+                            # 如果在VideoCapture类中没有找到，尝试从results中获取
+                            if hasattr(results, 'names') and cls_id in results.names:
+                                cls_name = results.names[cls_id]
                             else:
-                                # 如果在VideoCapture类中没有找到，尝试从results中获取
-                                if hasattr(results, 'names') and cls_id in results.names:
-                                    cls_name = results.names[cls_id]
-                                else:
-                                    cls_name = f"类别{cls_id}"
-                                
-                            # 创建box对象
-                            box = {
-                                'xyxy': [det[:4]],  # 边界框坐标
-                                'conf': conf,       # 置信度
-                                'cls': [cls_id]     # 类别ID
-                            }
+                                cls_name = f"类别{cls_id}"
                             
-                            valid_boxes.append({
-                                'index': i,
-                                'box': box,
-                                'conf': conf,
-                                'cls_id': cls_id,
-                                'cls_name': cls_name
-                            })
-                            detected_objects.append(f"{i+1}:{cls_name}({conf:.2f})")
+                        # 创建box对象
+                        box_info = {
+                            'xyxy': [box.xyxy[0]],  # 边界框坐标
+                            'conf': conf,           # 置信度
+                            'cls': [cls_id]         # 类别ID
+                        }
+                        
+                        valid_boxes.append({
+                            'index': i,
+                            'box': box_info,
+                            'conf': conf,
+                            'cls_id': cls_id,
+                            'cls_name': cls_name
+                        })
+                        detected_objects.append(f"{i+1}:{cls_name}({conf:.2f})")
             else:
                 self.log("检测结果格式不支持，只支持YOLOv11n格式的结果")
                 messagebox.showinfo("提示", "检测结果格式不支持，只支持YOLOv11n格式的结果")
