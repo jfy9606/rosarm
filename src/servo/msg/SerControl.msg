@@ -1,4 +1,4 @@
-int32 servo_id
-int32 target_position
-int32 velocity
-int32 acceleration 
+uint8 id
+uint16 position
+uint16 time
+uint16 speed

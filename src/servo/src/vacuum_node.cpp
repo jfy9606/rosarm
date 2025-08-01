@@ -1,4 +1,5 @@
 #include "servo/vacuum_node.hpp"
+#include <rclcpp/rclcpp.hpp>
 
 namespace servo_control {
 
@@ -6,24 +7,24 @@ VacuumNode::VacuumNode(const rclcpp::NodeOptions & options)
 : Node("vacuum_node", options),
   vacuum_enabled_(false),
   vacuum_power_(0),
-  vacuum_id_(10) // 假设真空泵舵机ID为10
+  vacuum_id_(3) // 假设真空泵电机ID为3
 {
   // 声明并获取参数
-  this->declare_parameter<std::string>("port", "/dev/ttyUSB1");
-  this->declare_parameter<int>("baudrate", 1000000);
-  this->declare_parameter<int>("timeout", 100);
-  this->declare_parameter<int>("vacuum_id", 10);
+  this->declare_parameter<std::string>("port", "/dev/ttyUSB0");
+  this->declare_parameter<int>("baudrate", 115200);
+  this->declare_parameter<int>("timeout", 1000);
+  this->declare_parameter<int>("vacuum_id", 3);
   
   device_port_ = this->get_parameter("port").as_string();
   baudrate_ = this->get_parameter("baudrate").as_int();
   timeout_ = this->get_parameter("timeout").as_int();
   vacuum_id_ = this->get_parameter("vacuum_id").as_int();
   
-  RCLCPP_INFO(this->get_logger(), "Port: %s, Baudrate: %d, Vacuum ID: %d", 
+  RCLCPP_INFO(this->get_logger(), "Port: %s, Baudrate: %d, Vacuum Motor ID: %d", 
              device_port_.c_str(), baudrate_, vacuum_id_);
   
   // 创建服务
-  vacuum_cmd_srv_ = this->create_service<servo_interfaces::srv::VacuumCmd>(
+  vacuum_cmd_srv_ = this->create_service<servo::srv::VacuumCmd>(
     "vacuum/cmd",
     std::bind(&VacuumNode::vacuumCmdCallback, this,
               std::placeholders::_1, std::placeholders::_2));
@@ -51,9 +52,9 @@ VacuumNode::VacuumNode(const rclcpp::NodeOptions & options)
   param_callback_handle_ = this->add_on_set_parameters_callback(
     std::bind(&VacuumNode::parametersCallback, this, std::placeholders::_1));
   
-  // 初始化舵机控制
-  if (!initServoControl()) {
-    RCLCPP_ERROR(this->get_logger(), "Failed to initialize servo control");
+  // 初始化电机控制
+  if (!initMotorControl()) {
+    RCLCPP_ERROR(this->get_logger(), "Failed to initialize motor control");
   } else {
     // 初始化真空泵状态为关闭
     setVacuumState(false, 0);
@@ -63,18 +64,18 @@ VacuumNode::VacuumNode(const rclcpp::NodeOptions & options)
 VacuumNode::~VacuumNode()
 {
   // 确保在销毁节点时关闭真空泵
-  if (servo_control_ && servo_control_->isConnected()) {
+  if (motor_control_ && motor_control_->isConnected()) {
     setVacuumState(false, 0);
-    servo_control_->close();
+    motor_control_->close();
   }
 }
 
 void VacuumNode::vacuumCmdCallback(
-  const std::shared_ptr<servo_interfaces::srv::VacuumCmd::Request> request,
-  std::shared_ptr<servo_interfaces::srv::VacuumCmd::Response> response)
+  const std::shared_ptr<servo::srv::VacuumCmd::Request> request,
+  std::shared_ptr<servo::srv::VacuumCmd::Response> response)
 {
-  if (!servo_control_ || !servo_control_->isConnected()) {
-    RCLCPP_ERROR(this->get_logger(), "Servo control not connected");
+  if (!motor_control_ || !motor_control_->isConnected()) {
+    RCLCPP_ERROR(this->get_logger(), "Motor control not connected");
     response->success = false;
     return;
   }
@@ -86,8 +87,8 @@ void VacuumNode::vacuumCmdCallback(
 
 void VacuumNode::vacuumEnableCallback(const std_msgs::msg::Bool::SharedPtr msg)
 {
-  if (!servo_control_ || !servo_control_->isConnected()) {
-    RCLCPP_ERROR(this->get_logger(), "Servo control not connected");
+  if (!motor_control_ || !motor_control_->isConnected()) {
+    RCLCPP_ERROR(this->get_logger(), "Motor control not connected");
     return;
   }
   
@@ -97,8 +98,8 @@ void VacuumNode::vacuumEnableCallback(const std_msgs::msg::Bool::SharedPtr msg)
 
 void VacuumNode::vacuumPowerCallback(const std_msgs::msg::Int16::SharedPtr msg)
 {
-  if (!servo_control_ || !servo_control_->isConnected()) {
-    RCLCPP_ERROR(this->get_logger(), "Servo control not connected");
+  if (!motor_control_ || !motor_control_->isConnected()) {
+    RCLCPP_ERROR(this->get_logger(), "Motor control not connected");
     return;
   }
   
@@ -131,20 +132,20 @@ rcl_interfaces::msg::SetParametersResult VacuumNode::parametersCallback(
       device_port_ = param.as_string();
       RCLCPP_INFO(this->get_logger(), "Updated port: %s", device_port_.c_str());
       
-      // 重新初始化舵机控制
-      if (servo_control_) {
-        servo_control_->close();
+      // 重新初始化电机控制
+      if (motor_control_) {
+        motor_control_->close();
       }
-      initServoControl();
+      initMotorControl();
     } else if (param.get_name() == "baudrate") {
       baudrate_ = param.as_int();
       RCLCPP_INFO(this->get_logger(), "Updated baudrate: %d", baudrate_);
       
-      // 重新初始化舵机控制
-      if (servo_control_) {
-        servo_control_->close();
+      // 重新初始化电机控制
+      if (motor_control_) {
+        motor_control_->close();
       }
-      initServoControl();
+      initMotorControl();
     } else if (param.get_name() == "timeout") {
       timeout_ = param.as_int();
       RCLCPP_INFO(this->get_logger(), "Updated timeout: %d", timeout_);
@@ -157,23 +158,23 @@ rcl_interfaces::msg::SetParametersResult VacuumNode::parametersCallback(
   return result;
 }
 
-bool VacuumNode::initServoControl()
+bool VacuumNode::initMotorControl()
 {
   try {
-    // 创建并初始化舵机控制对象
-    servo_control_ = std::make_unique<ServoControl>(device_port_, baudrate_, timeout_);
+    // 创建并初始化电机控制对象
+    motor_control_ = std::make_unique<motor_control::MotorControl>(device_port_, baudrate_, timeout_);
     
-    if (!servo_control_->init()) {
-      RCLCPP_ERROR(this->get_logger(), "Failed to initialize servo control");
+    if (!motor_control_->init()) {
+      RCLCPP_ERROR(this->get_logger(), "Failed to initialize motor control");
       return false;
     }
     
-    RCLCPP_INFO(this->get_logger(), "Servo control initialized successfully");
+    RCLCPP_INFO(this->get_logger(), "Motor control initialized successfully");
     return true;
   }
   catch (const std::exception& e) {
     RCLCPP_ERROR(this->get_logger(), 
-                "Exception during servo control initialization: %s", 
+                "Exception during motor control initialization: %s", 
                 e.what());
     return false;
   }
@@ -181,20 +182,20 @@ bool VacuumNode::initServoControl()
 
 bool VacuumNode::setVacuumState(bool enable, int power)
 {
-  if (!servo_control_ || !servo_control_->isConnected()) {
-    RCLCPP_ERROR(this->get_logger(), "Servo control not connected");
+  if (!motor_control_ || !motor_control_->isConnected()) {
+    RCLCPP_ERROR(this->get_logger(), "Motor control not connected");
     return false;
   }
   
   // 限制功率范围为0-100
   power = std::max(0, std::min(100, power));
   
-  // 将功率转换为舵机值
-  // 假设0对应舵机位置0，100对应舵机位置1000
-  uint16_t position = enable ? static_cast<uint16_t>(power * 10) : 0;
+  // 将功率转换为电机速度值
+  // 假设0对应速度0，100对应速度1000
+  int16_t velocity = enable ? static_cast<int16_t>(power * 10) : 0;
   
-  // 设置舵机位置
-  bool result = servo_control_->setPosition(vacuum_id_, position);
+  // 设置电机速度
+  bool result = motor_control_->setVelocity(vacuum_id_, velocity);
   
   if (result) {
     // 更新状态
@@ -212,3 +213,21 @@ bool VacuumNode::setVacuumState(bool enable, int power)
 }
 
 } // namespace servo_control 
+
+// 主函数
+int main(int argc, char * argv[])
+{
+  // 初始化ROS
+  rclcpp::init(argc, argv);
+  
+  // 创建真空吸盘控制节点
+  auto node = std::make_shared<servo_control::VacuumNode>();
+  
+  // 运行节点，直到接收到终止信号
+  rclcpp::spin(node);
+  
+  // 清理资源并关闭
+  rclcpp::shutdown();
+  
+  return 0;
+}

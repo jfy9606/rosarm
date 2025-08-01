@@ -19,8 +19,17 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(serial REQUIRED)
 find_package(rclcpp REQUIRED)
-find_package(servo_interfaces REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(nlohmann_json REQUIRED)
+
+# 生成接口
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/SerControl.msg"
+  "srv/JointControl.srv"
+  "srv/VacuumCmd.srv"
+  DEPENDENCIES std_msgs
+)
 
 # Feetech SDK 源文件
 set(FEETECH_SDK_SOURCES
@@ -51,7 +60,6 @@ target_link_libraries(servo_control
 # 添加ROS节点
 add_executable(wrist_node
   src/wrist_node.cpp
-  src/wrist_node_main.cpp
 )
 
 target_include_directories(wrist_node PUBLIC
@@ -65,13 +73,15 @@ target_link_libraries(wrist_node
 
 ament_target_dependencies(wrist_node
   rclcpp
-  servo_interfaces
   std_msgs
+)
+
+rosidl_target_interfaces(wrist_node
+  ${PROJECT_NAME} "rosidl_typesupport_cpp"
 )
 
 add_executable(vacuum_node
   src/vacuum_node.cpp
-  src/vacuum_node_main.cpp
 )
 
 target_include_directories(vacuum_node PUBLIC
@@ -85,8 +95,11 @@ target_link_libraries(vacuum_node
 
 ament_target_dependencies(vacuum_node
   rclcpp
-  servo_interfaces
   std_msgs
+)
+
+rosidl_target_interfaces(vacuum_node
+  ${PROJECT_NAME} "rosidl_typesupport_cpp"
 )
 
 # 安装可执行文件

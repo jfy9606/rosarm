@@ -3,8 +3,8 @@
 
 #include <rclcpp/rclcpp.hpp>
 // 移除 sensor_msgs 依赖
-#include <servo_interfaces/msg/ser_control.hpp>  // 使用生成的接口头文件
-#include <servo_interfaces/srv/joint_control.hpp>
+#include <servo/msg/ser_control.hpp>  // 使用生成的接口头文件
+#include <servo/srv/joint_control.hpp>
 #include "servo/servo_control.hpp"
 #include <string>
 #include <vector>
@@ -44,13 +44,13 @@ private:
   std::map<std::string, double> joint_positions_;
   
   // 服务
-  rclcpp::Service<servo_interfaces::srv::JointControl>::SharedPtr joint_control_srv_;
+  rclcpp::Service<servo::srv::JointControl>::SharedPtr joint_control_srv_;
   
   // 发布器 - 使用我们自己的JointState结构体
   std::shared_ptr<JointState> current_joint_state_;
   
   // 订阅器
-  rclcpp::Subscription<servo_interfaces::msg::SerControl>::SharedPtr servo_control_sub_;
+  rclcpp::Subscription<servo::msg::SerControl>::SharedPtr servo_control_sub_;
   
   // 定时器
   rclcpp::TimerBase::SharedPtr timer_;
@@ -60,11 +60,11 @@ private:
   
   // 服务回调
   void jointControlCallback(
-    const std::shared_ptr<servo_interfaces::srv::JointControl::Request> request,
-    std::shared_ptr<servo_interfaces::srv::JointControl::Response> response);
+    const std::shared_ptr<servo::srv::JointControl::Request> request,
+    std::shared_ptr<servo::srv::JointControl::Response> response);
   
   // 订阅回调
-  void servoControlCallback(const servo_interfaces::msg::SerControl::SharedPtr msg);
+  void servoControlCallback(const servo::msg::SerControl::SharedPtr msg);
   
   // 定时回调，更新关节状态
   void timerCallback();
@@ -88,4 +88,4 @@ private:
 
 } // namespace servo_control
 
-#endif // WRIST_NODE_HPP 
+#endif // WRIST_NODE_HPP

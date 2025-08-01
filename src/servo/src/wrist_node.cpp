@@ -1,5 +1,6 @@
 #include "servo/wrist_node.hpp"
 #include <cmath>
+#include <rclcpp/rclcpp.hpp>
 
 namespace servo_control {
 
@@ -39,13 +40,13 @@ WristNode::WristNode(const rclcpp::NodeOptions & options)
   current_joint_state_ = std::make_shared<JointState>();
   
   // 创建服务
-  joint_control_srv_ = this->create_service<servo_interfaces::srv::JointControl>(
+  joint_control_srv_ = this->create_service<servo::srv::JointControl>(
     "wrist/joint_control",
     std::bind(&WristNode::jointControlCallback, this,
               std::placeholders::_1, std::placeholders::_2));
   
   // 创建订阅器
-  servo_control_sub_ = this->create_subscription<servo_interfaces::msg::SerControl>(
+  servo_control_sub_ = this->create_subscription<servo::msg::SerControl>(
     "wrist/control", 10,
     std::bind(&WristNode::servoControlCallback, this, std::placeholders::_1));
   
@@ -82,8 +83,8 @@ WristNode::~WristNode()
 }
 
 void WristNode::jointControlCallback(
-  const std::shared_ptr<servo_interfaces::srv::JointControl::Request> request,
-  std::shared_ptr<servo_interfaces::srv::JointControl::Response> response)
+  const std::shared_ptr<servo::srv::JointControl::Request> request,
+  std::shared_ptr<servo::srv::JointControl::Response> response)
 {
   if (!servo_control_ || !servo_control_->isConnected()) {
     RCLCPP_ERROR(this->get_logger(), "Servo control not connected");
@@ -158,7 +159,7 @@ void WristNode::jointControlCallback(
   response->message = all_success ? "All joints set successfully" : result_messages.str();
 }
 
-void WristNode::servoControlCallback(const servo_interfaces::msg::SerControl::SharedPtr msg)
+void WristNode::servoControlCallback(const servo::msg::SerControl::SharedPtr msg)
 {
   if (!servo_control_ || !servo_control_->isConnected()) {
     RCLCPP_ERROR(this->get_logger(), "Servo control not connected");
@@ -394,3 +395,21 @@ void WristNode::loadJointLimits()
 }
 
 } // namespace servo_control
+
+// 主函数
+int main(int argc, char * argv[])
+{
+  // 初始化ROS
+  rclcpp::init(argc, argv);
+  
+  // 创建腕部舵机控制节点
+  auto node = std::make_shared<servo_control::WristNode>();
+  
+  // 运行节点，直到接收到终止信号
+  rclcpp::spin(node);
+  
+  // 清理资源并关闭
+  rclcpp::shutdown();
+  
+  return 0;
+}
