@@ -2548,8 +2548,9 @@ class RobotArmGUI:
                 
                 # 遍历所有检测结果
                 for i, box in enumerate(boxes):
-                    # 获取边界框坐标
-                    x1, y1, x2, y2 = map(int, box.xyxy[0])
+                    # 获取边界框坐标 - 确保转换为整数
+                    xyxy = box.xyxy[0].cpu().numpy() if hasattr(box.xyxy[0], 'cpu') else box.xyxy[0]
+                    x1, y1, x2, y2 = map(int, xyxy)
                     
                     # 获取置信度
                     conf = float(box.conf[0])
@@ -2647,6 +2648,8 @@ class RobotArmGUI:
                     
         except Exception as e:
             print(f"绘制检测结果时出错: {e}")
+            import traceback
+            traceback.print_exc()
             
         return frame
         
