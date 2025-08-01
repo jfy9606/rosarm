@@ -119,26 +119,50 @@ class VideoCapture:
         """获取可用摄像头列表"""
         camera_list = []
         index = 0
-        while True:
-            cap = cv2.VideoCapture(index)
-            if not cap.isOpened():
-                break
-            ret, frame = cap.read()
-            if ret:
-                # 获取摄像头信息
-                name = f"Camera {index}"
-                width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                fps = int(cap.get(cv2.CAP_PROP_FPS))
-                camera_list.append({
-                    "index": index,
-                    "name": name,
-                    "resolution": f"{width}x{height}",
-                    "fps": fps
-                })
-            cap.release()
+        max_attempts = 10  # 限制尝试的摄像头索引数量
+        
+        while index < max_attempts:
+            try:
+                cap = cv2.VideoCapture(index)
+                if not cap.isOpened():
+                    cap.release()
+                    index += 1
+                    continue
+                    
+                ret, frame = cap.read()
+                if ret:
+                    # 获取摄像头信息
+                    name = f"Camera {index}"
+                    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    fps = int(cap.get(cv2.CAP_PROP_FPS))
+                    camera_list.append({
+                        "index": index,
+                        "name": name,
+                        "resolution": f"{width}x{height}",
+                        "fps": fps
+                    })
+                cap.release()
+            except Exception as e:
+                print(f"检测摄像头 {index} 时出错: {e}")
             index += 1
         return camera_list
+        
+    @staticmethod
+    def is_camera_available(index):
+        """检查指定索引的摄像头是否可用"""
+        try:
+            cap = cv2.VideoCapture(index)
+            if not cap.isOpened():
+                cap.release()
+                return False
+                
+            ret, frame = cap.read()
+            cap.release()
+            return ret
+        except Exception as e:
+            print(f"检查摄像头 {index} 时出错: {e}")
+            return False
         
     def load_yolo_model(self, model_path=None):
         """异步加载YOLO模型"""
@@ -283,8 +307,14 @@ class VideoCapture:
             return True
             
         try:
+            # 检查摄像头索引是否有效
+            if self.camera_index < 0:
+                print(f"无效的摄像头索引: {self.camera_index}")
+                return False
+                
             self.cap = cv2.VideoCapture(self.camera_index)
             if not self.cap.isOpened():
+                print(f"无法打开摄像头 (索引: {self.camera_index})")
                 return False
             
             # 如果是双目模式，设置适当的分辨率
@@ -2263,6 +2293,13 @@ class RobotArmGUI:
             # 获取选定的摄像头索引
             camera_index = self.selected_camera.get()
             
+            # 检查摄像头是否可用
+            if not VideoCapture.is_camera_available(camera_index):
+                messagebox.showwarning("警告", f"摄像头 (索引: {camera_index}) 不可用，请检查连接或选择其他摄像头")
+                # 刷新摄像头列表
+                self.refresh_camera_list()
+                return
+            
             # 更新摄像头索引
             self.video.camera_index = camera_index
             
@@ -2275,7 +2312,7 @@ class RobotArmGUI:
                 # 启动视频更新
                 self.update_video_frame()
             else:
-                messagebox.showerror("错误", "无法开启摄像头，请检查摄像头连接")
+                messagebox.showerror("错误", f"无法开启摄像头 (索引: {camera_index})，请检查摄像头连接")
     
     def toggle_stereo_mode(self):
         """切换双目相机模式"""
@@ -2294,6 +2331,19 @@ class RobotArmGUI:
         # 设置双目模式
         self.stereo_mode = stereo_enabled
         self.video.set_stereo_mode(stereo_enabled, width, height)
+        
+        # 如果启用了双目模式，确保使用正确的摄像头索引
+        if stereo_enabled:
+            # 检查是否有可用的摄像头
+            available_cameras = VideoCapture.get_camera_list()
+            if not available_cameras:
+                messagebox.showwarning("警告", "未检测到可用摄像头，双目模式可能无法正常工作")
+            elif len(available_cameras) < 2:
+                messagebox.showwarning("警告", "检测到的摄像头数量不足，双目模式需要至少2个摄像头")
+            
+            # 使用索引0作为双目摄像头
+            self.selected_camera.set(0)
+            self.video.camera_index = 0
         
         # 如果之前在运行，重新启动摄像头
         if was_running:
@@ -2845,6 +2895,11 @@ class RobotArmGUI:
             
         # 确保双目相机已初始化
         if not hasattr(self.robot, 'cameras_initialized') or not self.robot.cameras_initialized:
+            # 检查摄像头是否可用
+            if not VideoCapture.is_camera_available(0) or not VideoCapture.is_camera_available(1):
+                messagebox.showerror("错误", "无法检测到双目相机，请确保两个摄像头已连接")
+                return
+                
             # 尝试初始化双目相机
             self.log("正在初始化双目相机...")
             if not self.robot.init_stereo_cameras():

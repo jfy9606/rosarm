@@ -1110,13 +1110,20 @@ class RobotArm:
             bool: 如果成功初始化双目相机则返回True
         """
         try:
+            # 检查摄像头索引是否有效
+            if left_camera_id < 0 or right_camera_id < 0:
+                print(f"无效的摄像头索引: 左 {left_camera_id}, 右 {right_camera_id}")
+                return False
+                
             # 初始化左右相机
+            print(f"尝试初始化左相机 (索引: {left_camera_id})...")
             self.left_camera = cv2.VideoCapture(left_camera_id)
+            print(f"尝试初始化右相机 (索引: {right_camera_id})...")
             self.right_camera = cv2.VideoCapture(right_camera_id)
             
             # 检查相机是否成功打开
             if not self.left_camera.isOpened() or not self.right_camera.isOpened():
-                print("无法打开双目相机")
+                print(f"无法打开双目相机: 左相机状态: {self.left_camera.isOpened()}, 右相机状态: {self.right_camera.isOpened()}")
                 return False
                 
             # 设置相机分辨率
