@@ -211,24 +211,18 @@ class VideoCapture:
     def setup_stereo_matcher(self):
         """设置双目匹配器用于生成深度图"""
         if not self.stereo_calibrated:
-            # 创建立体匹配器 - 使用StereoBM算法，速度快但质量一般
-            self.stereo_matcher = cv2.StereoBM.create(
-                numDisparities=128,  # 视差搜索范围
-                blockSize=21         # 匹配块大小
+            # 使用高质量的SGBM算法
+            self.stereo_matcher = cv2.StereoSGBM.create(
+                minDisparity=0,
+                numDisparities=128,
+                blockSize=11,
+                P1=8 * 3 * 11 * 11,
+                P2=32 * 3 * 11 * 11,
+                disp12MaxDiff=1,
+                uniquenessRatio=10,
+                speckleWindowSize=100,
+                speckleRange=32
             )
-            
-            # 可选：使用更高质量但更慢的SGBM算法
-            # self.stereo_matcher = cv2.StereoSGBM.create(
-            #     minDisparity=0,
-            #     numDisparities=128,
-            #     blockSize=11,
-            #     P1=8 * 3 * 11 * 11,
-            #     P2=32 * 3 * 11 * 11,
-            #     disp12MaxDiff=1,
-            #     uniquenessRatio=10,
-            #     speckleWindowSize=100,
-            #     speckleRange=32
-            # )
             
             self.stereo_calibrated = True
     
@@ -2413,18 +2407,31 @@ class RobotArmGUI:
                         # 只显示右目视图
                         if right_frame is not None:
                             display_frame = right_frame.copy()
+                            # 在右目视图上也绘制YOLO检测结果
+                            if self.yolo_enabled:
+                                display_frame = self.draw_detection_results(display_frame)
                     
                     elif view_mode == "深度视图":
                         # 显示深度图
                         depth_frame = self.video.get_depth_frame()
                         if depth_frame is not None:
-                            display_frame = depth_frame
+                            display_frame = depth_frame.copy()
+                            # 在深度图上也绘制YOLO检测结果
+                            if self.yolo_enabled and left_frame is not None:
+                                # 先在左帧上检测，然后将结果绘制到深度图上
+                                self.draw_detection_results(left_frame.copy())
+                                display_frame = self.draw_detection_results(display_frame)
                     
                     elif view_mode == "3D立体视图":
                         # 显示红蓝3D立体图
                         anaglyph_frame = self.video.get_anaglyph_frame()
                         if anaglyph_frame is not None:
-                            display_frame = anaglyph_frame
+                            display_frame = anaglyph_frame.copy()
+                            # 在3D立体图上也绘制YOLO检测结果
+                            if self.yolo_enabled and left_frame is not None:
+                                # 先在左帧上检测，然后将结果绘制到3D立体图上
+                                self.draw_detection_results(left_frame.copy())
+                                display_frame = self.draw_detection_results(display_frame)
                 else:
                     # 单目模式
                     if self.yolo_enabled:
