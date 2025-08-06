@@ -12,10 +12,10 @@ def generate_launch_description():
             output='screen',
         ),
         
-        # 轨迹规划节点
+        # 轨迹规划节点 (C++实现)
         Node(
             package='trajectory',
-            executable='trajectory_node.py',
+            executable='trajectory_planner_node_main',
             name='trajectory_node',
             output='screen',
         ),
@@ -27,4 +27,4 @@ def generate_launch_description():
             name='path_planner_node',
             output='screen',
         ),
-    ]) 
+    ])

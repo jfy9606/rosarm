@@ -9,8 +9,9 @@ def generate_launch_description():
     servo_baudrate = LaunchConfiguration('servo_baudrate')
     vacuum_id = LaunchConfiguration('vacuum_id')
     config_file = LaunchConfiguration('config_file')
+    timeout = LaunchConfiguration('timeout')
     
-    # 声明参数
+    # 创建启动描述
     return LaunchDescription([
         # 声明参数
         DeclareLaunchArgument(
@@ -37,15 +38,22 @@ def generate_launch_description():
             description='硬件配置文件路径'
         ),
         
+        DeclareLaunchArgument(
+            'timeout',
+            default_value='100',
+            description='串口通信超时时间(毫秒)'
+        ),
+        
         # 腕部舵机控制节点
         Node(
             package='servo',
-            executable='wrist_node_main',
+            executable='wrist_node',
             name='wrist_node',
             output='screen',
             parameters=[{
                 'port': servo_port,
                 'baudrate': servo_baudrate,
+                'timeout': timeout,
                 'config_file': config_file
             }]
         ),
@@ -53,14 +61,15 @@ def generate_launch_description():
         # 真空吸盘控制节点
         Node(
             package='servo',
-            executable='vacuum_node_main',
+            executable='vacuum_node',
             name='vacuum_node',
             output='screen',
             parameters=[{
                 'port': servo_port,
                 'baudrate': servo_baudrate,
+                'timeout': timeout,
                 'vacuum_id': vacuum_id,
                 'config_file': config_file
             }]
         )
-    ]) 
+    ])

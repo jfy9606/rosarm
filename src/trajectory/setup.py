@@ -23,7 +23,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'trajectory_node = trajectory.trajectory_node:main',
+            'path_planner_node.py = trajectory.path_planner:main',
         ],
     },
-) 
+)

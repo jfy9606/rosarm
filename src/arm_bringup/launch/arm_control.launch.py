@@ -76,8 +76,16 @@ def generate_launch_description():
     # 添加轨迹规划节点
     ld.add_action(Node(
         package='trajectory',
-        executable='trajectory_node.py',
-        name='trajectory_node',
+        executable='trajectory_planner_node_main',
+        name='trajectory_planner_node',
+        output='screen'
+    ))
+    
+    # 添加路径规划节点
+    ld.add_action(Node(
+        package='trajectory',
+        executable='path_planner_node.py',
+        name='path_planner_node',
         output='screen'
     ))
     
@@ -92,4 +100,4 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration('use_vision'))
     ))
     
-    return ld 
+    return ld

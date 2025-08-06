@@ -80,6 +80,46 @@ rclcpp_components_register_node(kinematics_node
   EXECUTABLE kinematics_node_exec
 )
 
+# Create trajectory planner library
+add_library(trajectory_planner SHARED
+  src/trajectory_planner.cpp
+)
+target_include_directories(trajectory_planner PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+target_link_libraries(trajectory_planner
+  "${cpp_typesupport_target}"
+)
+ament_target_dependencies(trajectory_planner
+  rclcpp
+  trajectory_msgs
+  geometry_msgs
+)
+
+# Create trajectory planner node as a component library
+add_library(trajectory_planner_node SHARED
+  src/trajectory_planner_node.cpp
+)
+target_include_directories(trajectory_planner_node PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+target_link_libraries(trajectory_planner_node
+  trajectory_planner
+  "${cpp_typesupport_target}"
+)
+ament_target_dependencies(trajectory_planner_node
+  rclcpp
+  rclcpp_components
+  trajectory_msgs
+  geometry_msgs
+)
+rclcpp_components_register_node(trajectory_planner_node
+  PLUGIN "trajectory::TrajectoryPlannerNode"
+  EXECUTABLE trajectory_planner_node_exec
+)
+
 # Create kinematics node standalone executable
 add_executable(kinematics_node_main
   src/kinematics_node_main.cpp
@@ -88,12 +128,24 @@ target_link_libraries(kinematics_node_main
   kinematics_node
 )
 
+# Create trajectory planner node standalone executable
+add_executable(trajectory_planner_node_main
+  src/trajectory_planner_node_main.cpp
+)
+target_link_libraries(trajectory_planner_node_main
+  trajectory_planner_node
+)
+
 # Install
 install(TARGETS 
   kinematics
   kinematics_node
   kinematics_node_exec
   kinematics_node_main
+  trajectory_planner
+  trajectory_planner_node
+  trajectory_planner_node_exec
+  trajectory_planner_node_main
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION lib/${PROJECT_NAME}
@@ -120,13 +172,14 @@ install(PROGRAMS
 )
 
 ament_export_include_directories(include)
-ament_export_libraries(kinematics kinematics_node)
+ament_export_libraries(kinematics kinematics_node trajectory_planner trajectory_planner_node)
 ament_export_dependencies(
   rclcpp
   rclpy
   std_msgs
   geometry_msgs
   sensor_msgs
+  trajectory_msgs
   rclcpp_components
   Eigen3
 )
