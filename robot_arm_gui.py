@@ -168,9 +168,55 @@ class VideoCapture:
         """异步加载YOLO模型"""
         def _load_model():
             try:
+                print("========== 开始加载YOLO模型 ==========")
+                print(f"当前工作目录: {os.getcwd()}")
+                
+                # 检查ultralytics库是否正确导入
+                try:
+                    from ultralytics import YOLO
+                    import pkg_resources
+                    ultralytics_version = pkg_resources.get_distribution("ultralytics").version
+                    print(f"成功导入ultralytics库，版本: {ultralytics_version}")
+                except ImportError as ie:
+                    print(f"导入ultralytics库失败: {ie}，请确保已安装ultralytics库")
+                    print("尝试安装ultralytics库...")
+                    try:
+                        import subprocess
+                        subprocess.check_call(["pip", "install", "ultralytics"])
+                        print("ultralytics库安装成功，重新尝试导入...")
+                        from ultralytics import YOLO
+                        print("成功导入ultralytics库")
+                    except Exception as install_err:
+                        print(f"安装ultralytics库失败: {install_err}")
+                        self.yolo_model = None
+                        return
+                except Exception as other_err:
+                    print(f"导入ultralytics时发生其他错误: {other_err}")
+                    self.yolo_model = None
+                    return
+                
+                # 检查CUDA是否可用
+                try:
+                    import torch
+                    cuda_available = torch.cuda.is_available()
+                    cuda_device_count = torch.cuda.device_count() if cuda_available else 0
+                    print(f"CUDA可用: {cuda_available}, 设备数量: {cuda_device_count}")
+                    if cuda_available:
+                        for i in range(cuda_device_count):
+                            print(f"CUDA设备 {i}: {torch.cuda.get_device_name(i)}")
+                except Exception as cuda_err:
+                    print(f"检查CUDA状态时出错: {cuda_err}")
+                
                 if model_path and os.path.exists(model_path):
-                    self.yolo_model = YOLO(model_path)
-                    print(f"成功加载自定义模型: {model_path}")
+                    print(f"正在加载自定义模型: {model_path}")
+                    try:
+                        self.yolo_model = YOLO(model_path)
+                        print(f"成功加载自定义模型: {model_path}")
+                    except Exception as e:
+                        print(f"加载自定义模型失败: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        self.yolo_model = None
                 else:
                     # 如果没有指定模型路径，尝试使用预训练的YOLOv11n模型
                     try:
@@ -180,33 +226,78 @@ class VideoCapture:
                         print("YOLOv11n模型加载完成")
                     except Exception as e1:
                         print(f"尝试加载YOLOv11n模型失败: {e1}，尝试使用本地模型...")
+                        import traceback
+                        traceback.print_exc()
                         # 尝试在当前目录和models目录查找模型文件
-                        model_paths = ['yolo11n.pt', 'models/yolo11n.pt']
+                        model_paths = ['yolo11n.pt', 'models/yolo11n.pt', 'yolov8n.pt', 'models/yolov8n.pt']
+                        print(f"搜索本地模型文件: {model_paths}")
+                        
+                        # 检查所有可能的模型文件是否存在
+                        existing_models = [path for path in model_paths if os.path.exists(path)]
+                        print(f"找到的本地模型文件: {existing_models}")
+                        
                         for path in model_paths:
                             if os.path.exists(path):
-                                self.yolo_model = YOLO(path)
-                                print(f"成功加载本地模型: {path}")
-                                break
+                                try:
+                                    print(f"尝试加载本地模型: {path}")
+                                    self.yolo_model = YOLO(path)
+                                    print(f"成功加载本地模型: {path}")
+                                    break
+                                except Exception as e:
+                                    print(f"加载本地模型 {path} 失败: {e}")
+                                    import traceback
+                                    traceback.print_exc()
+                                    continue
                         else:
                             # 如果本地没有找到模型，尝试创建models目录并下载模型
                             try:
                                 print("尝试创建models目录并下载YOLOv11n模型...")
                                 os.makedirs('models', exist_ok=True)
+                                
+                                # 尝试多个下载源
+                                download_sources = [
+                                    'https://ghproxy.cfd/https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.pt',
+                                    'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.pt',
+                                    'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n.pt'
+                                ]
+                                
                                 # 使用ultralytics库直接下载模型
                                 from ultralytics.utils.downloads import download
-                                model_url = 'https://ghproxy.cfd/https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.pt'
-                                download_path = os.path.join('models', 'yolo11n.pt')
-                                download(model_url, download_path)
-                                self.yolo_model = YOLO(download_path)
-                                print(f"成功下载并加载模型: {download_path}")
+                                download_success = False
+                                
+                                for model_url in download_sources:
+                                    try:
+                                        model_name = os.path.basename(model_url)
+                                        download_path = os.path.join('models', model_name)
+                                        print(f"尝试从 {model_url} 下载模型到 {download_path}...")
+                                        download(model_url, download_path)
+                                        print(f"模型下载完成，正在加载: {download_path}")
+                                        self.yolo_model = YOLO(download_path)
+                                        print(f"成功下载并加载模型: {download_path}")
+                                        download_success = True
+                                        break
+                                    except Exception as download_err:
+                                        print(f"从 {model_url} 下载模型失败: {download_err}")
+                                        continue
+                                
+                                if not download_success:
+                                    raise Exception("所有下载源都失败")
+                                    
                             except Exception as e2:
                                 print(f"下载模型失败: {e2}，请手动下载模型")
+                                import traceback
+                                traceback.print_exc()
                                 self.yolo_model = None
                 
                 # 保存COCO数据集的类别名称，用于YOLOv11n格式的结果
                 if self.yolo_model is not None and hasattr(self.yolo_model, 'names'):
                     self.class_names = self.yolo_model.names
+                    print(f"成功加载类别名称，共 {len(self.class_names)} 个类别")
+                    # 打印前10个类别用于调试
+                    class_sample = {k: v for k, v in list(self.class_names.items())[:10]}
+                    print(f"类别样例: {class_sample}...")
                 else:
+                    print("使用默认COCO数据集类别名称")
                     # 使用COCO数据集的80个类别作为默认类别
                     self.class_names = {
                         0: 'person', 1: 'bicycle', 2: 'car', 3: 'motorcycle', 4: 'airplane', 5: 'bus', 6: 'train', 7: 'truck', 
@@ -222,15 +313,56 @@ class VideoCapture:
                         68: 'microwave', 69: 'oven', 70: 'toaster', 71: 'sink', 72: 'refrigerator', 73: 'book', 74: 'clock', 
                         75: 'vase', 76: 'scissors', 77: 'teddy bear', 78: 'hair drier', 79: 'toothbrush'
                     }
+                    print(f"已加载默认COCO数据集类别名称，共 {len(self.class_names)} 个类别")
+                
+                # 验证模型是否成功加载
+                if self.yolo_model is not None:
+                    print("========== YOLO模型加载成功，可以开始检测 ==========")
+                    # 检查模型的属性
+                    try:
+                        model_attributes = dir(self.yolo_model)
+                        print(f"模型属性: {', '.join(attr for attr in model_attributes if not attr.startswith('_'))}")
+                        
+                        # 检查模型的任务类型
+                        if hasattr(self.yolo_model, 'task'):
+                            print(f"模型任务类型: {self.yolo_model.task}")
+                            
+                        # 检查模型的设备
+                        if hasattr(self.yolo_model, 'device'):
+                            print(f"模型运行设备: {self.yolo_model.device}")
+                    except Exception as attr_err:
+                        print(f"检查模型属性时出错: {attr_err}")
+                else:
+                    print("警告：YOLO模型加载失败，无法进行物体检测")
+                    
             except Exception as e:
                 print(f"加载YOLO模型时出错: {e}")
+                import traceback
+                traceback.print_exc()
                 self.yolo_model = None
                 self.class_names = {}
+                print("========== YOLO模型加载失败 ==========")
         
-        if self.model_loading_thread is None or not self.model_loading_thread.is_alive():
-            self.model_loading_thread = threading.Thread(target=_load_model)
-            self.model_loading_thread.daemon = True
-            self.model_loading_thread.start()
+        # 使用线程异步加载模型，避免阻塞主线程
+        try:
+            if self.model_loading_thread is None or not self.model_loading_thread.is_alive():
+                print("启动异步线程加载YOLO模型...")
+                self.model_loading_thread = threading.Thread(target=_load_model, name="YOLO_Model_Loader")
+                self.model_loading_thread.daemon = True
+                self.model_loading_thread.start()
+                print(f"YOLO模型加载线程已启动，线程ID: {self.model_loading_thread.ident}")
+                return True
+            else:
+                print(f"模型加载线程已在运行中... 线程ID: {self.model_loading_thread.ident}, 状态: {'活跃' if self.model_loading_thread.is_alive() else '已结束'}")
+                return False
+        except Exception as thread_err:
+            print(f"创建模型加载线程时出错: {thread_err}")
+            import traceback
+            traceback.print_exc()
+            # 如果线程创建失败，尝试直接加载模型
+            print("线程创建失败，尝试直接加载模型...")
+            _load_model()
+            return True
     
     def setup_stereo_matcher(self):
         """设置双目匹配器用于生成深度图"""
@@ -375,8 +507,13 @@ class VideoCapture:
                         # 在左图上进行检测
                         results = self.yolo_model(self.left_frame, verbose=False)
                         self.detection_results = results  # 保存检测结果
+                        # 添加调试信息
+                        if hasattr(results, 'boxes'):
+                            print(f"检测到 {len(results.boxes)} 个物体")
                     except Exception as e:
                         print(f"YOLO检测出错: {e}")
+                        import traceback
+                        traceback.print_exc()
                         self.detection_results = []
             else:
                 # 单目模式
@@ -384,8 +521,13 @@ class VideoCapture:
                     try:
                         results = self.yolo_model(frame, verbose=False)
                         self.detection_results = results  # 保存检测结果
+                        # 添加调试信息
+                        if hasattr(results, 'boxes'):
+                            print(f"检测到 {len(results.boxes)} 个物体")
                     except Exception as e:
                         print(f"YOLO检测出错: {e}")
+                        import traceback
+                        traceback.print_exc()
                         self.detection_results = []
                 
             # 如果队列已满，先清空队列
@@ -445,9 +587,49 @@ class VideoCapture:
     
     def set_yolo_enabled(self, enabled):
         """启用或禁用YOLO检测"""
-        self.yolo_enabled = enabled
-        if enabled and self.yolo_model is None:
-            self.load_yolo_model()
+        try:
+            print(f"设置YOLO检测状态: {'启用' if enabled else '禁用'}")
+            self.yolo_enabled = enabled
+            
+            # 如果启用YOLO检测，确保模型已加载
+            if enabled:
+                if self.yolo_model is None:
+                    print("YOLO模型未加载，正在尝试加载...")
+                    load_result = self.load_yolo_model()
+                    print(f"模型加载启动结果: {load_result}")
+                    
+                    # 等待一段时间，让模型加载线程有时间工作
+                    import time
+                    time.sleep(1)
+                    
+                    # 检查模型是否成功加载
+                    if self.yolo_model is not None:
+                        print("YOLO模型加载成功，类别数量:", len(self.class_names) if hasattr(self, 'class_names') else "未知")
+                    else:
+                        print("警告：YOLO模型加载失败，请检查模型文件")
+                        # 记录当前目录下的模型文件
+                        import os
+                        model_files = [f for f in os.listdir('.') if f.endswith('.pt')]
+                        print(f"当前目录下的模型文件: {model_files}")
+                else:
+                    print("YOLO模型已加载，准备开始检测")
+            
+            print(f"YOLO检测状态已更新: {'已启用' if enabled else '已禁用'}")
+            
+            # 如果启用了YOLO但模型为None，再次尝试加载
+            if enabled and self.yolo_model is None:
+                print("尝试再次加载YOLO模型...")
+                self.load_yolo_model()
+                
+                # 再次检查模型是否加载成功
+                if self.yolo_model is not None:
+                    print("第二次尝试加载YOLO模型成功")
+                else:
+                    print("第二次尝试加载YOLO模型失败，请手动下载模型文件")
+        except Exception as e:
+            print(f"设置YOLO检测状态时出错: {e}")
+            import traceback
+            traceback.print_exc()
     
     def set_confidence_threshold(self, threshold):
         """设置置信度阈值"""
@@ -2377,13 +2559,126 @@ class RobotArmGUI:
     
     def toggle_yolo_detection(self, enabled):
         """启用或禁用YOLO物体检测"""
-        self.yolo_enabled = enabled
-        self.video.set_yolo_enabled(enabled)
-        
-        if enabled and self.video_enabled:
-            self.log("正在加载YOLO模型，请稍候...")
-        else:
-            self.log(f"YOLO物体检测: {'已启用' if enabled else '已禁用'}")
+        try:
+            print("\n===== 切换YOLO检测状态 =====")
+            print(f"切换YOLO检测状态: {'启用' if enabled else '禁用'}")
+            self.yolo_enabled = enabled
+            
+            # 检查视频捕获是否初始化
+            if not hasattr(self, 'video') or self.video is None:
+                error_msg = "错误：视频捕获未初始化，无法启用YOLO检测"
+                self.log(error_msg)
+                print(error_msg)
+                # 显示错误消息框
+                import tkinter.messagebox as messagebox
+                messagebox.showerror("错误", "视频捕获未初始化，请先启动摄像头")
+                return False
+                
+            # 设置视频捕获的YOLO状态
+            print(f"调用video.set_yolo_enabled({enabled})")
+            self.video.set_yolo_enabled(enabled)
+            
+            if enabled and self.video_enabled:
+                self.log("正在加载YOLO模型，请稍候...")
+                print("正在加载YOLO模型...")
+                
+                # 检查YOLO模型是否已加载
+                if self.video.yolo_model is None:
+                    self.log("警告：YOLO模型未加载，正在尝试加载...")
+                    print("YOLO模型未加载，尝试加载模型")
+                    
+                    # 尝试加载模型
+                    if hasattr(self.video, 'load_yolo_model'):
+                        self.log("尝试加载YOLO模型...")
+                        try:
+                            print("调用video.load_yolo_model()")
+                            load_result = self.video.load_yolo_model()
+                            print(f"模型加载结果: {load_result}")
+                        except Exception as load_err:
+                            print(f"加载YOLO模型时出错: {load_err}")
+                            import traceback
+                            traceback.print_exc()
+                            self.log(f"加载YOLO模型时出错: {load_err}")
+                            import tkinter.messagebox as messagebox
+                            messagebox.showerror("错误", f"加载YOLO模型时出错:\n{load_err}\n请查看控制台日志获取详细信息")
+                            return False
+                        
+                        # 等待一段时间，让模型加载线程有时间工作
+                        import time
+                        print("等待模型加载线程工作...")
+                        wait_time = 5  # 增加等待时间到5秒
+                        for i in range(wait_time):
+                            print(f"等待中... {i+1}/{wait_time}秒")
+                            time.sleep(1)
+                        
+                        # 检查模型是否成功加载
+                        if self.video.yolo_model is not None:
+                            success_msg = "YOLO模型加载成功"
+                            self.log(success_msg)
+                            print(success_msg)
+                            
+                            # 打印类别信息
+                            if hasattr(self.video, 'class_names') and self.video.class_names:
+                                class_count = len(self.video.class_names)
+                                print(f"YOLO模型加载成功，类别数量: {class_count}")
+                                # 打印前10个类别用于调试
+                                if class_count > 0:
+                                    print("前10个类别:")
+                                    for i, (cls_id, cls_name) in enumerate(list(self.video.class_names.items())[:10]):
+                                        print(f"  {cls_id}: {cls_name}")
+                            else:
+                                print("YOLO模型加载成功，但没有类别信息")
+                        else:
+                            error_msg = "YOLO模型加载失败，请手动加载模型"
+                            self.log(error_msg)
+                            print(error_msg)
+                            # 显示错误消息框
+                            import tkinter.messagebox as messagebox
+                            messagebox.showwarning("警告", "YOLO模型加载失败，请手动加载模型或查看控制台日志获取详细错误信息")
+                            return False
+                    else:
+                        error_msg = "错误：视频捕获对象没有load_yolo_model方法"
+                        self.log(error_msg)
+                        print(error_msg)
+                        return False
+                else:
+                    success_msg = "YOLO模型已加载，准备开始检测"
+                    self.log(success_msg)
+                    print(success_msg)
+                    # 打印模型信息
+                    if hasattr(self.video, 'class_names'):
+                        print(f"类别数量: {len(self.video.class_names)}")
+            else:
+                status_msg = f"YOLO物体检测: {'已启用' if enabled else '已禁用'}"
+                self.log(status_msg)
+                print(f"YOLO物体检测状态已更新: {'已启用' if enabled else '已禁用'}")
+            
+            # 如果启用了检测，强制更新多次视频帧以确保检测结果显示
+            if enabled and self.video_enabled:
+                print("强制更新视频帧以显示检测结果")
+                # 多次更新，确保检测结果能够显示
+                import time
+                for i in range(5):  # 增加到5次更新
+                    print(f"更新视频帧 {i+1}/5")
+                    self.update_video_frame()
+                    time.sleep(0.2)  # 稍微增加间隔时间
+                print("视频帧更新完成")
+            
+            print(f"YOLO检测状态切换完成: {'已启用' if enabled else '已禁用'}")
+            print("===== YOLO检测状态切换结束 =====\n")
+            return True
+            
+        except Exception as e:
+            error_msg = f"切换YOLO检测状态时出错: {e}"
+            self.log(error_msg)
+            print(error_msg)
+            print("详细错误信息:")
+            import traceback
+            traceback.print_exc()
+            # 显示错误消息框
+            import tkinter.messagebox as messagebox
+            messagebox.showerror("错误", f"切换YOLO检测状态时出错:\n{e}\n请查看控制台日志获取详细信息")
+            return False
     
     def update_confidence_threshold(self, value):
         """更新置信度阈值"""
@@ -2392,17 +2687,120 @@ class RobotArmGUI:
     
     def load_custom_yolo_model(self):
         """加载自定义YOLO模型"""
-        from tkinter import filedialog
-        
-        model_path = filedialog.askopenfilename(
-            title="选择YOLO模型文件",
-            filetypes=[("PyTorch模型", "*.pt"), ("ONNX模型", "*.onnx"), ("所有文件", "*.*")]
-        )
-        
-        if model_path:
+        try:
+            print("\n===== 加载自定义YOLO模型 =====")
+            from tkinter import filedialog
+            import tkinter.messagebox as messagebox
+            import os
+            
+            # 检查视频捕获是否初始化
+            if not hasattr(self, 'video') or self.video is None:
+                error_msg = "错误：视频捕获未初始化，无法加载YOLO模型"
+                self.log(error_msg)
+                print(error_msg)
+                messagebox.showerror("错误", "视频捕获未初始化，请先启动摄像头")
+                return False
+            
+            print("打开文件选择对话框...")
+            model_path = filedialog.askopenfilename(
+                title="选择YOLO模型文件",
+                filetypes=[("PyTorch模型", "*.pt"), ("ONNX模型", "*.onnx"), ("所有文件", "*.*")]
+            )
+            
+            if not model_path:
+                print("用户取消了模型选择")
+                return False
+            
+            print(f"用户选择的模型文件: {model_path}")
+            
+            # 检查文件是否存在
+            if not os.path.exists(model_path):
+                error_msg = f"错误：选择的模型文件不存在: {model_path}"
+                self.log(error_msg)
+                print(error_msg)
+                messagebox.showerror("错误", "选择的模型文件不存在")
+                return False
+            
+            # 检查文件大小
+            file_size = os.path.getsize(model_path) / (1024 * 1024)  # 转换为MB
+            print(f"模型文件大小: {file_size:.2f} MB")
+            
+            # 如果文件过大，提示用户
+            if file_size > 100:  # 大于100MB的模型可能加载较慢
+                print("警告：模型文件较大，加载可能需要较长时间")
+                if not messagebox.askyesno("警告", f"模型文件较大 ({file_size:.2f} MB)，加载可能需要较长时间。是否继续？"):
+                    print("用户取消了加载大模型")
+                    return False
+            
             self.yolo_model_path = model_path
-            self.log(f"正在加载自定义模型: {os.path.basename(model_path)}")
-            self.video.load_yolo_model(model_path)
+            model_name = os.path.basename(model_path)
+            success_msg = f"正在加载自定义模型: {model_name}"
+            self.log(success_msg)
+            print(success_msg)
+            
+            try:
+                print(f"调用video.load_yolo_model({model_path})")
+                load_result = self.video.load_yolo_model(model_path)
+                print(f"模型加载结果: {load_result}")
+                
+                # 等待一段时间，让模型加载线程有时间工作
+                import time
+                print("等待模型加载线程工作...")
+                wait_time = 5  # 等待5秒
+                for i in range(wait_time):
+                    print(f"等待中... {i+1}/{wait_time}秒")
+                    time.sleep(1)
+                
+                # 检查模型是否成功加载
+                if self.video.yolo_model is not None:
+                    success_msg = f"自定义YOLO模型 '{model_name}' 加载成功"
+                    self.log(success_msg)
+                    print(success_msg)
+                    
+                    # 打印类别信息
+                    if hasattr(self.video, 'class_names') and self.video.class_names:
+                        class_count = len(self.video.class_names)
+                        print(f"模型类别数量: {class_count}")
+                        # 打印前10个类别用于调试
+                        if class_count > 0:
+                            print("前10个类别:")
+                            for i, (cls_id, cls_name) in enumerate(list(self.video.class_names.items())[:10]):
+                                print(f"  {cls_id}: {cls_name}")
+                    else:
+                        print("模型加载成功，但没有类别信息")
+                    
+                    # 自动启用YOLO检测
+                    print("自动启用YOLO检测...")
+                    self.toggle_yolo_detection(True)
+                    messagebox.showinfo("成功", f"自定义YOLO模型 '{model_name}' 加载成功，已自动启用YOLO检测")
+                    return True
+                else:
+                    error_msg = f"自定义YOLO模型 '{model_name}' 加载失败"
+                    self.log(error_msg)
+                    print(error_msg)
+                    messagebox.showerror("错误", f"自定义YOLO模型加载失败，请查看控制台日志获取详细错误信息")
+                    return False
+            
+            except Exception as load_err:
+                error_msg = f"加载自定义YOLO模型时出错: {load_err}"
+                self.log(error_msg)
+                print(error_msg)
+                print("详细错误信息:")
+                import traceback
+                traceback.print_exc()
+                messagebox.showerror("错误", f"加载自定义YOLO模型时出错:\n{load_err}\n请查看控制台日志获取详细信息")
+                return False
+        
+        except Exception as e:
+            error_msg = f"加载自定义YOLO模型过程中出错: {e}"
+            self.log(error_msg)
+            print(error_msg)
+            print("详细错误信息:")
+            import traceback
+            traceback.print_exc()
+            import tkinter.messagebox as messagebox
+            messagebox.showerror("错误", f"加载自定义YOLO模型过程中出错:\n{e}\n请查看控制台日志获取详细信息")
+            return False
             
             # 自动启用YOLO检测
             self.yolo_enable_check.state(['selected'])
@@ -2410,36 +2808,93 @@ class RobotArmGUI:
     
     def update_video_frame(self):
         """更新视频帧"""
-        if not self.video_enabled:
+        # 检查视频是否启用
+        if not hasattr(self, 'video_enabled') or not self.video_enabled:
+            print("视频未启用，跳过更新视频帧")
+            return
+        
+        # 检查视频捕获对象是否存在
+        if not hasattr(self, 'video') or self.video is None:
+            print("错误：视频捕获对象不存在，无法更新视频帧")
             return
             
         try:
             # 获取当前帧
+            print("获取当前视频帧...")
+            start_time = time.time()
             frame = self.video.get_frame()
+            frame_time = time.time() - start_time
             
-            if frame is not None:
+            if frame is None:
+                print("警告：获取到的视频帧为空")
+                return
+            else:
+                print(f"成功获取视频帧，尺寸: {frame.shape}, 耗时: {frame_time*1000:.1f}ms")
                 display_frame = None
                 
                 # 根据视图模式和双目模式选择显示的帧
                 view_mode = self.selected_view_mode.get()
+                yolo_status = '启用' if hasattr(self, 'yolo_enabled') and self.yolo_enabled else '禁用'
+                print(f"当前视图模式: {view_mode}, YOLO检测状态: {yolo_status}")
                 
-                if self.stereo_mode:
+                # 检查是否为双目模式
+                if hasattr(self, 'stereo_mode') and self.stereo_mode:
+                    print("处理双目模式视频帧...")
+                    stereo_start_time = time.time()
                     left_frame, right_frame = self.video.get_stereo_frames()
+                    stereo_time = time.time() - stereo_start_time
+                    print(f"获取双目帧耗时: {stereo_time*1000:.1f}ms")
+                    print(f"双目模式: 左帧状态: {'有效' if left_frame is not None else '无效'}, 右帧状态: {'有效' if right_frame is not None else '无效'}")
                     
                     if view_mode == "正常视图":
                         # 在左帧上绘制检测结果
-                        if self.yolo_enabled and left_frame is not None:
-                            left_display = self.draw_detection_results(left_frame.copy())
-                        elif self.vision_processing_enabled and left_frame is not None:
-                            left_display = self.process_frame(left_frame.copy())
+                        if hasattr(self, 'yolo_enabled') and self.yolo_enabled and left_frame is not None:
+                            print("在左帧上绘制YOLO检测结果")
+                            try:
+                                yolo_start_time = time.time()
+                                left_display = self.draw_detection_results(left_frame.copy())
+                                yolo_time = time.time() - yolo_start_time
+                                print(f"YOLO检测结果绘制耗时: {yolo_time*1000:.1f}ms")
+                            except Exception as e:
+                                print(f"绘制YOLO检测结果时出错: {e}")
+                                import traceback
+                                traceback.print_exc()
+                                left_display = left_frame.copy()
+                                print("使用原始左帧作为显示帧")
+                        elif hasattr(self, 'vision_processing_enabled') and self.vision_processing_enabled and left_frame is not None:
+                            print("在左帧上应用视觉处理")
+                            try:
+                                process_start_time = time.time()
+                                left_display = self.process_frame(left_frame.copy())
+                                process_time = time.time() - process_start_time
+                                print(f"视觉处理耗时: {process_time*1000:.1f}ms")
+                            except Exception as e:
+                                print(f"视觉处理时出错: {e}")
+                                import traceback
+                                traceback.print_exc()
+                                left_display = left_frame.copy()
+                                print("使用原始左帧作为显示帧")
                         else:
+                            print("使用原始左帧作为显示帧")
                             left_display = left_frame.copy() if left_frame is not None else None
+                            if left_display is None:
+                                print("警告：左帧为空，无法显示")
                             
                         # 将左右帧并排显示
-                        if left_display is not None and right_frame is not None:
-                            h, w = left_display.shape[:2]
-                            combined_frame = np.zeros((h, w*2, 3), dtype=np.uint8)
-                            combined_frame[:, :w] = left_display
+                            if left_display is not None and right_frame is not None:
+                                try:
+                                    combine_start_time = time.time()
+                                    h, w = left_display.shape[:2]
+                                    combined_frame = np.zeros((h, w*2, 3), dtype=np.uint8)
+                                    combined_frame[:, :w] = left_display
+                                    combine_time = time.time() - combine_start_time
+                                    print(f"合并双目帧耗时: {combine_time*1000:.1f}ms")
+                                except Exception as combine_err:
+                                    print(f"合并双目帧时出错: {combine_err}")
+                                    import traceback
+                                    traceback.print_exc()
+                                    # 使用左帧作为备选
+                                    combined_frame = left_display
                             combined_frame[:, w:] = right_frame
                             display_frame = combined_frame
                     
@@ -2447,11 +2902,20 @@ class RobotArmGUI:
                         # 只显示左目视图
                         if left_frame is not None:
                             if self.yolo_enabled:
-                                display_frame = self.draw_detection_results(left_frame.copy())
+                                print("在左目视图上绘制YOLO检测结果")
+                                try:
+                                    display_frame = self.draw_detection_results(left_frame.copy())
+                                except Exception as e:
+                                    print(f"绘制YOLO检测结果时出错: {e}")
+                                    import traceback
+                                    traceback.print_exc()
+                                    display_frame = left_frame.copy()
                             elif self.vision_processing_enabled:
                                 display_frame = self.process_frame(left_frame.copy())
                             else:
                                 display_frame = left_frame.copy()
+                        else:
+                            print("左目视图帧为空")
                     
                     elif view_mode == "右目视图":
                         # 只显示右目视图
@@ -2459,7 +2923,15 @@ class RobotArmGUI:
                             display_frame = right_frame.copy()
                             # 在右目视图上也绘制YOLO检测结果
                             if self.yolo_enabled:
-                                display_frame = self.draw_detection_results(display_frame)
+                                print("在右目视图上绘制YOLO检测结果")
+                                try:
+                                    display_frame = self.draw_detection_results(display_frame)
+                                except Exception as e:
+                                    print(f"绘制YOLO检测结果时出错: {e}")
+                                    import traceback
+                                    traceback.print_exc()
+                        else:
+                            print("右目视图帧为空")
                     
                     elif view_mode == "深度视图":
                         # 显示深度图
@@ -2468,9 +2940,17 @@ class RobotArmGUI:
                             display_frame = depth_frame.copy()
                             # 在深度图上也绘制YOLO检测结果
                             if self.yolo_enabled and left_frame is not None:
-                                # 先在左帧上检测，然后将结果绘制到深度图上
-                                self.draw_detection_results(left_frame.copy())
-                                display_frame = self.draw_detection_results(display_frame)
+                                print("在深度视图上绘制YOLO检测结果")
+                                try:
+                                    # 先在左帧上检测，然后将结果绘制到深度图上
+                                    self.draw_detection_results(left_frame.copy())
+                                    display_frame = self.draw_detection_results(display_frame)
+                                except Exception as e:
+                                    print(f"在深度视图上绘制YOLO检测结果时出错: {e}")
+                                    import traceback
+                                    traceback.print_exc()
+                        else:
+                            print("深度视图帧为空")
                     
                     elif view_mode == "3D立体视图":
                         # 显示红蓝3D立体图
@@ -2479,13 +2959,29 @@ class RobotArmGUI:
                             display_frame = anaglyph_frame.copy()
                             # 在3D立体图上也绘制YOLO检测结果
                             if self.yolo_enabled and left_frame is not None:
-                                # 先在左帧上检测，然后将结果绘制到3D立体图上
-                                self.draw_detection_results(left_frame.copy())
-                                display_frame = self.draw_detection_results(display_frame)
+                                print("在3D立体视图上绘制YOLO检测结果")
+                                try:
+                                    # 先在左帧上检测，然后将结果绘制到3D立体图上
+                                    self.draw_detection_results(left_frame.copy())
+                                    display_frame = self.draw_detection_results(display_frame)
+                                except Exception as e:
+                                    print(f"在3D立体视图上绘制YOLO检测结果时出错: {e}")
+                                    import traceback
+                                    traceback.print_exc()
+                        else:
+                            print("3D立体视图帧为空")
                 else:
                     # 单目模式
+                    print("单目模式")
                     if self.yolo_enabled:
-                        display_frame = self.draw_detection_results(frame.copy())
+                        print("在单目模式下绘制YOLO检测结果")
+                        try:
+                            display_frame = self.draw_detection_results(frame.copy())
+                        except Exception as e:
+                            print(f"在单目模式下绘制YOLO检测结果时出错: {e}")
+                            import traceback
+                            traceback.print_exc()
+                            display_frame = frame.copy()
                     elif self.vision_processing_enabled:
                         display_frame = self.process_frame(frame.copy())
                     else:
@@ -2493,11 +2989,13 @@ class RobotArmGUI:
                 
                 # 如果没有有效的显示帧，使用原始帧
                 if display_frame is None:
+                    print("显示帧为空，使用原始帧")
                     display_frame = frame.copy()
                 
                 # 获取画布当前尺寸
                 canvas_width = self.video_canvas.winfo_width()
                 canvas_height = self.video_canvas.winfo_height()
+                print(f"画布尺寸: {canvas_width}x{canvas_height}")
                 
                 # 确保画布尺寸有效（初始化时可能为1）
                 if canvas_width <= 1:
@@ -2505,19 +3003,25 @@ class RobotArmGUI:
                 if canvas_height <= 1:
                     canvas_height = 480
                 
-                # 调整大小以适应画布显示
-                display_frame = cv2.resize(display_frame, (canvas_width, canvas_height))
-                
-                # 转换颜色空间
-                display_frame = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
-                
-                # 转换为PhotoImage
-                image = Image.fromarray(display_frame)
-                photo = ImageTk.PhotoImage(image=image)
-                
-                # 更新画布
-                self.video_canvas.create_image(0, 0, anchor=tk.NW, image=photo)
-                self.video_canvas.image = photo  # 保持引用
+                try:
+                    # 调整大小以适应画布显示
+                    display_frame = cv2.resize(display_frame, (canvas_width, canvas_height))
+                    
+                    # 转换颜色空间
+                    display_frame = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
+                    
+                    # 转换为PhotoImage
+                    image = Image.fromarray(display_frame)
+                    photo = ImageTk.PhotoImage(image=image)
+                    
+                    # 更新画布
+                    self.video_canvas.create_image(0, 0, anchor=tk.NW, image=photo)
+                    self.video_canvas.image = photo  # 保持引用
+                    print("成功更新视频帧")
+                except Exception as e:
+                    print(f"处理和显示视频帧时出错: {e}")
+                    import traceback
+                    traceback.print_exc()
         except Exception as e:
             self.log(f"更新视频帧时出错: {e}")
             
@@ -2527,14 +3031,72 @@ class RobotArmGUI:
     
     def draw_detection_results(self, frame):
         """在帧上绘制YOLO检测结果"""
-        if not self.yolo_enabled:
-            return frame
+        try:
+            # 检查帧是否有效
+            if frame is None:
+                print("错误：传入的帧为空，无法绘制检测结果")
+                return frame
+                
+            # 检查帧的形状和类型
+            try:
+                height, width, channels = frame.shape
+                print(f"帧尺寸: {width}x{height}, 通道数: {channels}")
+            except Exception as shape_err:
+                print(f"获取帧形状时出错: {shape_err}, 帧类型: {type(frame)}")
+                if hasattr(frame, 'shape'):
+                    print(f"帧形状: {frame.shape}")
+                return frame
+                
+            if not self.yolo_enabled:
+                # 添加调试信息
+                print("YOLO检测未启用，跳过绘制")
+                return frame
+                
+            # 检查视频对象是否存在
+            if not hasattr(self, 'video') or self.video is None:
+                print("错误：视频对象不存在，无法获取检测结果")
+                return frame
+                
+            # 获取检测结果
+            try:
+                results = self.video.get_detection_results()
+            except Exception as get_results_err:
+                print(f"获取检测结果时出错: {get_results_err}")
+                import traceback
+                traceback.print_exc()
+                return frame
+                
+            if results is None:
+                print("未获取到检测结果，可能是YOLO模型未加载或检测失败")
+                if hasattr(self, 'detected_objects_var'):
+                    self.detected_objects_var.set("无")
+                return frame
             
-        results = self.video.get_detection_results()
-        if results is None:
-            if hasattr(self, 'detected_objects_var'):
-                self.detected_objects_var.set("无")
-            return frame
+            # 添加调试信息
+            print(f"绘制检测结果，类型: {type(results)}")
+            if hasattr(results, 'boxes'):
+                print(f"检测到 {len(results.boxes)} 个物体")
+            elif isinstance(results, list):
+                print(f"检测到 {len(results)} 个物体")
+            else:
+                print(f"未知结果格式: {type(results)}")
+                
+            # 确保视频对象有class_names属性
+            if not hasattr(self.video, 'class_names') or self.video.class_names is None:
+                print("警告: 视频对象缺少class_names属性，尝试初始化")
+                self.video.class_names = {
+                    0: 'person', 1: 'bicycle', 2: 'car', 3: 'motorcycle', 4: 'airplane', 5: 'bus', 6: 'train', 7: 'truck', 
+                    8: 'boat', 9: 'traffic light', 10: 'fire hydrant', 11: 'stop sign', 12: 'parking meter', 13: 'bench'
+                    # 可以根据需要添加更多类别
+                }
+                print("已初始化默认类别名称")
+                
+            # 创建帧的副本，避免修改原始帧
+            try:
+                frame_with_detections = frame.copy()
+            except Exception as copy_err:
+                print(f"复制帧时出错: {copy_err}，使用原始帧")
+                frame_with_detections = frame
             
         try:
             # 检测到的物体列表
@@ -2542,97 +3104,186 @@ class RobotArmGUI:
             
             # 处理YOLOv11n的结果格式
             if hasattr(results, 'boxes'):
-                # Results对象格式
-                # 获取检测框
-                boxes = results.boxes
-                
-                # 遍历所有检测结果
-                for i, box in enumerate(boxes):
-                    # 获取边界框坐标 - 确保转换为整数
-                    xyxy = box.xyxy[0].cpu().numpy() if hasattr(box.xyxy[0], 'cpu') else box.xyxy[0]
-                    x1, y1, x2, y2 = map(int, xyxy)
+                try:
+                    # Results对象格式
+                    # 获取检测框
+                    boxes = results.boxes
+                    print(f"处理Results对象格式，检测框数量: {len(boxes)}")
                     
-                    # 获取置信度
-                    conf = float(box.conf[0])
-                    
-                    # 如果置信度低于阈值，跳过
-                    if conf < self.confidence_threshold.get():
-                        continue
-                    
-                    # 获取类别ID和名称
-                    cls_id = int(box.cls[0])
-                    # 使用VideoCapture类中保存的类别名称
-                    if hasattr(self.video, 'class_names') and cls_id in self.video.class_names:
-                        cls_name = self.video.class_names[cls_id]
-                    else:
-                        cls_name = f"类别{cls_id}"
-                        
-                    # 计算物体中心点
-                    center_x = (x1 + x2) // 2
-                    center_y = (y1 + y2) // 2
-                    
-                    # 添加到检测到的物体列表
-                    detected_objects.append(f"{i+1}:{cls_name}({conf:.2f})")
-                    
-                    # 绘制边界框
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    
-                    # 绘制类别名称、置信度和编号
-                    label = f"{i+1}:{cls_name} {conf:.2f}"
-                    (label_width, label_height), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-                    cv2.rectangle(frame, (x1, y1-label_height-5), (x1+label_width, y1), (0, 255, 0), -1)
-                    cv2.putText(frame, label, (x1, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
-                    
-                    # 绘制中心点和坐标
-                    cv2.circle(frame, (center_x, center_y), 3, (0, 0, 255), -1)
-                    coord_label = f"({center_x},{center_y})"
-                    cv2.putText(frame, coord_label, (center_x + 5, center_y + 15), 
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
-            elif isinstance(results, list):
-                # 列表格式
-                # 遍历所有检测结果
-                for i, det in enumerate(results):
-                    # 确保检测结果有足够的元素
-                    if len(det) >= 6:  # 通常包含 [x1, y1, x2, y2, conf, cls_id]
-                        # 获取边界框坐标
-                        x1, y1, x2, y2 = map(int, det[:4])
-                        
-                        # 获取置信度
-                        conf = float(det[4])
-                        
-                        # 如果置信度低于阈值，跳过
-                        if conf < self.confidence_threshold.get():
+                    # 遍历所有检测结果
+                    for i, box in enumerate(boxes):
+                        try:
+                            # 获取边界框坐标 - 确保转换为整数
+                            try:
+                                xyxy = box.xyxy[0].cpu().numpy() if hasattr(box.xyxy[0], 'cpu') else box.xyxy[0]
+                                print(f"边界框 {i+1} 原始坐标: {xyxy}")
+                                x1, y1, x2, y2 = map(int, xyxy)
+                            except Exception as box_err:
+                                print(f"处理边界框 {i+1} 坐标时出错: {box_err}")
+                                continue
+                            
+                            # 检查坐标是否有效
+                            if x1 < 0 or y1 < 0 or x2 <= x1 or y2 <= y1 or x2 >= frame_with_detections.shape[1] or y2 >= frame_with_detections.shape[0]:
+                                print(f"警告：边界框 {i+1} 坐标无效: ({x1},{y1},{x2},{y2})，帧尺寸: {frame_with_detections.shape}")
+                                # 修正坐标
+                                x1 = max(0, x1)
+                                y1 = max(0, y1)
+                                x2 = min(frame_with_detections.shape[1]-1, max(x1+1, x2))
+                                y2 = min(frame_with_detections.shape[0]-1, max(y1+1, y2))
+                                print(f"修正后的坐标: ({x1},{y1},{x2},{y2})")
+                            
+                            # 获取置信度
+                            try:
+                                conf = float(box.conf[0])
+                                print(f"边界框 {i+1} 置信度: {conf:.4f}")
+                            except Exception as conf_err:
+                                print(f"获取边界框 {i+1} 置信度时出错: {conf_err}")
+                                conf = 0.0
+                            
+                            # 如果置信度低于阈值，跳过
+                            if conf < self.confidence_threshold.get():
+                                print(f"边界框 {i+1} 置信度 {conf:.4f} 低于阈值 {self.confidence_threshold.get():.4f}，跳过")
+                                continue
+                            
+                            # 获取类别ID和名称
+                            try:
+                                cls_id = int(box.cls[0])
+                                # 使用VideoCapture类中保存的类别名称
+                                if hasattr(self.video, 'class_names') and cls_id in self.video.class_names:
+                                    cls_name = self.video.class_names[cls_id]
+                                else:
+                                    cls_name = f"类别{cls_id}"
+                                print(f"边界框 {i+1} 类别ID: {cls_id}, 名称: {cls_name}")
+                            except Exception as cls_err:
+                                print(f"获取边界框 {i+1} 类别时出错: {cls_err}")
+                                cls_id = 0
+                                cls_name = "未知"
+                                
+                            # 计算物体中心点
+                            center_x = (x1 + x2) // 2
+                            center_y = (y1 + y2) // 2
+                            print(f"边界框 {i+1} 中心点: ({center_x},{center_y})")
+                            
+                            # 添加到检测到的物体列表
+                            detected_objects.append(f"{i+1}:{cls_name}({conf:.2f})")
+                            
+                            # 绘制边界框
+                            try:
+                                cv2.rectangle(frame_with_detections, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                                
+                                # 绘制类别名称、置信度和编号
+                                label = f"{i+1}:{cls_name} {conf:.2f}"
+                                (label_width, label_height), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+                                cv2.rectangle(frame_with_detections, (x1, y1-label_height-5), (x1+label_width, y1), (0, 255, 0), -1)
+                                cv2.putText(frame_with_detections, label, (x1, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+                                
+                                # 绘制中心点和坐标
+                                cv2.circle(frame_with_detections, (center_x, center_y), 3, (0, 0, 255), -1)
+                                coord_label = f"({center_x},{center_y})"
+                                cv2.putText(frame_with_detections, coord_label, (center_x + 5, center_y + 15), 
+                                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                            except Exception as draw_err:
+                                print(f"绘制边界框 {i+1} 时出错: {draw_err}")
+                        except Exception as box_process_err:
+                            print(f"处理边界框 {i+1} 时出错: {box_process_err}")
+                            import traceback
+                            traceback.print_exc()
                             continue
-                        
-                        # 获取类别ID和名称
-                        cls_id = int(det[5])
-                        # 使用VideoCapture类中保存的类别名称
-                        if hasattr(self.video, 'class_names') and cls_id in self.video.class_names:
-                            cls_name = self.video.class_names[cls_id]
-                        else:
-                            cls_name = f"类别{cls_id}"
-                        
-                        # 计算物体中心点
-                        center_x = (x1 + x2) // 2
-                        center_y = (y1 + y2) // 2
-                        
-                        # 添加到检测到的物体列表
-                        detected_objects.append(f"{i+1}:{cls_name}({conf:.2f})")
-                        
-                        # 绘制边界框
-                        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                        
-                        # 绘制类别名称、置信度和编号
-                        label = f"{i+1}:{cls_name} {conf:.2f}"
-                        (label_width, label_height), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-                        cv2.rectangle(frame, (x1, y1-label_height-5), (x1+label_width, y1), (0, 255, 0), -1)
-                        cv2.putText(frame, label, (x1, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
-                        
-                        # 绘制中心点和坐标
-                        cv2.circle(frame, (center_x, center_y), 3, (0, 0, 255), -1)
-                        coord_label = f"({center_x},{center_y})"
-                        cv2.putText(frame, coord_label, (center_x + 5, center_y + 15), 
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                except Exception as boxes_err:
+                    print(f"处理Results对象格式时出错: {boxes_err}")
+                    import traceback
+                    traceback.print_exc()
+            elif isinstance(results, list):
+                try:
+                    # 列表格式
+                    print(f"处理列表格式，检测结果数量: {len(results)}")
+                    
+                    # 遍历所有检测结果
+                    for i, det in enumerate(results):
+                        try:
+                            # 确保检测结果有足够的元素
+                            if len(det) >= 6:  # 通常包含 [x1, y1, x2, y2, conf, cls_id]
+                                try:
+                                    # 获取边界框坐标
+                                    x1, y1, x2, y2 = map(int, det[:4])
+                                    print(f"列表项 {i+1} 原始坐标: ({x1},{y1},{x2},{y2})")
+                                    
+                                    # 检查坐标是否有效
+                                    if x1 < 0 or y1 < 0 or x2 <= x1 or y2 <= y1 or x2 >= frame_with_detections.shape[1] or y2 >= frame_with_detections.shape[0]:
+                                        print(f"警告：列表项 {i+1} 坐标无效: ({x1},{y1},{x2},{y2})，帧尺寸: {frame_with_detections.shape}")
+                                        # 修正坐标
+                                        x1 = max(0, x1)
+                                        y1 = max(0, y1)
+                                        x2 = min(frame_with_detections.shape[1]-1, max(x1+1, x2))
+                                        y2 = min(frame_with_detections.shape[0]-1, max(y1+1, y2))
+                                        print(f"修正后的坐标: ({x1},{y1},{x2},{y2})")
+                                except Exception as coord_err:
+                                    print(f"处理列表项 {i+1} 坐标时出错: {coord_err}")
+                                    continue
+                                
+                                try:
+                                    # 获取置信度
+                                    conf = float(det[4])
+                                    print(f"列表项 {i+1} 置信度: {conf:.4f}")
+                                    
+                                    # 如果置信度低于阈值，跳过
+                                    if conf < self.confidence_threshold.get():
+                                        print(f"列表项 {i+1} 置信度 {conf:.4f} 低于阈值 {self.confidence_threshold.get():.4f}，跳过")
+                                        continue
+                                except Exception as conf_err:
+                                    print(f"获取列表项 {i+1} 置信度时出错: {conf_err}")
+                                    continue
+                                
+                                try:
+                                    # 获取类别ID和名称
+                                    cls_id = int(det[5])
+                                    # 使用VideoCapture类中保存的类别名称
+                                    if hasattr(self.video, 'class_names') and cls_id in self.video.class_names:
+                                        cls_name = self.video.class_names[cls_id]
+                                    else:
+                                        cls_name = f"类别{cls_id}"
+                                    print(f"列表项 {i+1} 类别ID: {cls_id}, 名称: {cls_name}")
+                                except Exception as cls_err:
+                                    print(f"获取列表项 {i+1} 类别时出错: {cls_err}")
+                                    cls_id = 0
+                                    cls_name = "未知"
+                                
+                                # 计算物体中心点
+                                center_x = (x1 + x2) // 2
+                                center_y = (y1 + y2) // 2
+                                print(f"列表项 {i+1} 中心点: ({center_x},{center_y})")
+                                
+                                # 添加到检测到的物体列表
+                                detected_objects.append(f"{i+1}:{cls_name}({conf:.2f})")
+                                
+                                try:
+                                    # 绘制边界框
+                                    cv2.rectangle(frame_with_detections, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                                    
+                                    # 绘制类别名称、置信度和编号
+                                    label = f"{i+1}:{cls_name} {conf:.2f}"
+                                    (label_width, label_height), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+                                    cv2.rectangle(frame_with_detections, (x1, y1-label_height-5), (x1+label_width, y1), (0, 255, 0), -1)
+                                    cv2.putText(frame_with_detections, label, (x1, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+                                    
+                                    # 绘制中心点和坐标
+                                    cv2.circle(frame_with_detections, (center_x, center_y), 3, (0, 0, 255), -1)
+                                    coord_label = f"({center_x},{center_y})"
+                                    cv2.putText(frame_with_detections, coord_label, (center_x + 5, center_y + 15), 
+                                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                                except Exception as draw_err:
+                                    print(f"绘制列表项 {i+1} 时出错: {draw_err}")
+                            else:
+                                print(f"列表项 {i+1} 元素数量不足: {len(det)}，需要至少6个元素")
+                        except Exception as det_err:
+                            print(f"处理列表项 {i+1} 时出错: {det_err}")
+                            import traceback
+                            traceback.print_exc()
+                            continue
+                except Exception as list_err:
+                    print(f"处理列表格式时出错: {list_err}")
+                    import traceback
+                    traceback.print_exc()
             else:
                 # 不支持的结果格式
                 print(f"不支持的YOLO结果格式: {type(results)}")
