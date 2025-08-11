@@ -10,7 +10,7 @@ MotorNode::MotorNode(const rclcpp::NodeOptions & options)
 : Node("motor_node", options)
 {
   // 声明并获取参数
-  this->declare_parameter<std::string>("port", "/dev/ttyUSB0");
+  this->declare_parameter<std::string>("port", "auto");
   this->declare_parameter<int>("baudrate", 115200);
   this->declare_parameter<int>("timeout", 1000);
   this->declare_parameter<std::string>("config_file", "");
@@ -222,4 +222,4 @@ bool MotorNode::initMotorControl()
 } // namespace motor_control
 
 #include "rclcpp_components/register_node_macro.hpp"
-RCLCPP_COMPONENTS_REGISTER_NODE(motor_control::MotorNode) 
+RCLCPP_COMPONENTS_REGISTER_NODE(motor_control::MotorNode)

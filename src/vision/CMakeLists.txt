@@ -44,6 +44,7 @@ ament_python_install_package(${PYTHON_PACKAGE_NAME} PACKAGE_DIR ${PROJECT_NAME})
 install(PROGRAMS
   scripts/vision_node.py
   scripts/object_detection_node.py
+  scripts/yolo_detection_node.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -68,4 +69,4 @@ ament_export_dependencies(
   serial
 )
 
-ament_package() 
+ament_package()

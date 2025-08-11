@@ -93,27 +93,56 @@ void MotorControl::initCommandList()
 bool MotorControl::init()
 {
   try {
-    // 配置串口
-    serial_.setPort(port_);
-    serial_.setBaudrate(baud_rate_);
-    serial::Timeout timeout(serial::Timeout::simpleTimeout(timeout_));
-    serial_.setTimeout(timeout);
-    
-    // 打开串口
-    serial_.open();
-    connected_ = serial_.isOpen();
-    
-    if (connected_) {
-      RCLCPP_INFO(rclcpp::get_logger("motor_control"), "Connected to %s at %d baud", 
-                 port_.c_str(), baud_rate_);
-      
-      // 清空缓冲区
+    auto try_open = [&](const std::string &p) -> bool {
+      try {
+        serial_.setPort(p);
+        serial_.setBaudrate(baud_rate_);
+        serial::Timeout timeout(serial::Timeout::simpleTimeout(timeout_));
+        serial_.setTimeout(timeout);
+        serial_.open();
+        if (serial_.isOpen()) {
+          connected_ = true;
+          RCLCPP_INFO(rclcpp::get_logger("motor_control"), "Connected to %s at %d baud", p.c_str(), baud_rate_);
+          return true;
+        }
+      } catch (const serial::IOException &e) {
+        (void)e; // ignore and try next
+      }
+      return false;
+    };
+
+    bool ok = false;
+
+    // 1) 优先尝试指定端口（且不为"auto"）
+    if (!port_.empty() && port_ != "auto") {
+      ok = try_open(port_);
+    }
+
+    // 2) 当未成功或端口为"auto"时，自动扫描常见端口
+    if (!ok) {
+      std::vector<std::string> candidates;
+      for (int i = 0; i < 10; ++i) {
+        candidates.push_back(std::string("/dev/ttyUSB") + std::to_string(i));
+      }
+      for (int i = 0; i < 10; ++i) {
+        candidates.push_back(std::string("/dev/ttyACM") + std::to_string(i));
+      }
+
+      for (const auto &p : candidates) {
+        if (try_open(p)) {
+          port_ = p; // 记录成功端口
+          ok = true;
+          break;
+        }
+      }
+    }
+
+    if (ok) {
       serial_.flush();
-      
       return true;
     } else {
-      RCLCPP_ERROR(rclcpp::get_logger("motor_control"), "Failed to connect to %s", 
-                  port_.c_str());
+      connected_ = false;
+      RCLCPP_ERROR(rclcpp::get_logger("motor_control"), "Failed to auto-detect a valid serial port for motor controller. Last attempted: %s", port_.c_str());
       return false;
     }
   }
@@ -167,7 +196,10 @@ bool MotorControl::loadMotorConfigs(const std::string& config_file)
       if (type_str == "AI_MOTOR") {
         config.type = MotorType::AI_MOTOR;
       } else if (type_str == "YF_MOTOR") {
-        config.type = MotorType::YF_MOTOR;
+        // 兼容历史配置，将YF_MOTOR视作YSF4_HAL_MOTOR，并保留方向反转特性
+        config.type = MotorType::YSF4_HAL_MOTOR;
+      } else if (type_str == "YSF4_HAL_MOTOR") {
+        config.type = MotorType::YSF4_HAL_MOTOR;
       } else {
         RCLCPP_WARN(rclcpp::get_logger("motor_control"), 
                    "Unknown motor type: %s, defaulting to AI_MOTOR", type_str.c_str());
@@ -184,6 +216,16 @@ bool MotorControl::loadMotorConfigs(const std::string& config_file)
       
       config.max_speed = motor["max_speed"].as<int>();
       config.max_acc = motor["max_acc"].as<int>();
+      // 新增安全与电机本体参数，存在则读取
+      config.max_current = motor["max_current"] ? motor["max_current"].as<int>() : 5000; // mA
+      config.rated_voltage = motor["rated_voltage"] ? motor["rated_voltage"].as<int>() : 24000; // mV
+      config.pole_pairs = motor["pole_pairs"] ? motor["pole_pairs"].as<int>() : 7; // 14极=7极对
+      config.encoder_resolution = motor["encoder_resolution"] ? motor["encoder_resolution"].as<int>() : 2048;
+      config.hall_sensor = motor["hall_sensor"] ? motor["hall_sensor"].as<bool>() : true;
+      config.temp_limit = motor["temp_limit"] ? motor["temp_limit"].as<int>() : 85;
+      config.kv_rating = motor["kv_rating"] ? motor["kv_rating"].as<float>() : 100.0f;
+      config.overcurrent_protection = motor["overcurrent_protection"] ? motor["overcurrent_protection"].as<int>() : config.max_current;
+      config.thermal_protection = motor["thermal_protection"] ? motor["thermal_protection"].as<int>() : config.temp_limit;
       
       motor_configs_[config.id] = config;
       
@@ -201,6 +243,25 @@ bool MotorControl::loadMotorConfigs(const std::string& config_file)
   }
 }
 
+
+  // 电机安全检查，防止过载过流过热
+  bool safetyClamped(uint8_t station_num, int16_t& velocity, uint16_t& acc) {
+    auto it = motor_configs_.find(station_num);
+    if (it != motor_configs_.end()) {
+      auto& cfg = it->second;
+      // YSF4_HAL_MOTOR有更严格的参数检查
+      if (cfg.type == MotorType::YSF4_HAL_MOTOR) {
+        velocity = std::min(std::max(velocity, static_cast<int16_t>(-cfg.max_speed/2)), 
+                          static_cast<int16_t>(cfg.max_speed/2)); // 降低50%最大速度避免过载
+        acc = std::min(acc, static_cast<uint16_t>(cfg.max_acc/2)); // 降低50%加速度
+      } else {
+        velocity = std::min(std::max(velocity, static_cast<int16_t>(-cfg.max_speed)), 
+                          static_cast<int16_t>(cfg.max_speed));
+        acc = std::min(acc, static_cast<uint16_t>(cfg.max_acc));
+      }
+    }
+    return true;
+  }
 bool MotorControl::setPosition(uint8_t station_num, int32_t position, uint16_t threshold, 
                              uint16_t vel, uint16_t acc)
 {
@@ -219,6 +280,7 @@ bool MotorControl::setPosition(uint8_t station_num, int32_t position, uint16_t t
     int16_t velocity = 0;
     uint16_t dec = acc;
     adjustParamsByType(station_num, position, velocity, acc, dec);
+    safetyClamped(station_num, velocity, acc);
     
     // 构造位置控制命令
     std::stringstream cmd;
@@ -288,6 +350,7 @@ bool MotorControl::setVelocity(uint8_t station_num, int16_t velocity, uint16_t a
     // 根据电机类型调整参数
     int32_t position = 0;
     adjustParamsByType(station_num, position, velocity, acc, dec);
+    safetyClamped(station_num, velocity, acc);
     
     // 构造速度控制命令
     std::stringstream cmd;
@@ -645,6 +708,8 @@ void MotorControl::adjustParamsByType(uint8_t station_num, int32_t& position, in
       break;
       
     case MotorType::YF_MOTOR:
+      [[fallthrough]];
+    case MotorType::YSF4_HAL_MOTOR:
       // YF电机类型 - 位置和速度值需要反向
       position = -position;
       velocity = -velocity;
@@ -716,4 +781,4 @@ std::vector<uint8_t> MotorControl::calculateCRC16(const std::vector<uint8_t>& me
   return modbusMsg;
 }
 
-} // namespace motor_control 
+} // namespace motor_control

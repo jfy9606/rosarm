@@ -16,7 +16,8 @@ namespace motor_control {
 // 电机类型枚举
 enum class MotorType {
   AI_MOTOR,  // AImotor - 大臂进给电机
-  YF_MOTOR   // YF - 大臂俯仰电机
+  YF_MOTOR,  // YF - 原大臂俯仰电机（保留兼容性）
+  YSF4_HAL_MOTOR // YSF4_HAL_MOTOR-650.FOC_v5.2.0_57BLDC_HALLSensor
 };
 
 // 电机协议类型枚举
@@ -33,6 +34,15 @@ struct MotorConfig {
   ProtocolType protocol;
   int max_speed;
   int max_acc;
+  int max_current;      // mA
+  int rated_voltage;    // mV
+  int pole_pairs;       // BLDC极对数
+  int encoder_resolution; // 编码器分辨率
+  bool hall_sensor;     // 霍尔传感器
+  int temp_limit;       // 摄氏度
+  float kv_rating;      // RPM/V
+  int overcurrent_protection; // mA
+  int thermal_protection;     // 摄氏度
 };
 
 class MotorControl
