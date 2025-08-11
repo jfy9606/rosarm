@@ -195,9 +195,15 @@ bool MotorControl::loadMotorConfigs(const std::string& config_file)
       std::string type_str = motor["type"].as<std::string>();
       if (type_str == "AI_MOTOR") {
         config.type = MotorType::AI_MOTOR;
+      } else if (type_str == "YSF4_MOTOR" || type_str == "YSF4") {
+        config.type = MotorType::YSF4_MOTOR;
+      } else if (type_str == "YSF4_PRO_MOTOR" || type_str == "YSF4Pro" || type_str == "YSF4_PRO") {
+        config.type = MotorType::YSF4_PRO_MOTOR;
       } else if (type_str == "YF_MOTOR") {
-        // 兼容历史配置，将YF_MOTOR视作YSF4_HAL_MOTOR，并保留方向反转特性
-        config.type = MotorType::YSF4_HAL_MOTOR;
+        // 兼容历史配置，将YF_MOTOR视作YSF4_MOTOR，并保留方向反转特性
+        RCLCPP_WARN(rclcpp::get_logger("motor_control"), 
+                   "YF_MOTOR is deprecated, automatically converting to YSF4_MOTOR");
+        config.type = MotorType::YSF4_MOTOR;
       } else if (type_str == "YSF4_HAL_MOTOR") {
         config.type = MotorType::YSF4_HAL_MOTOR;
       } else {
@@ -249,15 +255,23 @@ bool MotorControl::loadMotorConfigs(const std::string& config_file)
     auto it = motor_configs_.find(station_num);
     if (it != motor_configs_.end()) {
       auto& cfg = it->second;
-      // YSF4_HAL_MOTOR有更严格的参数检查
-      if (cfg.type == MotorType::YSF4_HAL_MOTOR) {
+      // YSF4系列电机有更严格的参数检查
+    if (cfg.type == MotorType::YSF4_MOTOR || cfg.type == MotorType::YSF4_PRO_MOTOR || cfg.type == MotorType::YSF4_HAL_MOTOR) {
+      if (cfg.type == MotorType::YSF4_PRO_MOTOR) {
+        // YSF4Pro性能更好，可以使用更高的参数
+        velocity = std::min(std::max(velocity, static_cast<int16_t>(-cfg.max_speed * 0.8)), 
+                          static_cast<int16_t>(cfg.max_speed * 0.8)); // 使用80%最大速度
+        acc = std::min(acc, static_cast<uint16_t>(cfg.max_acc * 0.8)); // 使用80%加速度
+      } else {
+        // YSF4和YSF4_HAL_MOTOR使用保守参数
         velocity = std::min(std::max(velocity, static_cast<int16_t>(-cfg.max_speed/2)), 
                           static_cast<int16_t>(cfg.max_speed/2)); // 降低50%最大速度避免过载
         acc = std::min(acc, static_cast<uint16_t>(cfg.max_acc/2)); // 降低50%加速度
-      } else {
-        velocity = std::min(std::max(velocity, static_cast<int16_t>(-cfg.max_speed)), 
-                          static_cast<int16_t>(cfg.max_speed));
-        acc = std::min(acc, static_cast<uint16_t>(cfg.max_acc));
+      }
+    } else {
+      velocity = std::min(std::max(velocity, static_cast<int16_t>(-cfg.max_speed)), 
+                        static_cast<int16_t>(cfg.max_speed));
+      acc = std::min(acc, static_cast<uint16_t>(cfg.max_acc));
       }
     }
     return true;
@@ -707,10 +721,12 @@ void MotorControl::adjustParamsByType(uint8_t station_num, int32_t& position, in
       // AImotor类型 - 参数无需特别调整
       break;
       
-    case MotorType::YF_MOTOR:
+    case MotorType::YSF4_MOTOR:
+      [[fallthrough]];
+    case MotorType::YSF4_PRO_MOTOR:
       [[fallthrough]];
     case MotorType::YSF4_HAL_MOTOR:
-      // YF电机类型 - 位置和速度值需要反向
+      // YSF4系列电机 - 位置和速度值需要反向
       position = -position;
       velocity = -velocity;
       break;

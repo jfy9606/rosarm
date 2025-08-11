@@ -20,5 +20,5 @@ motor_config:
   arm_motors:
     # AImotor - 大臂进给电机
     - {id: 1, name: "arm_feed", type: "AI_MOTOR", max_speed: 1000, max_acc: 200}
-    # YF - 大臂俯仰电机
-    - {id: 2, name: "arm_pitch", type: "YF_MOTOR", max_speed: 800, max_acc: 150} 
+    # YSF4 - 大臂俯仰电机
+    - {id: 2, name: "arm_pitch", type: "YSF4_MOTOR", max_speed: 800, max_acc: 150}

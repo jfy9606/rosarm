@@ -8,7 +8,7 @@ motor_config:
       max_acc: 500
     - id: 2
       name: "pitch_motor"
-      type: "YF_MOTOR"
+      type: "YSF4_MOTOR"
       protocol: "TEXT_COMMAND"
       max_speed: 3000
       max_acc: 300
@@ -20,7 +20,7 @@ motor_config:
       max_acc: 400
     - id: 4
       name: "pitch_motor_modbus"
-      type: "YF_MOTOR"
+      type: "YSF4_MOTOR"
       protocol: "MODBUS_RTU" 
       max_speed: 3000
-      max_acc: 300 
+      max_acc: 300
