@@ -363,5 +363,3 @@ class DCMotorController:
             available_ports.append(port.device)
         
         return available_ports
-
-// ... existing code ...

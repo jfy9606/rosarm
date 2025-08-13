@@ -119,47 +119,67 @@ class VideoCapture:
         """获取可用摄像头列表"""
         camera_list = []
         index = 0
-        max_attempts = 10  # 限制尝试的摄像头索引数量
+        max_attempts = 3  # 减少尝试的摄像头索引数量，加快启动速度
         
         while index < max_attempts:
             try:
                 cap = cv2.VideoCapture(index)
+                # 设置较短的超时时间
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                
                 if not cap.isOpened():
                     cap.release()
                     index += 1
                     continue
                     
-                ret, frame = cap.read()
-                if ret:
+                # 快速检测，不读取帧
+                width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                
+                if width > 0 and height > 0:
                     # 获取摄像头信息
                     name = f"Camera {index}"
-                    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                     fps = int(cap.get(cv2.CAP_PROP_FPS))
                     camera_list.append({
                         "index": index,
                         "name": name,
                         "resolution": f"{width}x{height}",
-                        "fps": fps
+                        "fps": fps if fps > 0 else 30
                     })
                 cap.release()
             except Exception as e:
                 print(f"检测摄像头 {index} 时出错: {e}")
             index += 1
+        
+        # 如果没有检测到摄像头，添加默认选项
+        if not camera_list:
+            camera_list.append({
+                "index": 0,
+                "name": "Default Camera",
+                "resolution": "640x480",
+                "fps": 30
+            })
+        
         return camera_list
         
     @staticmethod
     def is_camera_available(index):
-        """检查指定索引的摄像头是否可用"""
+        """检查指定索引的摄像头是否可用（快速检查，不读取帧）"""
         try:
             cap = cv2.VideoCapture(index)
+            # 设置较短的超时时间
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            
             if not cap.isOpened():
                 cap.release()
                 return False
                 
-            ret, frame = cap.read()
+            # 只检查是否能打开，不读取帧以避免阻塞
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             cap.release()
-            return ret
+            
+            return width > 0 and height > 0
         except Exception as e:
             print(f"检查摄像头 {index} 时出错: {e}")
             return False
@@ -444,10 +464,17 @@ class VideoCapture:
                 print(f"无效的摄像头索引: {self.camera_index}")
                 return False
                 
+            print(f"正在尝试打开摄像头 (索引: {self.camera_index})")
             self.cap = cv2.VideoCapture(self.camera_index)
+            
+            # 设置较短的超时时间，避免长时间阻塞
+            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            
             if not self.cap.isOpened():
                 print(f"无法打开摄像头 (索引: {self.camera_index})")
                 return False
+            
+            print(f"摄像头 (索引: {self.camera_index}) 打开成功")
             
             # 如果是双目模式，设置适当的分辨率
             if self.stereo_mode:
@@ -679,27 +706,43 @@ class RobotArmGUI:
         self.root.title("机械臂控制面板")
         self.root.geometry("1000x700")  # 增大窗口以容纳视觉功能
         
-        # 创建RobotArm实例
-        self.robot = RobotArm()
+        # 初始化基本变量
+        self.init_basic_variables()
         
+        # 创建GUI组件（优先显示界面）
+        self.create_widgets()
+        
+        # 创建选项卡式界面
+        self.create_notebook()
+        
+        # 显示初始化状态
+        self.status_bar.config(text="正在初始化...")
+        
+        # 延迟初始化其他组件，避免阻塞GUI启动
+        self.root.after(100, self.delayed_init)
+        
+        # 定时刷新状态
+        self.root.after(3000, self.update_status)
+    
+    def init_basic_variables(self):
+        """初始化基本变量"""
         # 连接状态
         self.servo_connected = False
         self.motor_connected = False
         
-        # 视频捕获
-        self.video = VideoCapture(0)  # 默认使用摄像头0
+        # 视频相关变量（延迟初始化）
+        self.video = None
         self.video_enabled = False
         self.video_update_ms = 50  # 视频更新间隔(毫秒)
         self.video_frame = None
         
-        # 摄像头选择
-        self.camera_list = []
+        # 摄像头选择（使用默认值）
+        self.camera_list = [{"index": 0, "name": "默认摄像头", "resolution": "640x480", "fps": 30}]
         self.selected_camera = tk.IntVar(value=0)
-        self.update_camera_list()
         
         # 双目相机设置
         self.stereo_mode = False
-        self.stereo_var = tk.BooleanVar(value=False)  # 添加stereo_var变量
+        self.stereo_var = tk.BooleanVar(value=False)
         self.camera_resolutions = [
             "1280x480 (30FPS)",
             "1920x1080 (30FPS)",
@@ -749,17 +792,37 @@ class RobotArmGUI:
         # 调试模式
         self.debug_mode = False
         
-        # 创建GUI组件
-        self.create_widgets()
-        
-        # 创建选项卡式界面
-        self.create_notebook()
-        
-        # 更新端口列表
-        self.update_port_list()
-        
-        # 定时刷新状态
-        self.root.after(1000, self.update_status)
+        # 机械臂实例（延迟初始化）
+        self.robot = None
+    
+    def delayed_init(self):
+        """延迟初始化，避免阻塞GUI启动"""
+        try:
+            # 步骤1：初始化机械臂控制器
+            self.status_bar.config(text="正在初始化机械臂控制器...")
+            self.root.update()
+            self.robot = RobotArm()
+            print("机械臂控制器初始化完成")
+            
+            # 步骤2：初始化视频捕获（不自动检测摄像头）
+            self.status_bar.config(text="正在初始化视频系统...")
+            self.root.update()
+            self.video = VideoCapture(0)
+            print("视频系统初始化完成")
+            
+            # 步骤3：更新端口列表
+            self.status_bar.config(text="正在扫描串口...")
+            self.root.update()
+            self.update_port_list()
+            print("串口扫描完成")
+            
+            # 初始化完成
+            self.status_bar.config(text="就绪 - 点击'刷新摄像头'按钮检测摄像头")
+            print("延迟初始化完成")
+            
+        except Exception as e:
+            print(f"延迟初始化出错: {e}")
+            self.status_bar.config(text=f"初始化出错: {e}")
     
     def create_widgets(self):
         """创建GUI主要组件"""
@@ -893,11 +956,14 @@ class RobotArmGUI:
         self.camera_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
         self.camera_combo.bind("<<ComboboxSelected>>", self.on_camera_change)
         
-        refresh_btn = ttk.Button(camera_frame, text="刷新", command=self.refresh_camera_list)
+        refresh_btn = ttk.Button(camera_frame, text="刷新摄像头", command=self.refresh_camera_list)
         refresh_btn.pack(side=tk.LEFT, padx=5)
         
-        # 获取摄像头列表并填充下拉框
-        self.update_camera_list()
+        # 初始化下拉框为默认摄像头（不自动检测）
+        camera_options = [f"{cam['name']} ({cam['resolution']})" for cam in self.camera_list]
+        self.camera_combo['values'] = camera_options
+        if camera_options:
+            self.camera_combo.current(0)
         
         # 相机按钮组
         camera_btn_frame = ttk.Frame(camera_control_frame)
@@ -1093,6 +1159,10 @@ class RobotArmGUI:
     
     def move_to_cartesian_from_vision(self):
         """从视觉系统界面移动机械臂到指定笛卡尔坐标"""
+        if not self.robot:
+            self.log_to_vision("机械臂控制器未初始化，请等待初始化完成")
+            return
+            
         if not self.servo_connected and not self.motor_connected:
             self.log_to_vision("请先连接至少一个控制器")
             return
@@ -1691,6 +1761,10 @@ class RobotArmGUI:
     
     def connect_servo(self):
         """连接舵机控制器"""
+        if not self.robot:
+            messagebox.showerror("错误", "机械臂控制器未初始化，请等待初始化完成")
+            return
+            
         if self.servo_connected:
             self.log("舵机控制器已连接")
             return
@@ -1725,6 +1799,10 @@ class RobotArmGUI:
     
     def connect_motor(self):
         """连接电机控制器"""
+        if not self.robot:
+            messagebox.showerror("错误", "机械臂控制器未初始化，请等待初始化完成")
+            return
+            
         if self.motor_connected:
             self.log("电机控制器已连接")
             return
@@ -2050,6 +2128,11 @@ class RobotArmGUI:
     
     def update_status(self):
         """定时更新状态信息"""
+        # 如果机械臂控制器未初始化，跳过更新
+        if not self.robot:
+            self.root.after(1000, self.update_status)
+            return
+            
         # 如果已经在更新中，则跳过本次更新
         if self.is_updating_status:
             self.root.after(1000, self.update_status)
@@ -2475,17 +2558,11 @@ class RobotArmGUI:
             # 获取选定的摄像头索引
             camera_index = self.selected_camera.get()
             
-            # 检查摄像头是否可用
-            if not VideoCapture.is_camera_available(camera_index):
-                messagebox.showwarning("警告", f"摄像头 (索引: {camera_index}) 不可用，请检查连接或选择其他摄像头")
-                # 刷新摄像头列表
-                self.refresh_camera_list()
-                return
-            
             # 更新摄像头索引
             self.video.camera_index = camera_index
             
-            # 启动摄像头
+            # 直接尝试启动摄像头，让VideoCapture类处理错误
+            self.log(f"正在尝试开启摄像头 (索引: {camera_index})...")
             if self.video.start():
                 self.video_enabled = True
                 self.camera_btn.config(text="关闭摄像头")
@@ -2494,7 +2571,8 @@ class RobotArmGUI:
                 # 启动视频更新
                 self.update_video_frame()
             else:
-                messagebox.showerror("错误", f"无法开启摄像头 (索引: {camera_index})，请检查摄像头连接")
+                self.log(f"无法开启摄像头 (索引: {camera_index})，请检查摄像头连接或尝试其他摄像头索引")
+                messagebox.showerror("错误", f"无法开启摄像头 (索引: {camera_index})，请检查摄像头连接或点击'刷新摄像头'重新检测")
     
     def toggle_stereo_mode(self):
         """切换双目相机模式"""
@@ -3098,7 +3176,6 @@ class RobotArmGUI:
                 print(f"复制帧时出错: {copy_err}，使用原始帧")
                 frame_with_detections = frame
             
-        try:
             # 检测到的物体列表
             detected_objects = []
             
@@ -3779,22 +3856,40 @@ class RobotArmGUI:
     def update_camera_list(self):
         """更新可用摄像头列表"""
         try:
+            # 更新状态栏显示检测进度
+            self.status_bar.config(text="正在检测摄像头...")
+            self.root.update()
+            
+            print("正在检测摄像头...")
             self.camera_list = VideoCapture.get_camera_list()
+            print(f"检测到 {len(self.camera_list)} 个摄像头")
+            
             # 如果没有找到任何摄像头，至少添加一个默认摄像头
             if not self.camera_list:
                 self.camera_list.append({
                     "index": 0,
                     "name": "默认摄像头",
-                    "resolution": "未知",
-                    "fps": 0
+                    "resolution": "640x480",
+                    "fps": 30
                 })
+                
+            # 更新摄像头选择下拉框（如果存在）
+            if hasattr(self, 'camera_combo'):
+                camera_names = [f"{cam['name']} ({cam['resolution']})" for cam in self.camera_list]
+                self.camera_combo['values'] = camera_names
+                if camera_names:
+                    self.camera_combo.current(0)
+                    
+            # 更新状态栏
+            self.status_bar.config(text=f"就绪 - 检测到 {len(self.camera_list)} 个摄像头")
+            
         except Exception as e:
-            self.log(f"获取摄像头列表时出错: {e}")
+            print(f"获取摄像头列表时出错: {e}")
             # 添加一个默认摄像头
             self.camera_list = [{
                 "index": 0,
                 "name": "默认摄像头",
-                "resolution": "未知",
+                "resolution": "640x480",
                 "fps": 0
             }]
     
@@ -3804,20 +3899,43 @@ class RobotArmGUI:
         was_running = self.video_enabled
         if was_running:
             self.toggle_camera()
-            
-        # 更新摄像头列表
-        self.update_camera_list()
         
-        # 更新下拉框内容
-        camera_options = []
-        for cam in self.camera_list:
-            camera_options.append(f"{cam['name']} ({cam['resolution']})")
-            
-        self.camera_combo['values'] = camera_options
-        if camera_options:
-            self.camera_combo.current(0)
-            
-        self.log("摄像头列表已刷新")
+        # 在后台线程中检测摄像头，避免阻塞GUI
+        import threading
+        def detect_cameras_thread():
+            try:
+                # 更新摄像头列表
+                self.update_camera_list()
+                
+                # 在主线程中更新GUI
+                def update_gui():
+                    try:
+                        # 更新下拉框内容
+                        camera_options = []
+                        for cam in self.camera_list:
+                            camera_options.append(f"{cam['name']} ({cam['resolution']})")
+                            
+                        self.camera_combo['values'] = camera_options
+                        if camera_options:
+                            self.camera_combo.current(0)
+                            
+                        self.log(f"摄像头列表已刷新 - 检测到 {len(self.camera_list)} 个摄像头")
+                    except Exception as e:
+                        self.log(f"更新摄像头列表GUI时出错: {e}")
+                
+                # 在主线程中执行GUI更新
+                self.root.after(0, update_gui)
+                
+            except Exception as e:
+                # 在主线程中显示错误
+                self.root.after(0, lambda: self.log(f"检测摄像头时出错: {e}"))
+        
+        # 启动后台线程
+        thread = threading.Thread(target=detect_cameras_thread, daemon=True)
+        thread.start()
+        
+        # 立即显示检测开始的消息
+        self.log("正在检测摄像头，请稍候...")
         
     def on_camera_change(self, event):
         """处理摄像头选择变化"""
